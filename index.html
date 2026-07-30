@@ -358,7 +358,7 @@ const pondere = p => (p.ca_potentiel||0) * (p.probabilite||0);
 /* ---------------- État global ---------------- */
 const state = {
   profile:null,       // {email, role, conseiller_id}
-  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[],
+  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[],
   week:null,          // semaine suivie (équivalent Dashboard!B3)
   view:null,
   ficheConseillerId:null,
@@ -538,7 +538,7 @@ function stripComputedPipe(p){
 class SupaDB {
   constructor(client){ this.c = client; }
   async loadAll(){
-    const [co, se, sa, pi, pr, ab, os, ac, va] = await Promise.all([
+    const [co, se, sa, pi, pr, ab, os, ac, va, pe] = await Promise.all([
       this.c.from("conseillers").select("*").order("id"),
       this.c.from("semaines").select("*").order("lundi"),
       this.c.from("saisies").select("*"),
@@ -548,12 +548,13 @@ class SupaDB {
       this.c.from("objectifs_semaine").select("*"),
       this.c.from("actions").select("*").order("id"),
       this.c.from("semaines_validees").select("*"),
+      this.c.from("pipeline_events").select("*").order("id"),
     ]);
-    for (const r of [co,se,sa,pi,pr,ab,os,ac,va]) if (r.error) throw r.error;
+    for (const r of [co,se,sa,pi,pr,ab,os,ac,va,pe]) if (r.error) throw r.error;
     state.conseillers = co.data; state.semaines = se.data;
     state.saisies = sa.data; state.pipeline = pi.data; state.profiles = pr.data;
     state.absences = ab.data; state.objSemaine = os.data;
-    state.actions = ac.data; state.validations = va.data;
+    state.actions = ac.data; state.validations = va.data; state.pipeEvents = pe.data;
   }
   async saveAction(a){
     const row = {conseiller_id:a.conseiller_id, texte:a.texte, echeance:a.echeance||null, semaine:a.semaine||null, fait:!!a.fait};
@@ -656,6 +657,8 @@ class DemoDB {
       priorite:p.priorite, prochaine_action:p.prochaine_action, signature_probable:p.signature_probable,
       updated_at: new Date(Date.now() - (p.etape==="Découverte"? 20:3)*86400000).toISOString()}));
     this.objSemaine = []; this.actions = []; this.validations = [];
+    this.pipeEvents = this.pipeline.map(p=>({id:this._id++, pipeline_id:p.id, conseiller_id:p.conseiller_id,
+      client:p.client, de_etape:null, vers_etape:p.etape, quand:p.updated_at}));
     this.absences = (D.absences||[]).map(a=>({id:this._id++, conseiller_id:byName[a.conseiller], semaine:wkey(a.semaine)}));
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
@@ -675,6 +678,7 @@ class DemoDB {
     state.objSemaine = this.objSemaine.filter(o=>this._mine(o.conseiller_id)).map(o=>({...o}));
     state.actions = this.actions.filter(a=>this._mine(a.conseiller_id)).map(a=>({...a}));
     state.validations = this.validations.map(v=>({...v}));
+    state.pipeEvents = this.pipeEvents.filter(e=>this._mine(e.conseiller_id)).map(e=>({...e}));
   }
   async saveAction(a){
     if (!this._mine(a.conseiller_id)) throw new Error("Accès refusé");
@@ -725,8 +729,18 @@ class DemoDB {
   }
   async savePipeline(p){
     if (!this._mine(p.conseiller_id)) throw new Error("Accès refusé");
-    if (p.id){ const ex = this.pipeline.find(x=>x.id===p.id); Object.assign(ex, stripComputedPipe(p)); }
-    else this.pipeline.push({id:this._id++, ...stripComputedPipe(p)});
+    if (p.id){
+      const ex = this.pipeline.find(x=>x.id===p.id);
+      const ancienne = ex.etape;
+      Object.assign(ex, stripComputedPipe(p));
+      ex.updated_at = new Date().toISOString();
+      if (ancienne !== ex.etape)
+        this.pipeEvents.push({id:this._id++, pipeline_id:ex.id, conseiller_id:ex.conseiller_id, client:ex.client, de_etape:ancienne, vers_etape:ex.etape, quand:new Date().toISOString()});
+    } else {
+      const row = {id:this._id++, updated_at:new Date().toISOString(), ...stripComputedPipe(p)};
+      this.pipeline.push(row);
+      this.pipeEvents.push({id:this._id++, pipeline_id:row.id, conseiller_id:row.conseiller_id, client:row.client, de_etape:null, vers_etape:row.etape, quand:row.updated_at});
+    }
   }
   async deletePipeline(id){
     const i = this.pipeline.findIndex(x=>x.id===id);
@@ -1046,6 +1060,7 @@ function exportCSVFallback(){
   a.href = URL.createObjectURL(blob);
   a.download = `ELIGI_pilotage_${state.week}.csv`;
   a.click(); URL.revokeObjectURL(a.href);
+  try{ localStorage.setItem("eligi-last-export", new Date().toISOString()); }catch(e){}
   toast("Export CSV téléchargé (module Excel indisponible) ✓");
 }
 function exportXLSX(){
@@ -1085,7 +1100,15 @@ function exportXLSX(){
     XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(prog), "Progression");
   }
   XLSX.writeFile(wb, `ELIGI_pilotage_${state.week}.xlsx`);
-  toast("Export Excel téléchargé ✓");
+  try{ localStorage.setItem("eligi-last-export", new Date().toISOString()); }catch(e){}
+  toast("Export Excel téléchargé ✓ (sauvegarde notée)");
+}
+function joursDepuisSauvegarde(){
+  try{
+    const d = localStorage.getItem("eligi-last-export");
+    if (!d) return null;
+    return Math.floor((Date.now() - new Date(d).getTime())/86400000);
+  }catch(e){ return null; }
 }
 
 /* ---------------- Dashboard équipe (manager) ---------------- */
@@ -1131,6 +1154,10 @@ function viewDashboard(root){
       return tile(`Atterrissage ${yearOf(week)}`, eur(att.v), `Objectif annuel : ${eur(att.o)} — ${att.o? fmtPct(att.v/att.o):"—"}`, att.o? att.v/att.o:0); })()}
   </div>
 
+  ${(()=>{ const j = joursDepuisSauvegarde();
+    return (j===null || j>=7)? `<div class="card reminder" style="border-left-color:var(--s1)">💾 <b>${j===null? "Aucune sauvegarde exportée depuis ce navigateur" : `Dernière sauvegarde il y a ${j} jours`}</b>
+      <span class="muted small">— un export Excel = une copie de secours de toutes tes données</span>
+      <span style="flex:1"></span><button class="btn small" id="bk-now">${ICONS.dl} Exporter maintenant</button></div>` : ""; })()}
   ${(noSaisie.length || enConges.length)? `<div class="card sect" style="padding:11px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
     ${noSaisie.length? `<b class="small">Saisies manquantes ${esc(week)} :</b>
     ${noSaisie.map(c=>`<span class="chip warn" data-saisie="${c.id}"><span class="cdot" style="background:${consColor(c.id)};margin:0"></span>${esc(c.nom)}</span>`).join("")}
@@ -1196,6 +1223,7 @@ function viewDashboard(root){
   mixBars($("#dash-mix"), mix);
   bindWeekNav();
   $("#dash-export").addEventListener("click", exportXLSX);
+  $("#bk-now")?.addEventListener("click", exportXLSX);
   const openMeeting = ()=>meetingMode();
   $("#dash-meeting").addEventListener("click", openMeeting);
   $("#dash-meeting2").addEventListener("click", openMeeting);
@@ -1351,7 +1379,9 @@ function viewSaisie(root){
         ${isManager()? "Tu peux encore la modifier (manager) ou la rouvrir depuis le Rapport hebdo." : "La saisie est verrouillée — contacte le manager si une correction est nécessaire."}</div>`:""}
       <div class="form-grid" id="sa-form">
         ${numFld("sa-rdv","RDV réalisés", v.rdv)}
-        ${numFld("sa-sig","Nb signatures", v.nb_signatures)}
+        <label class="fld"><span>Signatures (automatique)</span>
+          <input type="text" value="${fmtNum.format(v.nb_signatures||0)}" disabled
+            title="Ce compteur s'alimente tout seul : passe un dossier en « Signé » dans le Pipeline et confirme le report."></label>
         ${numFld("sa-cscpi","Collecte SCPI (€)", v.collecte_scpi)}
         <label class="fld"><span>CA SCPI (auto : 5 %)</span><input type="text" id="sa-cascpi" value="${eur2(v.ca_scpi)}" disabled></label>
         ${numFld("sa-cstru","Collecte structurés (€)", v.collecte_structures)}
@@ -1396,7 +1426,7 @@ function viewSaisie(root){
     try{
       await state.db.upsertSaisie({
         semaine: state.week, conseiller_id: consId,
-        rdv:+$("#sa-rdv").value||0, nb_signatures:+$("#sa-sig").value||0,
+        rdv:+$("#sa-rdv").value||0, nb_signatures:+v.nb_signatures||0,
         collecte_scpi:+$("#sa-cscpi").value||0,
         collecte_structures:+$("#sa-cstru").value||0, ca_structures:+$("#sa-castru").value||0,
         collecte_audit:+$("#sa-caud").value||0, ca_audit:+$("#sa-caaud").value||0,
@@ -1425,7 +1455,7 @@ function viewSaisie(root){
   bindWeekNav();
   if (prev) $("#sa-copy")?.addEventListener("click", ()=>{
     const p = computed(prev);
-    $("#sa-rdv").value = p.rdv||0; $("#sa-sig").value = p.nb_signatures||0;
+    $("#sa-rdv").value = p.rdv||0;
     $("#sa-cscpi").value = p.collecte_scpi||0; $("#sa-cstru").value = p.collecte_structures||0;
     $("#sa-castru").value = p.ca_structures||0; $("#sa-caud").value = p.collecte_audit||0;
     $("#sa-caaud").value = p.ca_audit||0; $("#sa-cass").value = p.collecte_assurance||0;
@@ -1749,6 +1779,10 @@ function viewProgression(root){
     <div class="card grow chart-card"><h3 class="mt0">CA cumulé vs objectif</h3><div id="chart-ca"></div></div>
     <div class="card grow chart-card"><h3 class="mt0">Collecte cumulée vs objectif</h3><div id="chart-coll"></div></div>
   </div>
+  <div class="sect sect-head"><h2>Vie du pipeline</h2>
+    <span class="sub">flux d'entrées et de signatures — alimenté automatiquement à chaque mouvement</span></div>
+  <div class="tiles" id="prog-flux"></div>
+
   <div class="sect sect-head"><h2>Détail par semaine</h2>
     <button class="btn secondary small" id="prog-toggle">Afficher le tableau</button></div>
   <div class="card tbl-scroll" id="prog-table" style="display:none">
@@ -1772,6 +1806,26 @@ function viewProgression(root){
     {name:"Objectif", color:"var(--s2)", values:serie.map(r=>r.cumObjColl), dashed:true},
   ]});
   bindWeekNav();
+  (()=>{ // Vie du pipeline : 4 indicateurs de flux
+    const now = Date.now(), j28 = now - 28*86400000, j28p = now - 56*86400000;
+    const crees28 = state.pipeEvents.filter(e=>!e.de_etape && new Date(e.quand).getTime() >= j28).length;
+    const crees28prec = state.pipeEvents.filter(e=>{ const t = new Date(e.quand).getTime(); return !e.de_etape && t >= j28p && t < j28; }).length;
+    const signes28 = state.pipeEvents.filter(e=>e.vers_etape==="Signé" && e.de_etape && new Date(e.quand).getTime() >= j28).length;
+    // durée moyenne création -> signature (sur les dossiers dont on a les 2 événements)
+    const durees = [];
+    for (const e of state.pipeEvents.filter(e=>e.vers_etape==="Signé" && e.de_etape)){
+      const crea = state.pipeEvents.find(c=>c.pipeline_id===e.pipeline_id && !c.de_etape);
+      if (crea){ const d = (new Date(e.quand) - new Date(crea.quand))/86400000; if (d>0.1) durees.push(d); }
+    }
+    const dMoy = durees.length? Math.round(durees.reduce((a,b)=>a+b,0)/durees.length) : null;
+    const enCours = state.pipeline.filter(p=>(p.etape||"").toLowerCase()!=="signé").length;
+    const delta = crees28prec? ` <span class="${crees28>=crees28prec?"up":"down"}">${crees28>=crees28prec?"▲":"▼"} vs ${crees28prec} le mois d'avant</span>` : "";
+    $("#prog-flux").innerHTML =
+      tile("Nouveaux dossiers (28 j)", fmtNum.format(crees28), `entrées au pipeline${delta}`) +
+      tile("Signatures (28 j)", fmtNum.format(signes28), "passages en « Signé »") +
+      tile("Dossiers en cours", fmtNum.format(enCours), `${aRelancer(state.pipeline).length} à relancer`) +
+      tile("Durée moyenne avant signature", dMoy!==null? `${dMoy} j` : "—", dMoy!==null? "de la création au « Signé »" : "statistique en cours de collecte");
+  })();
   $("#prog-export").addEventListener("click", exportXLSX);
   $("#prog-toggle").addEventListener("click", ()=>{
     const t = $("#prog-table"); const vis = t.style.display !== "none";
@@ -2172,7 +2226,8 @@ function renderLogin(app){
     : `<label class="fld"><span>Email</span><input type="email" id="lg-email" autocomplete="username"></label>
       <label class="fld"><span>Mot de passe</span><input type="password" id="lg-pass" autocomplete="current-password"></label>
       <div class="error-box" id="lg-err"></div>
-      <button class="btn" id="lg-btn" style="width:100%;justify-content:center">Se connecter</button>`}
+      <button class="btn" id="lg-btn" style="width:100%;justify-content:center">Se connecter</button>
+      <div style="text-align:center;margin-top:12px"><button class="linkbtn" id="lg-forgot" style="background:none;border:0;cursor:pointer;color:var(--s1);font-size:12.5px;text-decoration:underline">Mot de passe oublié ?</button></div>`}
   </div></div>`;
 
   if (demo){
@@ -2206,7 +2261,41 @@ function renderLogin(app){
     };
     $("#lg-btn").addEventListener("click", submit);
     $("#lg-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") submit(); });
+    $("#lg-forgot").addEventListener("click", async ()=>{
+      const email = ($("#lg-email").value||"").trim() || prompt("Ton adresse email de connexion :");
+      if (!email) return;
+      try{
+        const {error} = await state.authClient.auth.resetPasswordForEmail(email, {redirectTo: location.origin + location.pathname});
+        if (error) throw error;
+        $("#lg-err").style.color = "var(--good-text)";
+        $("#lg-err").textContent = "Email de réinitialisation envoyé à " + email + " — vérifie ta boîte (et les spams).";
+      }catch(err){ $("#lg-err").textContent = "Erreur : " + (err.message||err); }
+    });
   }
+}
+
+/* Formulaire « nouveau mot de passe » après clic sur le lien reçu par email */
+function renderPasswordReset(){
+  $("#app").innerHTML = `<div class="login-shell"><div class="card login-card">
+    <div class="brandbig">ELIGI</div>
+    <div class="sub">Choisis ton nouveau mot de passe</div>
+    <label class="fld"><span>Nouveau mot de passe (8 caractères min.)</span><input type="password" id="np-1" autocomplete="new-password"></label>
+    <label class="fld"><span>Confirme-le</span><input type="password" id="np-2" autocomplete="new-password"></label>
+    <div class="error-box" id="np-err"></div>
+    <button class="btn" id="np-btn" style="width:100%;justify-content:center">Enregistrer et se connecter</button>
+  </div></div>`;
+  $("#np-btn").addEventListener("click", async ()=>{
+    const p1 = $("#np-1").value, p2 = $("#np-2").value;
+    if (p1.length < 8){ $("#np-err").textContent = "8 caractères minimum."; return; }
+    if (p1 !== p2){ $("#np-err").textContent = "Les deux mots de passe ne correspondent pas."; return; }
+    try{
+      const {error} = await state.authClient.auth.updateUser({password: p1});
+      if (error) throw error;
+      toast("Mot de passe mis à jour ✓");
+      const {data} = await state.authClient.auth.getSession();
+      if (data.session) onSignedIn(data.session); else render();
+    }catch(err){ $("#np-err").textContent = "Erreur : " + (err.message||err); }
+  });
 }
 
 async function onSignedIn(session){
@@ -2263,6 +2352,7 @@ async function logout(){
   state.authClient = client;
   state.db = new SupaDB(client);
   client.auth.onAuthStateChange((event, session)=>{
+    if (event === "PASSWORD_RECOVERY"){ renderPasswordReset(); return; }
     if (session && !state.profile) onSignedIn(session);
     if (event === "SIGNED_OUT"){ state.profile = null; render(); }
   });
