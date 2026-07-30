@@ -1,0 +1,1306 @@
+<!doctype html>
+<html lang="fr">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ELIGI — Pilotage commercial</title>
+<style>
+/* ============ Tokens (palette validée, clair + sombre) ============ */
+:root{
+  color-scheme: light;
+  --page:#f9f9f7; --surface:#fcfcfb; --surface-2:#f0efec;
+  --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
+  --grid:#e1e0d9; --baseline:#c3c2b7; --border:rgba(11,11,11,.10);
+  --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
+  --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
+  --good-text:#006300;
+  --shadow:0 1px 3px rgba(11,11,11,.06), 0 4px 14px rgba(11,11,11,.05);
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme: dark;
+    --page:#0d0d0d; --surface:#1a1a19; --surface-2:#242422;
+    --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+    --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,.10);
+    --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+    --good-text:#0ca30c;
+    --shadow:none;
+  }
+}
+*{box-sizing:border-box}
+html,body{margin:0;padding:0}
+body{
+  font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
+  background:var(--page); color:var(--ink); font-size:14.5px; line-height:1.45;
+}
+button,input,select,textarea{font:inherit; color:inherit}
+h1,h2,h3{margin:0 0 .4em; font-weight:650}
+h2{font-size:17px} h3{font-size:15px}
+a{color:var(--s1)}
+
+/* ============ Shell ============ */
+.topbar{
+  background:var(--surface); border-bottom:1px solid var(--border);
+  padding:10px 22px; display:flex; align-items:center; gap:18px; flex-wrap:wrap;
+  position:sticky; top:0; z-index:20;
+}
+.brand{font-weight:700; font-size:16px; letter-spacing:.2px}
+.brand small{font-weight:500; color:var(--ink-2); margin-left:8px}
+.nav{display:flex; gap:2px; flex-wrap:wrap}
+.nav button{
+  background:none; border:0; padding:7px 13px; border-radius:8px; cursor:pointer;
+  color:var(--ink-2); font-weight:550;
+}
+.nav button:hover{background:var(--surface-2)}
+.nav button.active{background:var(--surface-2); color:var(--ink)}
+.spacer{flex:1}
+.userchip{display:flex; align-items:center; gap:10px; color:var(--ink-2); font-size:13px}
+.userchip b{color:var(--ink)}
+.rolepill{font-size:11.5px; padding:2px 8px; border-radius:99px; border:1px solid var(--border); background:var(--surface-2)}
+.linklike{background:none;border:0;cursor:pointer;color:var(--s1);padding:0;font-size:13px}
+
+.wrap{max-width:1240px; margin:0 auto; padding:20px 22px 60px}
+.row{display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start}
+.card{
+  background:var(--surface); border:1px solid var(--border); border-radius:14px;
+  padding:16px 18px; box-shadow:var(--shadow);
+}
+.card.grow{flex:1; min-width:320px}
+.section-head{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin:26px 0 12px}
+.section-head h2{margin:0}
+.section-head .sub{color:var(--ink-2); font-size:13px}
+
+/* ============ Controls ============ */
+label.fld{display:block; font-size:12.5px; color:var(--ink-2); margin-bottom:12px}
+label.fld span{display:block; margin-bottom:4px; font-weight:550}
+input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],select,textarea{
+  width:100%; padding:8px 10px; border-radius:9px; border:1px solid var(--baseline);
+  background:var(--surface); outline:none;
+}
+input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0 3px color-mix(in srgb, var(--s1) 18%, transparent)}
+.btn{
+  display:inline-flex; align-items:center; gap:7px;
+  background:var(--s1); border:1px solid transparent; color:#fff; padding:8px 16px;
+  border-radius:9px; cursor:pointer; font-weight:600;
+}
+.btn:hover{filter:brightness(1.06)}
+.btn.secondary{background:var(--surface); color:var(--ink); border-color:var(--baseline)}
+.btn.danger{background:var(--critical)}
+.btn.small{padding:4px 10px; font-size:13px; border-radius:7px}
+.btn[disabled]{opacity:.55; cursor:default}
+.inline-controls{display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap}
+.inline-controls label.fld{margin-bottom:0; min-width:150px}
+
+/* ============ KPI tiles ============ */
+.tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(168px,1fr)); gap:12px}
+.tile{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 14px; box-shadow:var(--shadow)}
+.tile .t-label{font-size:12px; color:var(--ink-2); font-weight:550}
+.tile .t-value{font-size:24px; font-weight:700; margin-top:2px; letter-spacing:-.2px}
+.tile .t-sub{font-size:12px; color:var(--muted); margin-top:2px}
+.tile .t-sub .up{color:var(--good-text); font-weight:600}
+.tile .t-sub .down{color:var(--critical); font-weight:600}
+
+/* ============ Tables ============ */
+.tbl-scroll{overflow-x:auto}
+table.tbl{border-collapse:collapse; width:100%; font-size:13.5px}
+.tbl th{
+  text-align:left; color:var(--muted); font-weight:600; font-size:12px;
+  padding:7px 10px; border-bottom:1px solid var(--baseline); white-space:nowrap;
+}
+.tbl td{padding:7px 10px; border-bottom:1px solid var(--grid); white-space:nowrap}
+.tbl tr:last-child td{border-bottom:0}
+.tbl td.num,.tbl th.num{text-align:right; font-variant-numeric:tabular-nums}
+.tbl tr.total td{font-weight:700; border-top:1px solid var(--baseline)}
+table.tbl.dense{font-size:12.5px}
+.tbl.dense th{padding:6px 6px; font-size:11px}
+.tbl.dense td{padding:6px 6px}
+.tbl .rowactions{opacity:0; transition:opacity .12s}
+.tbl tr:hover .rowactions{opacity:1}
+.tbl tr:hover td{background:color-mix(in srgb, var(--surface-2) 55%, transparent)}
+
+/* ============ Badges (statut : icône + libellé, jamais couleur seule) ============ */
+.badge{display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:650;
+  padding:3px 10px; border-radius:99px; border:1px solid var(--border); background:var(--surface-2); white-space:nowrap}
+.badge .dot{width:8px; height:8px; border-radius:50%; flex:none}
+.badge.ok .dot{background:var(--good)} .badge.ok{color:var(--good-text)}
+.badge.watch .dot{background:var(--warn)}
+.badge.urgent .dot{background:var(--critical)} .badge.urgent{color:var(--critical)}
+.badge.neutral .dot{background:var(--muted)}
+
+/* ============ Bars (mix produits) ============ */
+.mix{display:flex; flex-direction:column; gap:8px; margin-top:8px}
+.mix .mrow{display:grid; grid-template-columns:150px 1fr 90px; gap:10px; align-items:center; font-size:13px}
+.mix .mtrack{height:14px; background:var(--surface-2); border-radius:4px; position:relative}
+.mix .mfill{position:absolute; inset:0 auto 0 0; border-radius:4px 4px 4px 4px; min-width:2px}
+.mix .mval{text-align:right; font-variant-numeric:tabular-nums; color:var(--ink)}
+.mix .mlabel{color:var(--ink-2)}
+
+/* ============ Chart ============ */
+.chart-card svg{display:block; width:100%; height:auto}
+.legend{display:flex; gap:16px; flex-wrap:wrap; margin-bottom:6px; font-size:12.5px; color:var(--ink-2)}
+.legend .li{display:inline-flex; align-items:center; gap:6px}
+.legend .swatch{width:14px; height:3px; border-radius:2px}
+.viz-tooltip{
+  position:fixed; pointer-events:none; z-index:50; background:var(--surface);
+  border:1px solid var(--border); border-radius:9px; box-shadow:var(--shadow);
+  padding:8px 11px; font-size:12.5px; display:none; min-width:150px;
+}
+.viz-tooltip .tt-title{font-weight:650; margin-bottom:4px}
+.viz-tooltip .tt-row{display:flex; justify-content:space-between; gap:14px; color:var(--ink-2)}
+.viz-tooltip .tt-row b{color:var(--ink); font-variant-numeric:tabular-nums; font-weight:600}
+.viz-tooltip .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
+
+/* ============ Login ============ */
+.login-shell{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px}
+.login-card{width:380px; max-width:100%}
+.login-card .brandbig{font-size:22px; font-weight:750; margin-bottom:2px}
+.login-card .sub{color:var(--ink-2); margin-bottom:18px}
+.demo-note{font-size:12.5px; color:var(--ink-2); background:var(--surface-2); border-radius:9px; padding:9px 12px; margin-bottom:14px}
+.error-box{color:var(--critical); font-size:13px; margin:8px 0}
+
+/* ============ Modal ============ */
+.modal-back{position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:40; display:flex; align-items:flex-start; justify-content:center; padding:6vh 16px}
+.modal{background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); width:640px; max-width:100%; max-height:86vh; overflow:auto; padding:20px 22px}
+.modal h3{margin-bottom:12px}
+.form-grid{display:grid; grid-template-columns:1fr 1fr; gap:0 16px}
+.form-grid .full{grid-column:1/-1}
+.modal-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:6px}
+
+/* ============ Toast ============ */
+.toast{position:fixed; bottom:22px; left:50%; transform:translateX(-50%); z-index:60;
+  background:var(--ink); color:var(--page); padding:9px 18px; border-radius:99px; font-size:13.5px;
+  opacity:0; transition:opacity .2s; pointer-events:none}
+.toast.show{opacity:1}
+
+.helpbox{font-size:13px; color:var(--ink-2); background:var(--surface-2); border-radius:10px; padding:10px 14px}
+.challenge{margin:0; padding-left:18px; color:var(--ink-2)}
+.challenge li{margin:4px 0}
+.muted{color:var(--muted)}
+.small{font-size:12.5px}
+.mt0{margin-top:0}
+@media (max-width:720px){
+  .form-grid{grid-template-columns:1fr}
+  .mix .mrow{grid-template-columns:110px 1fr 80px}
+}
+</style>
+</head>
+<body>
+<div id="app"></div>
+<div id="tooltip" class="viz-tooltip"></div>
+<div id="toast" class="toast"></div>
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="config.js"></script>
+<script src="demo_data.js"></script>
+<script>
+"use strict";
+/* ================================================================
+   ELIGI — Pilotage commercial hebdomadaire
+   Application reproduisant le classeur Excel (Dashboard, Saisie_Hebdo,
+   Pipeline, fiches conseillers, progression annuelle, paramétrage)
+   avec comptes de connexion et cloisonnement manager / conseiller.
+   ================================================================ */
+
+const CFG = window.APP_CONFIG || {};
+const SUPPORTS = ["SCPI","Produit structuré","Audit / honoraires","Assurance / PER","Autre"];
+const ETAPES = ["Prise de contact","Découverte","Proposition envoyée","Négociation","Signature probable","Signé"];
+const PRIORITES = ["Haute","Moyenne","Basse"];
+const PROBAS = [0,0.25,0.5,0.75,1];
+const MIX_COLORS = ["var(--s1)","var(--s2)","var(--s3)","var(--s4)","var(--s5)"];
+
+/* ---------------- Utilitaires ---------------- */
+const $ = sel => document.querySelector(sel);
+const esc = s => String(s ?? "").replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtEUR = new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR",maximumFractionDigits:0});
+const fmtEUR2 = new Intl.NumberFormat("fr-FR",{style:"currency",currency:"EUR",minimumFractionDigits:0,maximumFractionDigits:2});
+const fmtNum = new Intl.NumberFormat("fr-FR",{maximumFractionDigits:0});
+const fmtPct = v => new Intl.NumberFormat("fr-FR",{style:"percent",maximumFractionDigits:0}).format(v);
+const eur = v => fmtEUR.format(v || 0);
+const eur2 = v => fmtEUR2.format(v || 0);
+const round2 = v => Math.round((v||0)*100)/100;
+
+function toast(msg){
+  const t = $("#toast"); t.textContent = msg; t.classList.add("show");
+  clearTimeout(t._h); t._h = setTimeout(()=>t.classList.remove("show"), 2600);
+}
+
+/* Semaine ISO d'une date -> {year, week} */
+function isoWeek(d){
+  const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+  const day = date.getUTCDay() || 7;
+  date.setUTCDate(date.getUTCDate() + 4 - day);
+  const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+  const week = Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  return {year: date.getUTCFullYear(), week};
+}
+const weekCode = (y,w) => `${y}-S${String(w).padStart(2,"0")}`;
+function todayWeekCode(){ const {year,week} = isoWeek(new Date()); return weekCode(year,week); }
+
+/* Normalisation du code semaine pour comparaison/tri : S9 -> S09 */
+function wkey(code){ return String(code||"").replace(/-S(\d)$/, "-S0$1"); }
+const wcmp = (a,b) => wkey(a) < wkey(b) ? -1 : wkey(a) > wkey(b) ? 1 : 0;
+
+/* Champs calculés d'une saisie (mêmes formules que l'Excel) */
+function computed(s){
+  const ca_scpi = round2((s.collecte_scpi||0) * 0.05);
+  const ca_total = round2(ca_scpi + (s.ca_structures||0) + (s.ca_audit||0) + (s.ca_autres||0));
+  const collecte_totale = (s.collecte_scpi||0) + (s.collecte_assurance||0);
+  return {...s, ca_scpi, ca_total, collecte_totale};
+}
+const pondere = p => (p.ca_potentiel||0) * (p.probabilite||0);
+
+/* ---------------- État global ---------------- */
+const state = {
+  profile:null,       // {email, role, conseiller_id}
+  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[],
+  week:null,          // semaine suivie (équivalent Dashboard!B3)
+  view:null,
+  ficheConseillerId:null,
+  saisieConseillerId:null,
+  db:null, authClient:null,
+};
+const isManager = () => state.profile?.role === "manager";
+const myConseiller = () => state.conseillers.find(c => c.id === state.profile?.conseiller_id) || null;
+const consName = id => state.conseillers.find(c => c.id === id)?.nom || "?";
+const activeConseillers = () => state.conseillers.filter(c => c.actif !== false);
+
+/* Semaines passées ou courante (pour les cumuls / graphiques) */
+function weeksUpTo(code){
+  return state.semaines.filter(s => wcmp(s.code, code) <= 0).map(s => s.code);
+}
+function defaultWeek(){
+  const codes = state.semaines.map(s=>s.code).sort(wcmp);
+  const today = todayWeekCode();
+  const past = codes.filter(c => wcmp(c, today) <= 0);
+  return past.length ? past[past.length-1] : codes[0];
+}
+
+/* ---------------- Calculs métier (répliquent les formules Excel) ---------------- */
+function saisieOf(consId, week){
+  const s = state.saisies.find(x => x.conseiller_id === consId && x.semaine === week);
+  return s ? computed(s) : null;
+}
+function weekAgg(consId, week){
+  const s = saisieOf(consId, week);
+  const z = {rdv:0, nb_signatures:0, collecte_scpi:0, ca_scpi:0, collecte_structures:0, ca_structures:0,
+             collecte_audit:0, ca_audit:0, collecte_assurance:0, ca_autres:0, collecte_totale:0, ca_total:0, commentaire:""};
+  return s || z;
+}
+function pipeAgg(consId){
+  const mine = state.pipeline.filter(p => p.conseiller_id === consId);
+  const pond = mine.reduce((a,p)=>a+pondere(p),0);
+  const signe = mine.filter(p => (p.etape||"").toLowerCase() === "signé").reduce((a,p)=>a+pondere(p),0);
+  const sigProb = mine.filter(p => p.signature_probable).length;
+  return {pond, signe, sigProb, count: mine.length};
+}
+/* Projection = CA réalisé (semaine) + pipeline pondéré − pipeline signé  (Dashboard!M) */
+function projection(consId, week){
+  const w = weekAgg(consId, week), p = pipeAgg(consId);
+  return w.ca_total + p.pond - p.signe;
+}
+/* Alerte : OK / À surveiller (≥80 %) / Urgent  (Dashboard!O) */
+function alerte(proj, objectif){
+  if (proj >= objectif) return {cls:"ok", label:"OK", icon:"✓"};
+  if (proj >= objectif*0.8) return {cls:"watch", label:"À surveiller", icon:"!"};
+  return {cls:"urgent", label:"Urgent", icon:"⚠"};
+}
+function cumul(consId, week){
+  const upTo = new Set(weeksUpTo(week));
+  const rows = state.saisies.filter(s => s.conseiller_id === consId && upTo.has(s.semaine)).map(computed);
+  const n = weeksUpTo(week).length;
+  const c = state.conseillers.find(x=>x.id===consId) || {};
+  return {
+    rdv: rows.reduce((a,s)=>a+(s.rdv||0),0),
+    ca: rows.reduce((a,s)=>a+s.ca_total,0),
+    collecte: rows.reduce((a,s)=>a+s.collecte_totale,0),
+    objCA: (c.objectif_ca_hebdo||0) * n,
+    objCollecte: (c.objectif_collecte_hebdo||0) * n,
+    nSemaines: n,
+  };
+}
+/* Série hebdo équipe (table Q26:Y65 du Dashboard) */
+function teamSeries(uptoWeek){
+  const weeks = weeksUpTo(uptoWeek);
+  const objCA = activeConseillers().reduce((a,c)=>a+(c.objectif_ca_hebdo||0),0);
+  const objColl = activeConseillers().reduce((a,c)=>a+(c.objectif_collecte_hebdo||0),0);
+  let cumCA=0, cumColl=0, cumObjCA=0, cumObjColl=0;
+  return weeks.map(w => {
+    const rows = state.saisies.filter(s=>s.semaine===w).map(computed);
+    const ca = rows.reduce((a,s)=>a+s.ca_total,0);
+    const coll = rows.reduce((a,s)=>a+s.collecte_totale,0);
+    cumCA+=ca; cumColl+=coll; cumObjCA+=objCA; cumObjColl+=objColl;
+    return {week:w, ca, coll, cumCA, cumColl, cumObjCA, cumObjColl,
+            tauxCA: cumObjCA? cumCA/cumObjCA : 0, tauxColl: cumObjColl? cumColl/cumObjColl : 0};
+  });
+}
+function consSeries(consId, uptoWeek){
+  const weeks = weeksUpTo(uptoWeek);
+  const c = state.conseillers.find(x=>x.id===consId) || {};
+  let cumCA=0, cumColl=0, cumObj=0;
+  return weeks.map(w => {
+    const s = weekAgg(consId, w);
+    cumCA += s.ca_total; cumColl += s.collecte_totale; cumObj += (c.objectif_ca_hebdo||0);
+    return {week:w, ca:s.ca_total, coll:s.collecte_totale, rdv:s.rdv||0, cumCA, cumColl, cumObj};
+  });
+}
+
+/* ================================================================
+   Couche de données : Supabase (production) ou Démo (en mémoire)
+   ================================================================ */
+function stripComputedSaisie(s){
+  const {id, ca_scpi, ca_total, collecte_totale, ...rest} = s;
+  return rest;
+}
+function stripComputedPipe(p){
+  const {id, valeur_ponderee, created_at, ...rest} = p;
+  return rest;
+}
+
+class SupaDB {
+  constructor(client){ this.c = client; }
+  async loadAll(){
+    const [co, se, sa, pi, pr] = await Promise.all([
+      this.c.from("conseillers").select("*").order("id"),
+      this.c.from("semaines").select("*").order("lundi"),
+      this.c.from("saisies").select("*"),
+      this.c.from("pipeline").select("*").order("id"),
+      this.c.from("profiles").select("*"),
+    ]);
+    for (const r of [co,se,sa,pi,pr]) if (r.error) throw r.error;
+    state.conseillers = co.data; state.semaines = se.data;
+    state.saisies = sa.data; state.pipeline = pi.data; state.profiles = pr.data;
+  }
+  async upsertSaisie(s){
+    const {error} = await this.c.from("saisies")
+      .upsert(stripComputedSaisie(s), {onConflict:"semaine,conseiller_id"});
+    if (error) throw error;
+  }
+  async deleteSaisie(id){
+    const {error} = await this.c.from("saisies").delete().eq("id", id);
+    if (error) throw error;
+  }
+  async savePipeline(p){
+    if (p.id){
+      const {error} = await this.c.from("pipeline").update(stripComputedPipe(p)).eq("id", p.id);
+      if (error) throw error;
+    } else {
+      const {error} = await this.c.from("pipeline").insert(stripComputedPipe(p));
+      if (error) throw error;
+    }
+  }
+  async deletePipeline(id){
+    const {error} = await this.c.from("pipeline").delete().eq("id", id);
+    if (error) throw error;
+  }
+  async saveConseiller(c){
+    if (c.id){
+      const {id, ...rest} = c;
+      const {error} = await this.c.from("conseillers").update(rest).eq("id", id);
+      if (error) throw error;
+    } else {
+      const {id, ...rest} = c;
+      const {error} = await this.c.from("conseillers").insert(rest);
+      if (error) throw error;
+    }
+  }
+  async addSemaines(rows){
+    const {error} = await this.c.from("semaines").insert(rows);
+    if (error) throw error;
+  }
+  async saveProfile(p, oldEmail){
+    if (oldEmail && oldEmail !== p.email){
+      const {error: e1} = await this.c.from("profiles").delete().eq("email", oldEmail);
+      if (e1) throw e1;
+    }
+    const {error} = await this.c.from("profiles").upsert(p, {onConflict:"email"});
+    if (error) throw error;
+  }
+  async deleteProfile(email){
+    const {error} = await this.c.from("profiles").delete().eq("email", email);
+    if (error) throw error;
+  }
+}
+
+/* Mode démo : tout en mémoire, avec le même cloisonnement que la base */
+class DemoDB {
+  constructor(){
+    const D = window.DEMO_DATA || {conseillers:[],semaines:[],saisies:[],pipeline:[]};
+    this._id = 1;
+    this.conseillers = D.conseillers.map((c,i)=>({id:i+1, nom:c.nom, actif:true,
+      objectif_ca_hebdo:c.objectif_ca_hebdo, objectif_collecte_hebdo:c.objectif_collecte_hebdo, objectif_rdv_hebdo:c.objectif_rdv_hebdo}));
+    const byName = Object.fromEntries(this.conseillers.map(c=>[c.nom,c.id]));
+    this.semaines = D.semaines.map(s=>({code:wkey(s.code), lundi:s.lundi}));
+    this.saisies = D.saisies.map(s=>({id:this._id++, semaine:wkey(s.semaine), conseiller_id:byName[s.conseiller],
+      rdv:s.rdv, nb_signatures:s.nb_signatures, collecte_scpi:s.collecte_scpi,
+      collecte_structures:s.collecte_structures, ca_structures:s.ca_structures,
+      collecte_audit:s.collecte_audit, ca_audit:s.ca_audit,
+      collecte_assurance:s.collecte_assurance, ca_autres:s.ca_autres, commentaire:s.commentaire||""}));
+    this.pipeline = D.pipeline.map(p=>({id:this._id++, conseiller_id:byName[p.conseiller], client:p.client,
+      support:p.support, etape:p.etape, collecte_potentielle:p.collecte_potentielle,
+      ca_potentiel:p.ca_potentiel, probabilite:p.probabilite, closing_prevu:p.closing_prevu,
+      priorite:p.priorite, prochaine_action:p.prochaine_action, signature_probable:p.signature_probable}));
+    this.profiles = [
+      {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
+      ...this.conseillers.map(c=>({email:c.nom.toLowerCase().normalize("NFD").replace(/[^a-z]/g,"")+"@demo.fr", role:"conseiller", conseiller_id:c.id})),
+    ];
+  }
+  _mine(consId){ // cloisonnement identique aux règles RLS
+    return isManager() || consId === state.profile.conseiller_id;
+  }
+  async loadAll(){
+    state.conseillers = this.conseillers.filter(c=>isManager()||c.id===state.profile.conseiller_id);
+    state.semaines = [...this.semaines];
+    state.saisies = this.saisies.filter(s=>this._mine(s.conseiller_id)).map(s=>({...s}));
+    state.pipeline = this.pipeline.filter(p=>this._mine(p.conseiller_id)).map(p=>({...p}));
+    state.profiles = isManager()? [...this.profiles] : this.profiles.filter(p=>p.email===state.profile.email);
+  }
+  async upsertSaisie(s){
+    if (!this._mine(s.conseiller_id)) throw new Error("Accès refusé");
+    const ex = this.saisies.find(x=>x.semaine===s.semaine && x.conseiller_id===s.conseiller_id);
+    if (ex) Object.assign(ex, stripComputedSaisie(s));
+    else this.saisies.push({id:this._id++, ...stripComputedSaisie(s)});
+  }
+  async deleteSaisie(id){
+    const i = this.saisies.findIndex(x=>x.id===id);
+    if (i>=0 && this._mine(this.saisies[i].conseiller_id)) this.saisies.splice(i,1);
+  }
+  async savePipeline(p){
+    if (!this._mine(p.conseiller_id)) throw new Error("Accès refusé");
+    if (p.id){ const ex = this.pipeline.find(x=>x.id===p.id); Object.assign(ex, stripComputedPipe(p)); }
+    else this.pipeline.push({id:this._id++, ...stripComputedPipe(p)});
+  }
+  async deletePipeline(id){
+    const i = this.pipeline.findIndex(x=>x.id===id);
+    if (i>=0 && this._mine(this.pipeline[i].conseiller_id)) this.pipeline.splice(i,1);
+  }
+  async saveConseiller(c){
+    if (!isManager()) throw new Error("Réservé au manager");
+    if (c.id){ Object.assign(this.conseillers.find(x=>x.id===c.id), c); }
+    else this.conseillers.push({...c, id:this._id++});
+  }
+  async addSemaines(rows){ this.semaines.push(...rows); }
+  async saveProfile(p, oldEmail){
+    if (oldEmail){ const i=this.profiles.findIndex(x=>x.email===oldEmail); if(i>=0) this.profiles.splice(i,1); }
+    const i = this.profiles.findIndex(x=>x.email===p.email);
+    if (i>=0) this.profiles[i]=p; else this.profiles.push(p);
+  }
+  async deleteProfile(email){
+    const i = this.profiles.findIndex(x=>x.email===email);
+    if (i>=0) this.profiles.splice(i,1);
+  }
+}
+
+/* ================================================================
+   Graphiques SVG (lignes cumulées + survol/tooltip, barres de mix)
+   ================================================================ */
+function niceTicks(max){
+  if (max <= 0) return [0,1];
+  const raw = max/4, mag = Math.pow(10, Math.floor(Math.log10(raw)));
+  const step = [1,2,2.5,5,10].map(m=>m*mag).find(s=>s>=raw) || 10*mag;
+  const ticks = []; for(let v=0; v<=max+step*0.001; v+=step) ticks.push(v);
+  if (ticks[ticks.length-1] < max) ticks.push(ticks.length*step);
+  return ticks;
+}
+const fmtShort = v => {
+  if (Math.abs(v) >= 1e6) return (v/1e6).toLocaleString("fr-FR",{maximumFractionDigits:1})+" M€";
+  if (Math.abs(v) >= 1e3) return Math.round(v/1e3).toLocaleString("fr-FR")+" k€";
+  return Math.round(v).toLocaleString("fr-FR")+" €";
+};
+
+/* Graphique en lignes : labels = semaines, series = [{name,color,values,dashed}] */
+function lineChart(el, {labels, series, height=260}){
+  const W = 720, H = height, padL = 56, padR = 110, padT = 14, padB = 30;
+  const iw = W-padL-padR, ih = H-padT-padB;
+  const maxV = Math.max(1, ...series.flatMap(s=>s.values));
+  const ticks = niceTicks(maxV);
+  const top = ticks[ticks.length-1];
+  const x = i => padL + (labels.length<2 ? iw/2 : i*(iw/(labels.length-1)));
+  const y = v => padT + ih - (v/top)*ih;
+
+  let g = "";
+  for (const t of ticks){
+    g += `<line x1="${padL}" y1="${y(t)}" x2="${W-padR}" y2="${y(t)}" stroke="var(--grid)" stroke-width="1"/>`;
+    g += `<text x="${padL-8}" y="${y(t)+4}" text-anchor="end" font-size="10.5" fill="var(--muted)">${fmtShort(t)}</text>`;
+  }
+  g += `<line x1="${padL}" y1="${y(0)}" x2="${W-padR}" y2="${y(0)}" stroke="var(--baseline)" stroke-width="1"/>`;
+  const nLab = Math.max(1, Math.ceil(labels.length/8));
+  labels.forEach((lb,i)=>{ if(i%nLab===0 || i===labels.length-1)
+    g += `<text x="${x(i)}" y="${H-8}" text-anchor="middle" font-size="10.5" fill="var(--muted)">${esc(lb.replace(/^\d+-/,""))}</text>`; });
+
+  for (const s of series){
+    const pts = s.values.map((v,i)=>`${x(i)},${y(v)}`).join(" ");
+    g += `<polyline points="${pts}" fill="none" stroke="${s.color}" stroke-width="2"
+          ${s.dashed?'stroke-dasharray="5 4"':''} stroke-linejoin="round" stroke-linecap="round"/>`;
+    const last = s.values[s.values.length-1];
+    g += `<circle cx="${x(s.values.length-1)}" cy="${y(last)}" r="3" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`;
+    g += `<text x="${x(s.values.length-1)+8}" y="${y(last)+4}" font-size="11" font-weight="600" fill="var(--ink-2)">${esc(s.name)}</text>`;
+  }
+  g += `<line id="xh" x1="0" y1="${padT}" x2="0" y2="${padT+ih}" stroke="var(--baseline)" stroke-width="1" style="display:none"/>`;
+  series.forEach((s,si)=>{ g += `<circle id="hp${si}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2" style="display:none"/>`; });
+
+  el.innerHTML = `
+    <div class="legend">${series.map(s=>`<span class="li"><span class="swatch" style="background:${s.color}"></span>${esc(s.name)}</span>`).join("")}</div>
+    <svg viewBox="0 0 ${W} ${H}" role="img" aria-label="Graphique">${g}</svg>`;
+
+  const svg = el.querySelector("svg"), tt = $("#tooltip");
+  const xh = svg.querySelector("#xh");
+  svg.addEventListener("mousemove", ev => {
+    const r = svg.getBoundingClientRect();
+    const mx = (ev.clientX - r.left) * (W/r.width);
+    let i = Math.round((mx-padL)/(iw/Math.max(1,labels.length-1)));
+    i = Math.max(0, Math.min(labels.length-1, i));
+    xh.setAttribute("x1", x(i)); xh.setAttribute("x2", x(i)); xh.style.display="";
+    series.forEach((s,si)=>{ const c=svg.querySelector("#hp"+si);
+      c.setAttribute("cx",x(i)); c.setAttribute("cy",y(s.values[i])); c.style.display=""; });
+    tt.style.display="block";
+    tt.innerHTML = `<div class="tt-title">${esc(labels[i])}</div>` +
+      series.map(s=>`<div class="tt-row"><span><span class="sw" style="background:${s.color}"></span>${esc(s.name)}</span><b>${eur(s.values[i])}</b></div>`).join("");
+    const tw = tt.offsetWidth;
+    let left = ev.clientX + 14; if (left + tw > window.innerWidth-8) left = ev.clientX - tw - 14;
+    tt.style.left = left+"px"; tt.style.top = (ev.clientY+12)+"px";
+  });
+  svg.addEventListener("mouseleave", ()=>{
+    tt.style.display="none"; xh.style.display="none";
+    series.forEach((s,si)=>svg.querySelector("#hp"+si).style.display="none");
+  });
+}
+
+/* Barres horizontales pour le mix produits (identité => couleurs catégorielles fixes) */
+function mixBars(el, items){
+  const max = Math.max(1, ...items.map(i=>i.value));
+  el.innerHTML = `<div class="mix">` + items.map((it,i)=>`
+    <div class="mrow">
+      <span class="mlabel"><span class="sw" style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${MIX_COLORS[i%MIX_COLORS.length]};margin-right:7px"></span>${esc(it.label)}</span>
+      <span class="mtrack"><span class="mfill" style="width:${Math.max(it.value>0?1.5:0, it.value/max*100)}%;background:${MIX_COLORS[i%MIX_COLORS.length]}"></span></span>
+      <span class="mval">${eur(it.value)}</span>
+    </div>`).join("") + `</div>`;
+}
+
+
+/* ================================================================
+   Vues
+   ================================================================ */
+function weekSelector(id, extra=""){
+  const codes = state.semaines.map(s=>s.code).sort(wcmp);
+  return `<label class="fld"><span>Semaine suivie</span>
+    <select id="${id}" ${extra}>${codes.map(c=>`<option value="${c}" ${c===state.week?"selected":""}>${c}</option>`).join("")}</select>
+  </label>`;
+}
+function consSelector(id, selectedId, all=false){
+  const opts = activeConseillers().map(c=>`<option value="${c.id}" ${c.id===selectedId?"selected":""}>${esc(c.nom)}</option>`);
+  return `<label class="fld"><span>Conseiller</span>
+    <select id="${id}">${all?'<option value="">Tous</option>':''}${opts.join("")}</select></label>`;
+}
+const tile = (label, value, sub="") => `<div class="tile"><div class="t-label">${label}</div><div class="t-value">${value}</div>${sub?`<div class="t-sub">${sub}</div>`:""}</div>`;
+const badgeHTML = a => `<span class="badge ${a.cls}"><span class="dot"></span>${a.icon} ${a.label}</span>`;
+
+/* ---------------- Dashboard équipe (manager) ---------------- */
+function viewDashboard(root){
+  const week = state.week;
+  const cons = activeConseillers();
+  const rows = cons.map(c => {
+    const w = weekAgg(c.id, week), p = pipeAgg(c.id);
+    const proj = w.ca_total + p.pond - p.signe;
+    return {c, w, p, proj, al: alerte(proj, c.objectif_ca_hebdo||0)};
+  });
+  const sum = k => rows.reduce((a,r)=>a+r.w[k],0);
+  const caEq = sum("ca_total"), collEq = sum("collecte_totale"), rdvEq = sum("rdv");
+  const pondEq = rows.reduce((a,r)=>a+r.p.pond,0);
+  const projEq = rows.reduce((a,r)=>a+r.proj,0);
+  const objCAEq = cons.reduce((a,c)=>a+(c.objectif_ca_hebdo||0),0);
+  const objRdvEq = cons.reduce((a,c)=>a+(c.objectif_rdv_hebdo||0),0);
+  const mix = [
+    {label:"CA SCPI", value:sum("ca_scpi")},
+    {label:"CA structurés", value:sum("ca_structures")},
+    {label:"CA audit / hono.", value:sum("ca_audit")},
+    {label:"CA autres", value:sum("ca_autres")},
+    {label:"Collecte totale", value:collEq},
+  ];
+
+  root.innerHTML = `
+  <div class="section-head"><h2>Dashboard équipe</h2>
+    <span class="sub">Semaine actuelle : ${todayWeekCode()}</span><span class="spacer"></span>
+    <div class="inline-controls">${weekSelector("dash-week")}</div>
+  </div>
+  <div class="tiles">
+    ${tile("CA équipe", eur(caEq), `Objectif hebdo : ${eur(objCAEq)} — ${caEq>=objCAEq?`<span class="up">✓ atteint</span>`:fmtPct(objCAEq?caEq/objCAEq:0)}`)}
+    ${tile("Collecte équipe", eur(collEq))}
+    ${tile("RDV équipe", fmtNum.format(rdvEq), `Objectif : ${fmtNum.format(objRdvEq)}`)}
+    ${tile("Pipeline pondéré", eur(pondEq))}
+    ${tile("Projection équipe", eur(projEq), "CA + pipeline pondéré − signé")}
+  </div>
+
+  <div class="section-head"><h2>Conseillers — semaine ${esc(week)}</h2></div>
+  <div class="card tbl-scroll">
+    <table class="tbl dense">
+      <thead><tr>
+        <th>Conseiller</th><th class="num">Obj. CA</th><th class="num">RDV</th><th class="num">Obj. RDV</th>
+        <th class="num">CA total</th><th class="num">CA SCPI</th><th class="num">CA struct.</th>
+        <th class="num">CA audit</th><th class="num">CA autres</th><th class="num">Collecte</th>
+        <th class="num">Pipe pondéré</th><th class="num">Pipe signé</th><th class="num">Projection</th>
+        <th class="num">CA / RDV</th><th>Alerte</th>
+      </tr></thead>
+      <tbody>
+        ${rows.map(r=>`<tr>
+          <td><button class="linklike" data-fiche="${r.c.id}">${esc(r.c.nom)}</button></td>
+          <td class="num">${eur(r.c.objectif_ca_hebdo)}</td>
+          <td class="num">${fmtNum.format(r.w.rdv)}</td>
+          <td class="num">${fmtNum.format(r.c.objectif_rdv_hebdo)}</td>
+          <td class="num">${eur(r.w.ca_total)}</td>
+          <td class="num">${eur(r.w.ca_scpi)}</td>
+          <td class="num">${eur(r.w.ca_structures)}</td>
+          <td class="num">${eur(r.w.ca_audit)}</td>
+          <td class="num">${eur(r.w.ca_autres)}</td>
+          <td class="num">${eur(r.w.collecte_totale)}</td>
+          <td class="num">${eur(r.p.pond)}</td>
+          <td class="num">${eur(r.p.signe)}</td>
+          <td class="num"><b>${eur(r.proj)}</b></td>
+          <td class="num">${eur(r.w.rdv? r.w.ca_total/r.w.rdv : 0)}</td>
+          <td>${badgeHTML(r.al)}</td>
+        </tr>`).join("")}
+        <tr class="total">
+          <td>Équipe</td><td class="num">${eur(objCAEq)}</td><td class="num">${fmtNum.format(rdvEq)}</td>
+          <td class="num">${fmtNum.format(objRdvEq)}</td><td class="num">${eur(caEq)}</td>
+          <td class="num">${eur(sum("ca_scpi"))}</td><td class="num">${eur(sum("ca_structures"))}</td>
+          <td class="num">${eur(sum("ca_audit"))}</td><td class="num">${eur(sum("ca_autres"))}</td>
+          <td class="num">${eur(collEq)}</td><td class="num">${eur(pondEq)}</td>
+          <td class="num">${eur(rows.reduce((a,r)=>a+r.p.signe,0))}</td>
+          <td class="num">${eur(projEq)}</td><td></td><td></td>
+        </tr>
+      </tbody>
+    </table>
+  </div>
+
+  <div class="row" style="margin-top:16px">
+    <div class="card grow">
+      <h3 class="mt0">Mix produits — semaine ${esc(week)}</h3>
+      <div id="dash-mix"></div>
+    </div>
+    <div class="card grow">
+      <h3 class="mt0">Mode d'emploi réunion</h3>
+      <ol class="challenge">
+        <li>Choisir la semaine suivie ci-dessus</li>
+        <li>Lire chaque ligne : RDV, CA, collecte, pipeline, projection</li>
+        <li>Challenge immédiat si alerte = Urgent</li>
+        <li>Descendre ensuite dans le Pipeline pour voir les signatures probables</li>
+      </ol>
+    </div>
+  </div>`;
+
+  mixBars($("#dash-mix"), mix);
+  $("#dash-week").addEventListener("change", e=>{ state.week = e.target.value; render(); });
+  root.querySelectorAll("[data-fiche]").forEach(b=>b.addEventListener("click", ()=>{
+    state.ficheConseillerId = +b.dataset.fiche; go("fiche");
+  }));
+}
+
+/* ---------------- Progression annuelle (manager) ---------------- */
+function viewProgression(root){
+  const serie = teamSeries(state.week);
+  const last = serie[serie.length-1] || {cumCA:0,cumObjCA:0,cumColl:0,cumObjColl:0,tauxCA:0,tauxColl:0};
+  root.innerHTML = `
+  <div class="section-head"><h2>Progression annuelle de l'équipe</h2>
+    <span class="sub">cumul depuis ${esc(state.semaines[0]?.code||"")} jusqu'à la semaine suivie</span>
+    <span class="spacer"></span><div class="inline-controls">${weekSelector("prog-week")}</div>
+  </div>
+  <div class="tiles">
+    ${tile("CA cumulé", eur(last.cumCA), `Objectif : ${eur(last.cumObjCA)}`)}
+    ${tile("Taux d'atteinte CA", fmtPct(last.tauxCA), last.tauxCA>=1?`<span class="up">✓ au-dessus de l'objectif</span>`:`<span class="down">sous l'objectif</span>`)}
+    ${tile("Collecte cumulée", eur(last.cumColl), `Objectif : ${eur(last.cumObjColl)}`)}
+    ${tile("Taux d'atteinte collecte", fmtPct(last.tauxColl), last.tauxColl>=1?`<span class="up">✓ au-dessus de l'objectif</span>`:`<span class="down">sous l'objectif</span>`)}
+  </div>
+  <div class="row" style="margin-top:16px">
+    <div class="card grow chart-card"><h3 class="mt0">CA cumulé vs objectif</h3><div id="chart-ca"></div></div>
+    <div class="card grow chart-card"><h3 class="mt0">Collecte cumulée vs objectif</h3><div id="chart-coll"></div></div>
+  </div>
+  <div class="section-head"><h2>Détail par semaine</h2>
+    <button class="btn secondary small" id="prog-toggle">Afficher le tableau</button></div>
+  <div class="card tbl-scroll" id="prog-table" style="display:none">
+    <table class="tbl">
+      <thead><tr><th>Semaine</th><th class="num">CA hebdo</th><th class="num">CA cumulé</th><th class="num">Obj. cumulé</th><th class="num">Taux</th>
+      <th class="num">Collecte hebdo</th><th class="num">Collecte cumulée</th><th class="num">Obj. cumulé</th><th class="num">Taux</th></tr></thead>
+      <tbody>${serie.map(r=>`<tr><td>${esc(r.week)}</td>
+        <td class="num">${eur(r.ca)}</td><td class="num">${eur(r.cumCA)}</td><td class="num">${eur(r.cumObjCA)}</td><td class="num">${fmtPct(r.tauxCA)}</td>
+        <td class="num">${eur(r.coll)}</td><td class="num">${eur(r.cumColl)}</td><td class="num">${eur(r.cumObjColl)}</td><td class="num">${fmtPct(r.tauxColl)}</td>
+      </tr>`).join("")}</tbody>
+    </table>
+  </div>`;
+
+  const labels = serie.map(r=>r.week);
+  lineChart($("#chart-ca"), {labels, series:[
+    {name:"Réalisé", color:"var(--s1)", values:serie.map(r=>r.cumCA)},
+    {name:"Objectif", color:"var(--s2)", values:serie.map(r=>r.cumObjCA), dashed:true},
+  ]});
+  lineChart($("#chart-coll"), {labels, series:[
+    {name:"Réalisé", color:"var(--s1)", values:serie.map(r=>r.cumColl)},
+    {name:"Objectif", color:"var(--s2)", values:serie.map(r=>r.cumObjColl), dashed:true},
+  ]});
+  $("#prog-week").addEventListener("change", e=>{ state.week = e.target.value; render(); });
+  $("#prog-toggle").addEventListener("click", ()=>{
+    const t = $("#prog-table"); const vis = t.style.display !== "none";
+    t.style.display = vis? "none":""; $("#prog-toggle").textContent = vis? "Afficher le tableau" : "Masquer le tableau";
+  });
+}
+
+/* ---------------- Saisie hebdo ---------------- */
+function viewSaisie(root){
+  const editable = activeConseillers();
+  if (!state.saisieConseillerId || !editable.some(c=>c.id===state.saisieConseillerId))
+    state.saisieConseillerId = isManager()? (editable[0]?.id||null) : state.profile.conseiller_id;
+  const consId = state.saisieConseillerId;
+  const ex = state.saisies.find(s=>s.conseiller_id===consId && s.semaine===state.week);
+  const v = ex ? computed(ex) : computed({});
+
+  const numFld = (id,label,val,step="1") =>
+    `<label class="fld"><span>${label}</span><input type="number" id="${id}" value="${val??0}" min="0" step="${step}"></label>`;
+
+  const myHist = state.saisies.filter(s=>s.conseiller_id===consId).map(computed).sort((a,b)=>wcmp(b.semaine,a.semaine));
+
+  root.innerHTML = `
+  <div class="section-head"><h2>Saisie hebdomadaire</h2>
+    <span class="sub">1 ligne = 1 conseiller × 1 semaine — uniquement le réalisé</span></div>
+  <div class="row">
+    <div class="card" style="width:660px;max-width:100%">
+      <div class="inline-controls" style="margin-bottom:14px">
+        ${isManager()? consSelector("sa-cons", consId) : `<label class="fld"><span>Conseiller</span><input type="text" value="${esc(consName(consId))}" disabled></label>`}
+        ${weekSelector("sa-week")}
+      </div>
+      <div class="form-grid">
+        ${numFld("sa-rdv","RDV réalisés", v.rdv)}
+        ${numFld("sa-sig","Nb signatures", v.nb_signatures)}
+        ${numFld("sa-cscpi","Collecte SCPI (€)", v.collecte_scpi, "any")}
+        <label class="fld"><span>CA SCPI (auto : 5 % de la collecte)</span><input type="text" id="sa-cascpi" value="${eur2(v.ca_scpi)}" disabled></label>
+        ${numFld("sa-cstru","Collecte structurés (€)", v.collecte_structures, "any")}
+        ${numFld("sa-castru","CA structurés (€)", v.ca_structures, "any")}
+        ${numFld("sa-caud","Collecte audit / hono (€)", v.collecte_audit, "any")}
+        ${numFld("sa-caaud","CA audit / hono (€)", v.ca_audit, "any")}
+        ${numFld("sa-cass","Collecte assurance PER / autre (€)", v.collecte_assurance, "any")}
+        ${numFld("sa-caautres","CA collecte et autres (€)", v.ca_autres, "any")}
+        <label class="fld full"><span>Commentaire</span><textarea id="sa-comm" rows="2">${esc(v.commentaire||"")}</textarea></label>
+      </div>
+      <div class="row" style="align-items:center;justify-content:space-between">
+        <div class="small muted" id="sa-totaux"></div>
+        <button class="btn" id="sa-save">${ex? "Mettre à jour la semaine" : "Enregistrer la semaine"}</button>
+      </div>
+    </div>
+    <div class="card grow">
+      <h3 class="mt0">Historique — ${esc(consName(consId))}</h3>
+      <div class="tbl-scroll"><table class="tbl">
+        <thead><tr><th>Semaine</th><th class="num">RDV</th><th class="num">CA total</th><th class="num">Collecte</th><th class="num">CA/RDV</th><th></th></tr></thead>
+        <tbody>${myHist.map(s=>`<tr>
+          <td>${esc(s.semaine)}</td><td class="num">${fmtNum.format(s.rdv||0)}</td>
+          <td class="num">${eur2(s.ca_total)}</td><td class="num">${eur(s.collecte_totale)}</td>
+          <td class="num">${eur(s.rdv? s.ca_total/s.rdv:0)}</td>
+          <td class="rowactions"><button class="btn secondary small" data-edit="${esc(s.semaine)}">Ouvrir</button>
+              <button class="btn danger small" data-del="${s.id}">✕</button></td>
+        </tr>`).join("") || `<tr><td colspan="6" class="muted">Aucune saisie</td></tr>`}</tbody>
+      </table></div>
+    </div>
+  </div>`;
+
+  const upd = ()=>{
+    const cscpi = +$("#sa-cscpi").value||0;
+    const ca = round2(cscpi*0.05) + (+$("#sa-castru").value||0) + (+$("#sa-caaud").value||0) + (+$("#sa-caautres").value||0);
+    const coll = cscpi + (+$("#sa-cass").value||0);
+    $("#sa-cascpi").value = eur2(round2(cscpi*0.05));
+    $("#sa-totaux").innerHTML = `CA total : <b>${eur2(ca)}</b> &nbsp;·&nbsp; Collecte totale : <b>${eur(coll)}</b>`;
+  };
+  upd();
+  ["sa-cscpi","sa-castru","sa-caaud","sa-caautres","sa-cass"].forEach(id=>$("#"+id).addEventListener("input", upd));
+  if (isManager()) $("#sa-cons").addEventListener("change", e=>{ state.saisieConseillerId = +e.target.value; render(); });
+  $("#sa-week").addEventListener("change", e=>{ state.week = e.target.value; render(); });
+  $("#sa-save").addEventListener("click", async ()=>{
+    try{
+      await state.db.upsertSaisie({
+        semaine: state.week, conseiller_id: consId,
+        rdv:+$("#sa-rdv").value||0, nb_signatures:+$("#sa-sig").value||0,
+        collecte_scpi:+$("#sa-cscpi").value||0,
+        collecte_structures:+$("#sa-cstru").value||0, ca_structures:+$("#sa-castru").value||0,
+        collecte_audit:+$("#sa-caud").value||0, ca_audit:+$("#sa-caaud").value||0,
+        collecte_assurance:+$("#sa-cass").value||0, ca_autres:+$("#sa-caautres").value||0,
+        commentaire:$("#sa-comm").value.trim(),
+      });
+      await state.db.loadAll(); toast("Semaine enregistrée ✓"); render();
+    }catch(err){ toast("Erreur : " + (err.message||err)); }
+  });
+  root.querySelectorAll("[data-edit]").forEach(b=>b.addEventListener("click", ()=>{ state.week = b.dataset.edit; render(); }));
+  root.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click", async ()=>{
+    if (!confirm("Supprimer cette saisie ?")) return;
+    try{ await state.db.deleteSaisie(+b.dataset.del); await state.db.loadAll(); toast("Saisie supprimée"); render(); }
+    catch(err){ toast("Erreur : " + (err.message||err)); }
+  }));
+}
+
+/* ---------------- Pipeline ---------------- */
+function viewPipeline(root){
+  const fEtape = state._pipeEtape || "";
+  const fCons = isManager()? (state._pipeCons ?? "") : String(state.profile.conseiller_id);
+  let rows = state.pipeline.filter(p => (!fEtape || p.etape===fEtape) && (!fCons || p.conseiller_id===+fCons));
+  rows = [...rows].sort((a,b)=> pondere(b)-pondere(a));
+  const pond = rows.reduce((a,p)=>a+pondere(p),0);
+  const signe = rows.filter(p=>(p.etape||"").toLowerCase()==="signé").reduce((a,p)=>a+pondere(p),0);
+
+  root.innerHTML = `
+  <div class="section-head"><h2>Pipeline opportunités</h2>
+    <span class="sub">1 ligne = 1 opportunité — valeur pondérée = CA potentiel × probabilité</span>
+    <span class="spacer"></span>
+    <button class="btn" id="pi-add">+ Nouvelle opportunité</button></div>
+  <div class="inline-controls" style="margin-bottom:12px">
+    ${isManager()? consSelector("pi-cons", fCons? +fCons : null, true) : ""}
+    <label class="fld"><span>Étape</span><select id="pi-etape"><option value="">Toutes</option>
+      ${ETAPES.map(e=>`<option ${e===fEtape?"selected":""}>${e}</option>`).join("")}</select></label>
+  </div>
+  <div class="tiles" style="margin-bottom:12px">
+    ${tile("Opportunités", rows.length)}
+    ${tile("Pipeline pondéré", eur(pond))}
+    ${tile("Dont signé", eur(signe))}
+    ${tile("Signatures probables cette semaine", rows.filter(p=>p.signature_probable).length)}
+  </div>
+  <div class="card tbl-scroll">
+    <table class="tbl">
+      <thead><tr><th>Conseiller</th><th>Client</th><th>Support</th><th>Étape</th>
+      <th class="num">Collecte pot.</th><th class="num">CA pot.</th><th class="num">Proba.</th><th class="num">Valeur pondérée</th>
+      <th>Closing</th><th>Priorité</th><th>Prochaine action</th><th>Sign. probable</th><th></th></tr></thead>
+      <tbody>${rows.map(p=>`<tr>
+        <td>${esc(consName(p.conseiller_id))}</td><td>${esc(p.client)}</td><td>${esc(p.support)}</td>
+        <td>${(p.etape||"").toLowerCase()==="signé" ? `<span class="badge ok"><span class="dot"></span>✓ Signé</span>` : esc(p.etape)}</td>
+        <td class="num">${eur(p.collecte_potentielle)}</td><td class="num">${eur(p.ca_potentiel)}</td>
+        <td class="num">${fmtPct(p.probabilite||0)}</td><td class="num"><b>${eur(pondere(p))}</b></td>
+        <td>${p.closing_prevu? new Date(p.closing_prevu).toLocaleDateString("fr-FR") : "—"}</td>
+        <td>${esc(p.priorite||"—")}</td><td style="white-space:normal;min-width:160px">${esc(p.prochaine_action||"")}</td>
+        <td>${p.signature_probable? `<span class="badge watch"><span class="dot"></span>! Oui</span>`:"—"}</td>
+        <td class="rowactions"><button class="btn secondary small" data-edit="${p.id}">Modifier</button>
+            <button class="btn danger small" data-del="${p.id}">✕</button></td>
+      </tr>`).join("") || `<tr><td colspan="13" class="muted">Aucune opportunité</td></tr>`}</tbody>
+    </table>
+  </div>`;
+
+  if (isManager()) $("#pi-cons").addEventListener("change", e=>{ state._pipeCons = e.target.value; render(); });
+  $("#pi-etape").addEventListener("change", e=>{ state._pipeEtape = e.target.value; render(); });
+  $("#pi-add").addEventListener("click", ()=>pipeModal(null));
+  root.querySelectorAll("[data-edit]").forEach(b=>b.addEventListener("click", ()=>pipeModal(state.pipeline.find(p=>p.id===+b.dataset.edit))));
+  root.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click", async ()=>{
+    if (!confirm("Supprimer cette opportunité ?")) return;
+    try{ await state.db.deletePipeline(+b.dataset.del); await state.db.loadAll(); toast("Opportunité supprimée"); render(); }
+    catch(err){ toast("Erreur : " + (err.message||err)); }
+  }));
+}
+
+function pipeModal(p){
+  const isNew = !p;
+  p = p || {conseiller_id: isManager()? activeConseillers()[0]?.id : state.profile.conseiller_id,
+            client:"", support:"SCPI", etape:"Prise de contact", collecte_potentielle:0, ca_potentiel:0,
+            probabilite:0.5, closing_prevu:null, priorite:"Moyenne", prochaine_action:"", signature_probable:false};
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal">
+    <h3>${isNew? "Nouvelle opportunité" : "Modifier l'opportunité"}</h3>
+    <div class="form-grid">
+      ${isManager()? `<label class="fld"><span>Conseiller</span><select id="pm-cons">
+        ${activeConseillers().map(c=>`<option value="${c.id}" ${c.id===p.conseiller_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`
+        : `<label class="fld"><span>Conseiller</span><input type="text" value="${esc(consName(p.conseiller_id))}" disabled></label>`}
+      <label class="fld"><span>Client</span><input type="text" id="pm-client" value="${esc(p.client)}"></label>
+      <label class="fld"><span>Support</span><select id="pm-support">${SUPPORTS.map(s=>`<option ${s===p.support?"selected":""}>${s}</option>`).join("")}</select></label>
+      <label class="fld"><span>Étape</span><select id="pm-etape">${ETAPES.map(e=>`<option ${e===p.etape?"selected":""}>${e}</option>`).join("")}</select></label>
+      <label class="fld"><span>Collecte potentielle (€)</span><input type="number" id="pm-coll" value="${p.collecte_potentielle||0}" min="0" step="any"></label>
+      <label class="fld"><span>CA potentiel (€)</span><input type="number" id="pm-ca" value="${p.ca_potentiel||0}" min="0" step="any"></label>
+      <label class="fld"><span>Probabilité</span><select id="pm-proba">${PROBAS.map(x=>`<option value="${x}" ${x===+p.probabilite?"selected":""}>${fmtPct(x)}</option>`).join("")}</select></label>
+      <label class="fld"><span>Valeur pondérée (auto)</span><input type="text" id="pm-pond" value="${eur(pondere(p))}" disabled></label>
+      <label class="fld"><span>Closing prévu</span><input type="date" id="pm-closing" value="${p.closing_prevu||""}"></label>
+      <label class="fld"><span>Priorité</span><select id="pm-prio"><option value="">—</option>${PRIORITES.map(x=>`<option ${x===p.priorite?"selected":""}>${x}</option>`).join("")}</select></label>
+      <label class="fld full"><span>Prochaine action</span><input type="text" id="pm-action" value="${esc(p.prochaine_action)}"></label>
+      <label class="fld full"><span><input type="checkbox" id="pm-sig" ${p.signature_probable?"checked":""} style="width:auto;margin-right:8px">Signature probable cette semaine</span></label>
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="pm-cancel">Annuler</button>
+      <button class="btn" id="pm-save">Enregistrer</button>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  const updPond = ()=>{ back.querySelector("#pm-pond").value = eur((+back.querySelector("#pm-ca").value||0)*(+back.querySelector("#pm-proba").value||0)); };
+  back.querySelector("#pm-ca").addEventListener("input", updPond);
+  back.querySelector("#pm-proba").addEventListener("change", updPond);
+  back.querySelector("#pm-cancel").addEventListener("click", ()=>back.remove());
+  back.addEventListener("click", e=>{ if(e.target===back) back.remove(); });
+  back.querySelector("#pm-save").addEventListener("click", async ()=>{
+    try{
+      await state.db.savePipeline({
+        id: p.id,
+        conseiller_id: isManager()? +back.querySelector("#pm-cons").value : p.conseiller_id,
+        client: back.querySelector("#pm-client").value.trim(),
+        support: back.querySelector("#pm-support").value,
+        etape: back.querySelector("#pm-etape").value,
+        collecte_potentielle: +back.querySelector("#pm-coll").value||0,
+        ca_potentiel: +back.querySelector("#pm-ca").value||0,
+        probabilite: +back.querySelector("#pm-proba").value||0,
+        closing_prevu: back.querySelector("#pm-closing").value || null,
+        priorite: back.querySelector("#pm-prio").value,
+        prochaine_action: back.querySelector("#pm-action").value.trim(),
+        signature_probable: back.querySelector("#pm-sig").checked,
+      });
+      back.remove(); await state.db.loadAll(); toast("Opportunité enregistrée ✓"); render();
+    }catch(err){ toast("Erreur : " + (err.message||err)); }
+  });
+}
+
+
+/* ---------------- Fiche conseiller ---------------- */
+function viewFiche(root){
+  const list = activeConseillers();
+  if (!state.ficheConseillerId || !list.some(c=>c.id===state.ficheConseillerId))
+    state.ficheConseillerId = isManager()? (list[0]?.id||null) : state.profile.conseiller_id;
+  const consId = state.ficheConseillerId;
+  const c = state.conseillers.find(x=>x.id===consId);
+  if (!c){ root.innerHTML = `<div class="card">Aucun conseiller associé à ce compte. Contacte le manager.</div>`; return; }
+
+  const w = weekAgg(consId, state.week), p = pipeAgg(consId);
+  const proj = w.ca_total + p.pond - p.signe;
+  const al = alerte(proj, c.objectif_ca_hebdo||0);
+  const cu = cumul(consId, state.week);
+  const serie = consSeries(consId, state.week);
+  const mix = [
+    {label:"SCPI", value:w.ca_scpi},
+    {label:"Produit structuré", value:w.ca_structures},
+    {label:"Audit / honoraires", value:w.ca_audit},
+    {label:"Autres", value:w.ca_autres},
+  ];
+
+  root.innerHTML = `
+  <div class="section-head"><h2>${isManager()? "Fiche conseiller" : "Ma semaine"} — ${esc(c.nom)}</h2>
+    <span class="spacer"></span>
+    <div class="inline-controls">
+      ${isManager()? consSelector("fi-cons", consId) : ""}
+      ${weekSelector("fi-week")}
+    </div>
+  </div>
+  <div class="tiles">
+    ${tile("RDV", `${fmtNum.format(w.rdv)} <span class="small muted">/ ${fmtNum.format(c.objectif_rdv_hebdo||0)}</span>`)}
+    ${tile("CA total", eur2(w.ca_total), `Objectif : ${eur(c.objectif_ca_hebdo)}`)}
+    ${tile("Collecte", eur(w.collecte_totale))}
+    ${tile("Pipeline pondéré", eur(p.pond))}
+    ${tile("Projection", eur(proj), badgeHTML(al))}
+    ${tile("CA / RDV", eur(w.rdv? w.ca_total/w.rdv : 0))}
+    ${tile("Signatures probables", p.sigProb, "dans le pipeline")}
+  </div>
+
+  <div class="row" style="margin-top:16px">
+    <div class="card grow">
+      <h3 class="mt0">Répartition CA par support — ${esc(state.week)}</h3>
+      <div id="fi-mix"></div>
+    </div>
+    <div class="card grow">
+      <h3 class="mt0">Points à challenger</h3>
+      <ol class="challenge">
+        <li>Quels dossiers doivent signer cette semaine ?</li>
+        <li>Quel blocage empêche la signature ?</li>
+        <li>Quelle action concrète d'ici la prochaine réunion ?</li>
+      </ol>
+    </div>
+  </div>
+
+  <div class="section-head"><h2>Progression cumulée</h2>
+    <span class="sub">depuis ${esc(state.semaines[0]?.code||"")} (${cu.nSemaines} semaines)</span></div>
+  <div class="tiles">
+    ${tile("RDV cumulés", fmtNum.format(cu.rdv))}
+    ${tile("CA cumulé", eur2(cu.ca), `Objectif : ${eur(cu.objCA)} — ${cu.objCA? fmtPct(cu.ca/cu.objCA):"—"}`)}
+    ${tile("Collecte cumulée", eur(cu.collecte), `Objectif : ${eur(cu.objCollecte)} — ${cu.objCollecte? fmtPct(cu.collecte/cu.objCollecte):"—"}`)}
+    ${tile("Projection à date", eur(cu.ca + p.pond - p.signe), "CA cumulé + pipeline pondéré − signé")}
+  </div>
+
+  <div class="row" style="margin-top:16px">
+    <div class="card grow chart-card"><h3 class="mt0">CA cumulé vs objectif</h3><div id="fi-chart"></div></div>
+    <div class="card grow">
+      <h3 class="mt0">Historique hebdomadaire</h3>
+      <div class="tbl-scroll" style="max-height:300px;overflow-y:auto"><table class="tbl">
+        <thead><tr><th>Semaine</th><th class="num">CA</th><th class="num">CA cumulé</th><th class="num">Collecte</th><th class="num">RDV</th></tr></thead>
+        <tbody>${[...serie].reverse().map(r=>`<tr><td>${esc(r.week)}</td>
+          <td class="num">${eur2(r.ca)}</td><td class="num">${eur2(r.cumCA)}</td>
+          <td class="num">${eur(r.coll)}</td><td class="num">${fmtNum.format(r.rdv)}</td></tr>`).join("")}</tbody>
+      </table></div>
+    </div>
+  </div>`;
+
+  mixBars($("#fi-mix"), mix);
+  lineChart($("#fi-chart"), {labels:serie.map(r=>r.week), series:[
+    {name:"Réalisé", color:"var(--s1)", values:serie.map(r=>r.cumCA)},
+    {name:"Objectif", color:"var(--s2)", values:serie.map(r=>r.cumObj), dashed:true},
+  ]});
+  if (isManager()) $("#fi-cons").addEventListener("change", e=>{ state.ficheConseillerId = +e.target.value; render(); });
+  $("#fi-week").addEventListener("change", e=>{ state.week = e.target.value; render(); });
+}
+
+/* ---------------- Paramétrage (manager) ---------------- */
+function viewParam(root){
+  const lastSem = [...state.semaines].sort((a,b)=>wcmp(a.code,b.code)).slice(-1)[0];
+  root.innerHTML = `
+  <div class="section-head"><h2>Paramétrage</h2></div>
+  <div class="row">
+    <div class="card grow">
+      <h3 class="mt0">Conseillers et objectifs hebdomadaires</h3>
+      <div class="tbl-scroll"><table class="tbl">
+        <thead><tr><th>Conseiller</th><th class="num">Obj. CA (€)</th><th class="num">Obj. collecte (€)</th><th class="num">Obj. RDV</th><th>Actif</th><th></th></tr></thead>
+        <tbody>
+        ${state.conseillers.map(c=>`<tr data-cid="${c.id}">
+          <td><input type="text" class="pc-nom" value="${esc(c.nom)}" style="width:130px"></td>
+          <td class="num"><input type="number" class="pc-ca" value="${c.objectif_ca_hebdo||0}" style="width:100px"></td>
+          <td class="num"><input type="number" class="pc-coll" value="${c.objectif_collecte_hebdo||0}" style="width:110px"></td>
+          <td class="num"><input type="number" class="pc-rdv" value="${c.objectif_rdv_hebdo||0}" style="width:70px"></td>
+          <td><input type="checkbox" class="pc-actif" ${c.actif!==false?"checked":""} style="width:auto"></td>
+          <td class="num"><button class="btn secondary small pc-save">Enregistrer</button></td>
+        </tr>`).join("")}
+        </tbody>
+      </table></div>
+      <div style="margin-top:12px"><button class="btn secondary small" id="pc-add">+ Ajouter un conseiller</button></div>
+      <p class="small muted">Un conseiller désactivé n'apparaît plus dans le dashboard ni dans les formulaires, mais son historique est conservé.</p>
+    </div>
+    <div class="card" style="width:360px;max-width:100%">
+      <h3 class="mt0">Calendrier des semaines</h3>
+      <p class="small">${state.semaines.length} semaines paramétrées, de <b>${esc(state.semaines[0]?.code||"—")}</b> à <b>${esc(lastSem?.code||"—")}</b>.</p>
+      <button class="btn secondary small" id="ps-add">+ Ajouter 12 semaines</button>
+    </div>
+  </div>
+
+  <div class="section-head"><h2>Comptes et accès</h2></div>
+  <div class="card">
+    <div class="helpbox" style="margin-bottom:12px">
+      <b>Comment ça marche :</b> chaque collaborateur se connecte avec un email + mot de passe.
+      Le compte de connexion se crée dans <b>Supabase &gt; Authentication &gt; Users &gt; Add user</b> (voir le guide).
+      Le tableau ci-dessous associe chaque email à un rôle (manager ou conseiller) et à sa fiche conseiller —
+      c'est lui qui décide de ce que la personne peut voir.
+    </div>
+    <div class="tbl-scroll"><table class="tbl">
+      <thead><tr><th>Email de connexion</th><th>Rôle</th><th>Conseiller associé</th><th></th></tr></thead>
+      <tbody>
+      ${state.profiles.map(pr=>`<tr data-email="${esc(pr.email)}">
+        <td><input type="email" class="pp-email" value="${esc(pr.email)}" style="width:230px"></td>
+        <td><select class="pp-role"><option value="manager" ${pr.role==="manager"?"selected":""}>Manager</option>
+            <option value="conseiller" ${pr.role==="conseiller"?"selected":""}>Conseiller</option></select></td>
+        <td><select class="pp-cons"><option value="">—</option>
+          ${state.conseillers.map(c=>`<option value="${c.id}" ${c.id===pr.conseiller_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></td>
+        <td class="num"><button class="btn secondary small pp-save">Enregistrer</button>
+            <button class="btn danger small pp-del">✕</button></td>
+      </tr>`).join("")}
+      </tbody>
+    </table></div>
+    <div style="margin-top:12px"><button class="btn secondary small" id="pp-add">+ Ajouter un accès</button></div>
+  </div>`;
+
+  root.querySelectorAll(".pc-save").forEach(b=>b.addEventListener("click", async ()=>{
+    const tr = b.closest("tr");
+    try{
+      await state.db.saveConseiller({
+        id:+tr.dataset.cid, nom:tr.querySelector(".pc-nom").value.trim(),
+        objectif_ca_hebdo:+tr.querySelector(".pc-ca").value||0,
+        objectif_collecte_hebdo:+tr.querySelector(".pc-coll").value||0,
+        objectif_rdv_hebdo:+tr.querySelector(".pc-rdv").value||0,
+        actif:tr.querySelector(".pc-actif").checked,
+      });
+      await state.db.loadAll(); toast("Conseiller enregistré ✓"); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  $("#pc-add").addEventListener("click", async ()=>{
+    const nom = prompt("Nom du nouveau conseiller :");
+    if (!nom) return;
+    try{ await state.db.saveConseiller({nom:nom.trim(), objectif_ca_hebdo:0, objectif_collecte_hebdo:0, objectif_rdv_hebdo:0, actif:true});
+      await state.db.loadAll(); toast("Conseiller ajouté ✓"); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+  $("#ps-add").addEventListener("click", async ()=>{
+    try{
+      const last = [...state.semaines].sort((a,b)=>wcmp(a.code,b.code)).slice(-1)[0];
+      let lundi = new Date(last.lundi+"T00:00:00");
+      const rows = [];
+      for (let i=0;i<12;i++){
+        lundi = new Date(lundi.getTime() + 7*86400000);
+        const {year, week} = isoWeek(lundi);
+        rows.push({code:weekCode(year,week), lundi:lundi.toISOString().slice(0,10)});
+      }
+      await state.db.addSemaines(rows); await state.db.loadAll();
+      toast("12 semaines ajoutées ✓"); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+  root.querySelectorAll(".pp-save").forEach(b=>b.addEventListener("click", async ()=>{
+    const tr = b.closest("tr");
+    try{
+      await state.db.saveProfile({
+        email:tr.querySelector(".pp-email").value.trim().toLowerCase(),
+        role:tr.querySelector(".pp-role").value,
+        conseiller_id:tr.querySelector(".pp-cons").value? +tr.querySelector(".pp-cons").value : null,
+      }, tr.dataset.email);
+      await state.db.loadAll(); toast("Accès enregistré ✓"); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  root.querySelectorAll(".pp-del").forEach(b=>b.addEventListener("click", async ()=>{
+    const email = b.closest("tr").dataset.email;
+    if (!confirm(`Supprimer l'accès de ${email} ?`)) return;
+    try{ await state.db.deleteProfile(email); await state.db.loadAll(); toast("Accès supprimé"); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  $("#pp-add").addEventListener("click", async ()=>{
+    const email = prompt("Email de connexion du collaborateur :");
+    if (!email) return;
+    try{ await state.db.saveProfile({email:email.trim().toLowerCase(), role:"conseiller", conseiller_id:null});
+      await state.db.loadAll(); toast("Accès ajouté — pense à créer le compte dans Supabase"); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+}
+
+/* ================================================================
+   Navigation + rendu
+   ================================================================ */
+const VIEWS = {
+  dashboard:{label:"Dashboard", fn:viewDashboard, manager:true},
+  saisie:{label:"Saisie hebdo", fn:viewSaisie},
+  pipeline:{label:"Pipeline", fn:viewPipeline},
+  fiche:{label:"Fiches", fn:viewFiche},
+  progression:{label:"Progression", fn:viewProgression, manager:true},
+  param:{label:"Paramétrage", fn:viewParam, manager:true},
+};
+function allowedViews(){
+  return Object.entries(VIEWS).filter(([k,v]) => isManager() || !v.manager)
+    .map(([k,v]) => [k, k==="fiche" && !isManager() ? {...v, label:"Ma semaine"} : v]);
+}
+function go(view){ state.view = view; render(); }
+
+function render(){
+  const app = $("#app");
+  if (!state.profile){ renderLogin(app); return; }
+  if (!state.week) state.week = defaultWeek();
+  const views = allowedViews();
+  if (!views.some(([k])=>k===state.view)) state.view = views[0][0];
+
+  app.innerHTML = `
+    <div class="topbar">
+      <span class="brand">ELIGI<small>Pilotage commercial</small></span>
+      <nav class="nav">${views.map(([k,v])=>`<button data-nav="${k}" class="${k===state.view?"active":""}">${v.label}</button>`).join("")}</nav>
+      <span class="spacer"></span>
+      <span class="userchip">
+        <b>${esc(myConseiller()?.nom || state.profile.email)}</b>
+        <span class="rolepill">${state.profile.role==="manager"?"Manager":"Conseiller"}</span>
+        <button class="linklike" id="logout">Déconnexion</button>
+      </span>
+    </div>
+    <div class="wrap" id="view"></div>`;
+  app.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click", ()=>go(b.dataset.nav)));
+  $("#logout").addEventListener("click", logout);
+  VIEWS[state.view].fn($("#view"));
+}
+
+/* ================================================================
+   Authentification
+   ================================================================ */
+function renderLogin(app){
+  const demo = !!CFG.DEMO;
+  app.innerHTML = `
+  <div class="login-shell"><div class="card login-card">
+    <div class="brandbig">ELIGI</div>
+    <div class="sub">Pilotage commercial hebdomadaire</div>
+    ${demo? `<div class="demo-note"><b>Mode démo</b> — l'application tourne avec les données reprises de
+      l'Excel, sans base de données. Choisis un profil pour explorer :</div>
+      <div style="display:flex;flex-direction:column;gap:8px" id="demo-btns"></div>`
+    : `<label class="fld"><span>Email</span><input type="email" id="lg-email" autocomplete="username"></label>
+      <label class="fld"><span>Mot de passe</span><input type="password" id="lg-pass" autocomplete="current-password"></label>
+      <div class="error-box" id="lg-err"></div>
+      <button class="btn" id="lg-btn" style="width:100%;justify-content:center">Se connecter</button>`}
+  </div></div>`;
+
+  if (demo){
+    const db = state.db;
+    const btns = $("#demo-btns");
+    db.profiles.forEach(pr=>{
+      const b = document.createElement("button");
+      b.className = pr.role==="manager"? "btn" : "btn secondary";
+      b.style.justifyContent = "center";
+      const nom = db.conseillers.find(c=>c.id===pr.conseiller_id)?.nom || pr.email;
+      b.textContent = pr.role==="manager"? `${nom} — Manager` : `${nom} — Conseiller`;
+      b.addEventListener("click", async ()=>{
+        state.profile = {...pr};
+        await state.db.loadAll();
+        state.week = defaultWeek();
+        render();
+      });
+      btns.appendChild(b);
+    });
+  } else {
+    const submit = async ()=>{
+      const btn = $("#lg-btn"); btn.disabled = true; $("#lg-err").textContent = "";
+      try{
+        const {error} = await state.authClient.auth.signInWithPassword({
+          email:$("#lg-email").value.trim(), password:$("#lg-pass").value});
+        if (error) throw error;
+        // onAuthStateChange prend le relais
+      }catch(err){
+        $("#lg-err").textContent = /credential/i.test(err.message||"")? "Email ou mot de passe incorrect." : "Erreur : "+(err.message||err);
+        btn.disabled = false;
+      }
+    };
+    $("#lg-btn").addEventListener("click", submit);
+    $("#lg-pass").addEventListener("keydown", e=>{ if(e.key==="Enter") submit(); });
+  }
+}
+
+async function onSignedIn(session){
+  try{
+    const email = session.user.email;
+    const {data, error} = await state.authClient.from("profiles").select("*");
+    if (error) throw error;
+    const prof = (data||[]).find(p=>p.email.toLowerCase()===email.toLowerCase());
+    if (!prof){
+      $("#app").innerHTML = `<div class="login-shell"><div class="card login-card">
+        <h3>Compte non configuré</h3>
+        <p class="small">Le compte <b>${esc(email)}</b> existe mais n'est associé à aucun profil
+        dans l'application. Demande au manager de t'ajouter dans Paramétrage &gt; Comptes et accès.</p>
+        <button class="btn secondary" id="back">Retour</button></div></div>`;
+      $("#back").addEventListener("click", logout);
+      return;
+    }
+    state.profile = prof;
+    await state.db.loadAll();
+    state.week = defaultWeek();
+    render();
+  }catch(err){
+    $("#app").innerHTML = `<div class="login-shell"><div class="card login-card">
+      <h3>Erreur de chargement</h3><p class="small">${esc(err.message||err)}</p>
+      <button class="btn secondary" id="back">Réessayer</button></div></div>`;
+    $("#back").addEventListener("click", ()=>location.reload());
+  }
+}
+
+async function logout(){
+  if (!CFG.DEMO && state.authClient) await state.authClient.auth.signOut();
+  state.profile = null; state.week = null; state.view = null;
+  state.conseillers=[]; state.saisies=[]; state.pipeline=[]; state.profiles=[];
+  render();
+}
+
+/* ================================================================
+   Démarrage
+   ================================================================ */
+(function boot(){
+  if (CFG.DEMO){
+    state.db = new DemoDB();
+    render();
+    return;
+  }
+  if (!window.supabase || !CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes("TON-PROJET")){
+    $("#app").innerHTML = `<div class="login-shell"><div class="card login-card">
+      <h3>Configuration requise</h3>
+      <p class="small">Ouvre le fichier <b>config.js</b> et renseigne SUPABASE_URL et
+      SUPABASE_ANON_KEY (voir le guide d'installation), ou remets DEMO à true pour tester sans base.</p>
+    </div></div>`;
+    return;
+  }
+  const client = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
+  state.authClient = client;
+  state.db = new SupaDB(client);
+  client.auth.onAuthStateChange((event, session)=>{
+    if (session && !state.profile) onSignedIn(session);
+    if (event === "SIGNED_OUT"){ state.profile = null; render(); }
+  });
+  client.auth.getSession().then(({data})=>{
+    if (!data.session) render();
+  });
+})();
+
+</script>
+</body>
+</html>
