@@ -262,6 +262,76 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .action-item input[type=checkbox]{width:auto; flex:none}
 .action-item.done .ac-text{text-decoration:line-through; color:var(--muted)}
 
+/* ============ Assistant proposition (v9) ============ */
+.wiz-back{align-items:stretch; justify-content:stretch; padding:0}
+.wiz{display:flex; flex-direction:column; width:100%; height:100%; background:var(--page)}
+.wiz-head{display:flex; align-items:center; gap:14px; padding:12px 20px; background:var(--sidebar); color:var(--sidebar-ink)}
+.wiz-body{display:flex; flex:1; min-height:0}
+.wiz-steps{display:flex; flex-direction:column; gap:4px; padding:18px 12px; background:var(--surface); border-right:1px solid var(--border); min-width:215px}
+.wiz-step{display:flex; align-items:center; gap:9px; padding:9px 11px; border:0; background:none; border-radius:9px; cursor:pointer; color:var(--ink-2); font:inherit; font-size:13.5px; text-align:left}
+.wiz-step:hover{background:var(--surface-2)}
+.wiz-step.on{background:var(--sidebar-active); color:#fff; font-weight:600}
+.wiz-step.done .wiz-n{background:var(--good); color:#fff; border-color:transparent}
+.wiz-n{display:inline-flex; align-items:center; justify-content:center; width:21px; height:21px; border-radius:99px; border:1.5px solid var(--border); font-size:11.5px; flex:none}
+.wiz-step.on .wiz-n{border-color:rgba(255,255,255,.6)}
+.wiz-content{flex:1; overflow:auto; padding:22px 26px}
+.wiz-strip{display:flex; gap:20px; align-items:center; flex-wrap:wrap; padding:9px 24px; background:var(--surface); border-top:1px solid var(--border); font-size:13px; color:var(--ink-2)}
+.wiz-foot{display:flex; align-items:center; justify-content:space-between; padding:11px 24px; background:var(--surface); border-top:1px solid var(--border)}
+.wiz-profils{display:flex; flex-direction:column; gap:6px}
+.wiz-profil{display:flex; gap:10px; align-items:center; padding:9px 13px; border:1.5px solid var(--border); border-radius:10px; background:var(--surface); cursor:pointer; font:inherit; font-size:13.5px; text-align:left; color:var(--ink)}
+.wiz-profil.on{border-color:var(--sidebar-active); background:color-mix(in srgb, var(--sidebar-active) 10%, var(--surface)); font-weight:600}
+.wiz-q{display:flex; justify-content:space-between; gap:10px; align-items:center; padding:5px 0; border-bottom:1px solid var(--grid)}
+.wiz-q-btns{display:flex; gap:4px; flex:none}
+.wiz-qv{width:27px; height:27px; border-radius:7px; border:1px solid var(--border); background:var(--surface); cursor:pointer; font:inherit; font-size:12.5px}
+.wiz-qv.on{background:var(--sidebar-active); color:#fff; border-color:transparent}
+.wiz-env-off{opacity:.45}
+.txt-bad{color:var(--critical)}
+.sri-scale{display:inline-flex; gap:3px; vertical-align:middle}
+.sri-cell{display:inline-flex; align-items:center; justify-content:center; width:24px; height:24px; border-radius:6px; background:var(--surface-2); border:1px solid var(--border); font-size:12px; color:var(--muted)}
+.sri-cell.on{background:var(--sidebar-active); border-color:transparent; color:#fff; font-weight:700}
+
+/* ============ Document de proposition (v9) ============ */
+.doc-back{overflow:auto; align-items:flex-start; justify-content:center; padding:26px 12px}
+.pd-wrap{max-width:860px; width:100%}
+.pd-actions{display:flex; gap:10px; justify-content:flex-end; margin-bottom:10px}
+.pd-page{background:#fff; color:#20211e; border-radius:12px; padding:34px 40px; box-shadow:var(--shadow-lg); font-size:13.5px; line-height:1.5}
+.pd-head{display:flex; align-items:center; gap:16px; border-bottom:3px solid #467d7f; padding-bottom:14px}
+.pd-head img{height:44px}
+.pd-title{display:flex; flex-direction:column}
+.pd-title b{font-size:1.35rem; color:#20211e}
+.pd-title span{color:#467d7f; font-size:.85rem}
+.pd-meta{margin:10px 0 16px; color:#52514e}
+.pd-hero{background:#ebeee0; border-radius:12px; padding:14px 18px; margin-bottom:14px}
+.pd-tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(150px,1fr)); gap:12px}
+.pd-tiles > div{display:flex; flex-direction:column}
+.pd-tiles span{font-size:.72rem; text-transform:uppercase; letter-spacing:.05em; color:#467d7f}
+.pd-tiles b{font-size:1.25rem}
+.pd-tiles i{font-style:normal; font-size:.75rem; color:#52514e}
+.pd-cols{display:flex; gap:16px; flex-wrap:wrap; margin-bottom:8px}
+.pd-block{flex:1; min-width:250px}
+.pd-block h4{margin:0 0 6px; color:#467d7f}
+.pd-legend{display:flex; flex-wrap:wrap; gap:5px 12px; justify-content:center; font-size:.78rem; margin-top:6px}
+.pd-legend i{display:inline-block; width:9px; height:9px; border-radius:2px; margin-right:5px}
+.pd-line{padding:7px 0; border-top:1px solid #e2e2dc}
+.pd-note{font-size:.78rem; color:#75746e}
+.pd-risk{display:flex; align-items:center; gap:12px; padding:9px 0; border-top:1px solid #e2e2dc; flex-wrap:wrap}
+.pd-risk .sri-cell{background:#f0efec; border-color:#ddd; color:#75746e}
+.pd-risk .sri-cell.on{background:#467d7f; color:#fff}
+.pd-engage{display:flex; gap:8px 20px; flex-wrap:wrap; padding:9px 0; border-top:1px solid #e2e2dc; font-size:.82rem; color:#3c5c5e}
+.pd-sec{margin-top:16px; page-break-inside:avoid}
+.pd-sec h3{color:#467d7f; border-bottom:1px solid #d5dcc0; padding-bottom:4px; margin:0 0 8px; font-size:1.02rem}
+.pd-tbl{width:100%; border-collapse:collapse; margin:6px 0}
+.pd-tbl th{text-align:left; font-size:.72rem; text-transform:uppercase; letter-spacing:.04em; color:#75746e; padding:4px 8px; border-bottom:1.5px solid #d5dcc0}
+.pd-tbl td{padding:5px 8px; border-bottom:1px solid #eeeee8}
+.pd-tbl .num, .pd-tbl td.num{text-align:right; font-variant-numeric:tabular-nums}
+.pd-mentions{margin-top:20px; padding-top:10px; border-top:1px solid #e2e2dc; font-size:.64rem; color:#8a897f; line-height:1.45}
+@media print{
+  body.doc-open > *:not(.doc-back){display:none !important}
+  body.doc-open .doc-back{position:static; padding:0; background:#fff; overflow:visible}
+  body.doc-open .pd-actions{display:none}
+  body.doc-open .pd-page{box-shadow:none; border-radius:0; padding:0}
+}
+
 /* ============ Suivi client (timeline CRM) ============ */
 .tl{max-height:280px; overflow:auto; margin-top:10px}
 .tl-item{display:flex; gap:9px; align-items:flex-start; padding:7px 2px; border-bottom:1px solid var(--grid); font-size:13px}
@@ -373,7 +443,7 @@ const pondere = p => (p.ca_potentiel||0) * (p.probabilite||0);
 /* ---------------- État global ---------------- */
 const state = {
   profile:null,       // {email, role, conseiller_id}
-  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[], clientsInfos:[], interactions:[],
+  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[], clientsInfos:[], interactions:[], propositions:[], paramsCabinet:{},
   week:null,          // semaine suivie (équivalent Dashboard!B3)
   view:null,
   ficheConseillerId:null,
@@ -553,7 +623,7 @@ function stripComputedPipe(p){
 class SupaDB {
   constructor(client){ this.c = client; }
   async loadAll(){
-    const [co, se, sa, pi, pr, ab, os, ac, va, pe, ci, it] = await Promise.all([
+    const [co, se, sa, pi, pr, ab, os, ac, va, pe, ci, it, pp, pc] = await Promise.all([
       this.c.from("conseillers").select("*").order("id"),
       this.c.from("semaines").select("*").order("lundi"),
       this.c.from("saisies").select("*"),
@@ -566,13 +636,30 @@ class SupaDB {
       this.c.from("pipeline_events").select("*").order("id"),
       this.c.from("clients_infos").select("*"),
       this.c.from("interactions").select("*").order("quand", {ascending:false}),
+      this.c.from("propositions").select("*").order("id", {ascending:false}),
+      this.c.from("params_cabinet").select("*"),
     ]);
-    for (const r of [co,se,sa,pi,pr,ab,os,ac,va,pe,ci,it]) if (r.error) throw r.error;
+    for (const r of [co,se,sa,pi,pr,ab,os,ac,va,pe,ci,it,pp,pc]) if (r.error) throw r.error;
     state.conseillers = co.data; state.semaines = se.data;
     state.saisies = sa.data; state.pipeline = pi.data; state.profiles = pr.data;
     state.absences = ab.data; state.objSemaine = os.data;
     state.actions = ac.data; state.validations = va.data; state.pipeEvents = pe.data;
     state.clientsInfos = ci.data; state.interactions = it.data;
+    state.propositions = pp.data; state.paramsCabinet = (pc.data?.[0]?.data) || {};
+  }
+  async saveProposition(p){
+    const row = {client_key:p.client_key, pipeline_id:p.pipeline_id||null, conseiller_id:p.conseiller_id,
+                 statut:p.statut, mode:p.mode, data:p.data};
+    if (p.id){
+      const {error} = await this.c.from("propositions").update(row).eq("id", p.id);
+      if (error) throw error; return p.id;
+    }
+    const {data, error} = await this.c.from("propositions").insert(row).select().single();
+    if (error) throw error; return data.id;
+  }
+  async deleteProposition(id){
+    const {error} = await this.c.from("propositions").delete().eq("id", id);
+    if (error) throw error;
   }
   async addInteraction(i){
     const {error} = await this.c.from("interactions").insert(
@@ -712,7 +799,7 @@ class DemoDB {
     this.objSemaine = []; this.actions = []; this.validations = [];
     this.pipeEvents = this.pipeline.map(p=>({id:this._id++, pipeline_id:p.id, conseiller_id:p.conseiller_id,
       client:p.client, de_etape:null, vers_etape:p.etape, quand:p.updated_at}));
-    this.clientsInfos = []; this.interactions = [];
+    this.clientsInfos = []; this.interactions = []; this.propositions = []; this.paramsCabinet = {};
     this.absences = (D.absences||[]).map(a=>({id:this._id++, conseiller_id:byName[a.conseiller], semaine:wkey(a.semaine)}));
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
@@ -735,6 +822,21 @@ class DemoDB {
     state.pipeEvents = this.pipeEvents.filter(e=>this._mine(e.conseiller_id)).map(e=>({...e}));
     state.clientsInfos = this.clientsInfos.map(c=>({...c}));
     state.interactions = this.interactions.map(i=>({...i}));
+    state.propositions = (this.propositions||[]).filter(p=>this._mine(p.conseiller_id)).map(p=>({...p}));
+    state.paramsCabinet = this.paramsCabinet || {};
+  }
+  async saveProposition(p){
+    if (p.id){ const ex = this.propositions.find(x=>x.id===p.id);
+      Object.assign(ex, {client_key:p.client_key, pipeline_id:p.pipeline_id||null, statut:p.statut, mode:p.mode, data:p.data, updated_at:new Date().toISOString()});
+      return p.id; }
+    const id = this._id++;
+    this.propositions.unshift({id, client_key:p.client_key, pipeline_id:p.pipeline_id||null, conseiller_id:p.conseiller_id,
+      statut:p.statut, mode:p.mode, data:p.data, created_at:new Date().toISOString(), updated_at:new Date().toISOString()});
+    return id;
+  }
+  async deleteProposition(id){
+    const i = this.propositions.findIndex(x=>x.id===id);
+    if (i>=0) this.propositions.splice(i,1);
   }
   async addInteraction(i){
     this.interactions.unshift({id:this._id++, quand:new Date().toISOString(), ...i});
@@ -946,6 +1048,7 @@ const ICONS = {
   copy:'<svg class="ic" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
   close:'<svg class="ic" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19"/></svg>',
   doc:'<svg class="ic" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6Z"/><path d="M14 2v6h6"/><path d="M9 13h7M9 17h7"/></svg>',
+  pie:'<svg class="ic" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9h-9Z"/><path d="M14.5 2.5a9 9 0 0 1 7 7h-7Z"/></svg>',
   people:'<svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1.2-3.2 3.6-5 6.5-5s5.3 1.8 6.5 5"/><circle cx="17.5" cy="9" r="2.6"/><path d="M16.5 15.2c2.4.3 4.2 1.9 5 4.8"/></svg>',
 };
 
@@ -2019,7 +2122,14 @@ function viewClients(root){
           </div>
           <div class="card" style="flex:1.1;min-width:340px">
             <h3 class="mt0">🗂 Suivi client
-              ${isManager()? `<button class="btn secondary small ci-rename" data-key="${esc(g.key)}" style="float:right">Renommer / fusionner</button>`:""}</h3>
+              <span style="float:right;display:flex;gap:6px">
+                <button class="btn small ci-propo" data-key="${esc(g.key)}">＋ Proposition</button>
+                ${isManager()? `<button class="btn secondary small ci-rename" data-key="${esc(g.key)}">Renommer / fusionner</button>`:""}
+              </span></h3>
+            ${(state.propositions.filter(pr=>pr.client_key===g.key).length? `
+            <div class="tbl-scroll" style="margin-bottom:8px"><table class="tbl dense">
+              <tbody>${propoRowsHTML(state.propositions.filter(pr=>pr.client_key===g.key), false)}</tbody>
+            </table></div>`:"")}
             <div class="inline-controls">
               <label class="fld" style="min-width:92px"><select class="ix-type">${IX_TYPES.map(([t,ico])=>`<option value="${t}">${ico} ${t}</option>`).join("")}</select></label>
               <label class="fld" style="flex:1;min-width:150px"><input type="text" class="ix-note" placeholder="Compte rendu, remarque, tâche…"></label>
@@ -2057,6 +2167,13 @@ function viewClients(root){
     e.stopPropagation();
     pipeModal(state.pipeline.find(p=>p.id===+r.dataset.id));
   }));
+  root.querySelectorAll(".ci-propo").forEach(b=>b.addEventListener("click", e=>{
+    e.stopPropagation();
+    const rows = state.pipeline.filter(x=>normName(x.client)===b.dataset.key).sort((a,b2)=>pondere(b2)-pondere(a));
+    if (!rows.length){ toast("Aucune opportunité pipeline pour ce client"); return; }
+    propoWizard(propoNew(rows[0]));
+  }));
+  bindPropoRows(root, ()=>viewClients(root));
   root.querySelectorAll(".ix-type").forEach(sel=>sel.addEventListener("change", e=>{
     e.stopPropagation();
     const det = sel.closest(".cli-detail");
@@ -2125,6 +2242,749 @@ function viewClients(root){
       await state.db.loadAll(); toast("Fiche client enregistrée ✓"); viewClients(root);
     }catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
+}
+
+/* ================================================================
+   Propositions de placement (v9) — moteur, assistant, document
+   Reprend la chaîne de l'Excel « Allocation & proposition » :
+   Profil → Objectifs → Risque → Allocation → Enveloppes → Frais
+   → Adéquation → Document (Synthèse prospect / Dossier client)
+   ================================================================ */
+const PROPO_CLASSES = ["Sécurisé","Obligataire","Actions","Immobilier","Diversification"];
+const PROPO_PROFILS = ["Prudent","Équilibré prudent","Équilibré","Dynamique","Offensif"];
+const PROPO_STATUTS = ["Brouillon","Envoyée","Acceptée","Refusée"];
+const PROPO_CIBLES  = ["Dirigeant","Frontalier"];
+const PROPO_OBJ_LIQ = ["Non","Partielle","Oui"];
+const PROPO_QUESTIONS = [
+  "Une baisse de 20 % de mon placement sur un an me ferait…",
+  "Face aux fluctuations, mon horizon d'investissement est…",
+  "Mon expérience des placements financiers est…",
+  "Si mes placements chutent fortement, ma réaction serait de…",
+  "Ce que je recherche avant tout dans un placement, c'est…",
+  "L'idée de bloquer une partie de mon épargne longtemps me semble…",
+];
+const PROPO_MENTIONS = "Eligi est une marque de CONRAD CONSEIL SARL au capital de 80 000 € — RCS Mulhouse 789 053 881 — 36 rue Paul Cézanne, 68200 Mulhouse. CIF / COA / COBSP, ORIAS n° 13001625 · membre CNCGP (association agréée par l'AMF). Garantie financière MMA IARD (police n° 112786342/232572). Document établi à titre indicatif : les rendements et projections sont des hypothèses non garanties ; tout placement comporte un risque de perte en capital ; mise en œuvre soumise à lettre de mission.";
+
+function propoParamsDefaults(){
+  return {
+    grille: [[.55,.25,.12,.05,.03],[.38,.22,.27,.09,.04],[.22,.20,.42,.11,.05],[.10,.13,.60,.12,.05],[.05,.05,.72,.10,.08]],
+    bandes: [{seuil:0,sur:1.5,ris:0.5},{seuil:3,sur:1,ris:1},{seuil:8,sur:0.75,ris:1.3}],
+    hyp: [{r:.025,v:.003},{r:.035,v:.05},{r:.07,v:.16},{r:.045,v:.08},{r:.065,v:.14}],
+    sri: [[0,1],[.005,2],[.05,3],[.12,4],[.2,5],[.3,6],[.8,7]],
+    correl: [[1,.2,0,.1,0],[.2,1,.2,.3,.2],[0,.2,1,.5,.6],[.1,.3,.5,1,.4],[0,.2,.6,.4,1]],
+    plafActions: [.25,.4,.55,.7,.85],
+    macro: {inflation:.02, sansRisque:.025, regime:"Ralentissement",
+      commentaire:"Désinflation en cours, taux orientés à la baisse ; primes de risque actions correctes ; vigilance sur la duration obligataire."},
+    backtest: {annees:[2023,2024,2025], rdts:[[.025,.03,.025],[.06,.035,.02],[.18,.25,.12],[-.05,-.03,.01],[.07,.09,.06]]},
+    envDefs: [
+      {nom:"Assurance-vie", contrat:"Generali Himalia", role:"Fonds euros + UC (toutes classes) — socle & transmission", fiscal:"Fiscalité douce après 8 ans ; 152 500 €/bénéficiaire", dispo:"Disponible sous quelques jours", part:.25, fe:.0075, fs:.0035},
+      {nom:"Assurance-vie luxembourgeoise", contrat:"À préciser (contrat lux.)", role:"UC + fonds euros, FID/FAS, crédit lombard", fiscal:"Neutralité fiscale (résidence) ; triangle de sécurité", dispo:"Disponible (quelques semaines)", part:.10, fe:.009, fs:.004},
+      {nom:"PER individuel", contrat:"Cardif Elite Retraite", role:"Poche retraite (actions + obligataire)", fiscal:"Déduction à la TMI à l'entrée", dispo:"Bloqué jusqu'à la retraite (sauf cas)", part:.15, fe:.008, fs:.0035, per:true},
+      {nom:"PEA / PEA-PME", contrat:"À préciser (établissement PEA)", role:"Actions zone Europe (+ ETF éligibles)", fiscal:"Exonération d'IR après 5 ans (hors PS)", dispo:"Disponible (clôture avant 5 ans)", part:.20, fe:.004, fs:.0025, plafond:150000},
+      {nom:"Compte-titres (CTO)", contrat:"Intencial (ERES Titres)", role:"Actions monde/émergents, diversification (PE, structurés, or)", fiscal:"Souplesse totale ; PFU 30 %", dispo:"Disponible immédiatement", part:.15, fe:.003, fs:.0025},
+      {nom:"PEE", contrat:"ERES (Amundi)", role:"FCPE, actionnariat, abondement — déblocage 5 ans", fiscal:"Exonération d'IR des plus-values (hors PS)", dispo:"Bloqué 5 ans (sauf cas de déblocage)", part:.08, fe:0, fs:.006, dirigeant:true},
+      {nom:"PERCO / PERECO", contrat:"ERES (Amundi)", role:"Épargne retraite entreprise (FCPE)", fiscal:"Abondement + sortie retraite ; cadre social", dispo:"Bloqué jusqu'à la retraite (sauf cas)", part:.07, fe:0, fs:.006, dirigeant:true},
+    ],
+    poches: {Actions:[["Monde développé (World)",.6],["Europe",.2],["Marchés émergents",.2]],
+             Diversification:[["Private equity (non coté)",.5],["Or / matières (ETF)",.25],["Produits structurés",.25]]},
+    supports: [
+      ["Sécurisé","Fonds euros, fonds monétaires","Socle, liquidité, garantie en capital (fonds €)","0,5–0,8 %"],
+      ["Obligataire","Fonds obligataires datés, oblig. souveraines/IG","Rendement de portage, amortisseur","0,2–0,8 %"],
+      ["Actions","ETF indiciels (World, Europe, émergents), titres vifs","Moteur de performance long terme","0,15–0,4 %"],
+      ["Immobilier","SCPI diversifiées, SCI, immobilier en AV","Revenus, décorrélation partielle","0,8–1,2 %"],
+      ["Diversification","Private equity (UC/FCPR), or (ETC), structurés","Décorrélation, prime d'illiquidité","1,0–2,0 %"],
+    ],
+    honoraires: {mise:3000, retro:.009, suivi:1200},
+  };
+}
+function propoParams(){    // défauts + surcharges cabinet enregistrées
+  const base = propoParamsDefaults();
+  const cab = state.paramsCabinet || {};
+  return {...base, ...cab, macro:{...base.macro, ...(cab.macro||{})}, honoraires:{...base.honoraires, ...(cab.honoraires||{})}};
+}
+function propoEnvParts(P, cible){
+  return P.envDefs.map(e=>{
+    if (e.dirigeant && cible!=="Dirigeant") return 0;
+    return e.part;
+  }).map((p,_,arr)=>{ const s = arr.reduce((a,b)=>a+b,0); return s? p/s : 0; });
+}
+function propoNew(pipe){
+  const P = propoParams();
+  const cible = "Dirigeant";
+  return {
+    client_key: normName(pipe.client), pipeline_id: pipe.id, conseiller_id: pipe.conseiller_id,
+    statut: "Brouillon", mode: "Prospect",
+    data: {
+      nomClient: (pipe.client||"").trim(), dateEntretien: new Date().toISOString().slice(0,10),
+      cible, tmi: .30, stabilite: "Élevée", chf: 0,
+      montant: +pipe.collecte_potentielle || +pipe.ca_potentiel || 100000,
+      patrimoine: 0, precaution: 6, epargneMens: 0,
+      profil: 3, horizonGlobal: 0,
+      objectifs: [
+        {nom:"Constituer / renforcer un capital retraite", horizon:15, part:.3, liq:"Non"},
+        {nom:"Générer des revenus complémentaires", horizon:8, part:.2, liq:"Non"},
+        {nom:"Valoriser une trésorerie disponible", horizon:5, part:.2, liq:"Non"},
+        {nom:"Transmettre / préparer la succession", horizon:20, part:.15, liq:"Non"},
+        {nom:"Financer un projet identifié", horizon:4, part:.1, liq:"Oui"},
+        {nom:"Diversifier / décorréler le patrimoine", horizon:10, part:.05, liq:"Non"},
+      ],
+      quest: null,
+      envParts: propoEnvParts(P, cible),
+      P,
+    },
+  };
+}
+function propoSriOf(P, vol){
+  let sri = 1; for (const [seuil, niv] of P.sri) if (vol >= seuil) sri = niv;
+  return sri;
+}
+function propoCompute(d){
+  const P = d.P || propoParams();
+  const M = +d.montant || 0;
+  // Objectifs → horizon
+  const parts = d.objectifs.map(o=>+o.part||0);
+  const sumParts = parts.reduce((a,b)=>a+b,0);
+  const hPond = sumParts? d.objectifs.reduce((a,o)=>a+(+o.horizon||0)*(+o.part||0),0)/sumParts : 0;
+  const H = +d.horizonGlobal>0 ? +d.horizonGlobal : hPond;
+  const liqBesoin = d.objectifs.reduce((a,o)=>a+(o.liq==="Oui"?(+o.part||0):o.liq==="Partielle"?0.5*(+o.part||0):0),0);
+  // Allocation
+  const niv = Math.min(5, Math.max(1, +d.profil||3));
+  const base = P.grille[niv-1];
+  let bande = P.bandes[0]; for (const b of P.bandes) if (H >= b.seuil) bande = b;
+  const fact = [bande.sur, bande.sur, bande.ris, bande.ris, bande.ris];
+  const aj = base.map((b,i)=>b*fact[i]);
+  const sAj = aj.reduce((a,b)=>a+b,0) || 1;
+  const cible = aj.map(x=>x/sAj);
+  const montants = cible.map(w=>w*M);
+  // Rendement & risque
+  const mu = cible.reduce((a,w,i)=>a+w*P.hyp[i].r,0);
+  let variance = 0;
+  for (let i=0;i<5;i++) for (let j=0;j<5;j++)
+    variance += cible[i]*cible[j]*P.hyp[i].v*P.hyp[j].v*P.correl[i][j];
+  const sigma = Math.sqrt(Math.max(0,variance));
+  const volPond = cible.reduce((a,w,i)=>a+w*P.hyp[i].v,0);
+  const sriPort = propoSriOf(P, sigma);
+  const sriCoherent = sriPort <= niv + 1;
+  const sharpe = sigma? (mu - P.macro.sansRisque)/sigma : 0;
+  // Enveloppes & frais
+  const envParts = (d.envParts && d.envParts.length===P.envDefs.length)? d.envParts : propoEnvParts(P, d.cible);
+  const env = P.envDefs.map((e,i)=>{
+    const part = +envParts[i]||0, mt = part*M;
+    return {...e, part, mt, cout: mt*((+e.fe||0)+(+e.fs||0)),
+      alerte: e.plafond && mt > e.plafond ? `> ${fmtNum.format(e.plafond)} €` : null};
+  });
+  const envTotal = env.reduce((a,e)=>a+e.part,0);
+  const frais = env.reduce((a,e)=>a+e.cout,0);
+  const tfa = M? frais/M : 0;
+  const muNet = mu - tfa;
+  const perMt = env.find(e=>e.per)?.mt || 0;
+  const ecoPER = perMt * (+d.tmi||0);
+  const hono = P.honoraires;
+  const coutEligiAn1 = frais + hono.mise, coutEligiRec = frais;
+  const coutDistribAn1 = frais + M*hono.retro, coutDistribRec = frais + M*hono.retro;
+  // Projections (log-normale)
+  const proj = (m, r, t, z) => m*Math.exp((r-0.5*sigma*sigma)*t + z*sigma*Math.sqrt(t));
+  const medBrut = proj(M, mu, H, 0), medNet = proj(M, muNet, H, 0);
+  const favNet = proj(M, muNet, H, 1.28), defNet = proj(M, muNet, H, -1.28);
+  const coutFraisHorizon = medBrut - medNet;
+  const an1 = {fav: M*(1+mu+1.28*sigma), cen: M*(1+mu), def: M*(1+mu-1.28*sigma)};
+  // Backtest
+  const btAns = P.backtest.annees;
+  const btR = btAns.map((_,y)=>cible.reduce((a,w,i)=>a+w*P.backtest.rdts[i][y],0));
+  const btVals = btR.reduce((acc,r)=>{ acc.push(acc[acc.length-1]*(1+r)); return acc; }, [M]);
+  const btCumul = btVals[btVals.length-1]/M - 1;
+  const btAnnu = Math.pow(btVals[btVals.length-1]/M, 1/btAns.length) - 1;
+  // Questionnaire (facultatif)
+  let quest = null;
+  if (d.quest && d.quest.length===6 && d.quest.every(x=>x>=1)){
+    const tol = (d.quest.reduce((a,b)=>a+ +b,0)-6)/18;
+    const partPat = M/((+d.patrimoine||0)+M || 1);
+    const capItems = [
+      H>10?4:H>6?3:H>=3?2:1,
+      partPat<.15?4:partPat<.3?3:partPat<.5?2:1,
+      d.precaution>=6?4:d.precaution>=3?3:d.precaution>=1?2:1,
+      d.stabilite==="Élevée"?4:d.stabilite==="Moyenne"?2:1,
+      liqBesoin<.1?4:liqBesoin<.25?3:liqBesoin<.5?2:1,
+    ];
+    const cap = (capItems.reduce((a,b)=>a+b,0)-5)/15;
+    const score = Math.min(tol, cap);
+    const seuils = [0,.15,.35,.55,.75];
+    let sugg = 1; seuils.forEach((s,i)=>{ if (score>=s) sugg = i+1; });
+    quest = {tol, cap, score, sugg};
+  }
+  // Adéquation
+  const plaf = P.plafActions[niv-1];
+  const controles = [
+    {nom:"Part Actions ≤ plafond du profil", ok: cible[2] <= plaf + 1e-9,
+     detail: `Actions ${fmtPct(cible[2])} ${cible[2]<=plaf+1e-9?"≤":">"} plafond ${fmtPct(plaf)}${cible[2]>plaf+1e-9?" : abaisser l'exposition":""}`},
+    {nom:"Horizon cohérent avec la part Actions", ok: cible[2] < .4 || H >= 5,
+     detail: cible[2]<.4||H>=5? `Horizon ${H.toFixed(1)} an(s) cohérent` : `Part actions élevée sur horizon court (${H.toFixed(1)} an) : rallonger l'horizon ou réduire les actions`},
+    {nom:"Poches liquides couvrent le besoin de liquidité", ok: cible[0]+cible[1] >= liqBesoin - 1e-9,
+     detail: cible[0]+cible[1]>=liqBesoin-1e-9? `Liquide ${fmtPct(cible[0]+cible[1])} ≥ besoin ${fmtPct(liqBesoin)}` : "Liquidité insuffisante : renforcer sécurisé/obligataire"},
+    {nom:"Épargne de précaution préservée", ok: +d.precaution >= 3,
+     detail: +d.precaution>=3? `Précaution en place (${d.precaution} mois)` : "Précaution < 3 mois : sécuriser d'abord une réserve"},
+    {nom:"Concentration devise CHF (frontalier)", ok: d.cible==="Dirigeant" || +d.chf < .7,
+     detail: d.cible==="Dirigeant"? "Sans objet (dirigeant)" : (+d.chf<.7? "Exposition CHF maîtrisée" : `Exposition CHF ${fmtPct(+d.chf)} élevée : diversifier en EUR`)},
+  ];
+  const nRevoir = controles.filter(c=>!c.ok).length;
+  const verdict = nRevoir===0? "ADÉQUAT" : `À AJUSTER (${nRevoir})`;
+  const justification = `Profil retenu : niveau ${niv} (${PROPO_PROFILS[niv-1]}). Horizon moyen pondéré de ${H.toFixed(1)} an(s). L'allocation cible retient ${fmtPct(cible[2])} d'actions, ${fmtPct(cible[0])} de sécurisé et ${fmtPct(cible[1])} d'obligataire, cohérente avec le profil de risque du client. Enveloppes privilégiées selon la cible ${d.cible}, frais totaux estimés à ${(tfa*100).toFixed(2).replace(".",",")} % par an.`;
+  const objPrincipal = d.objectifs.reduce((a,o)=>(+o.part||0)>(+a.part||0)?o:a, d.objectifs[0]);
+  return {P, M, H, hPond, liqBesoin, niv, cible, montants, mu, sigma, volPond, sriPort, sriCoherent, sharpe,
+          env, envTotal, frais, tfa, muNet, perMt, ecoPER, hono, coutEligiAn1, coutEligiRec, coutDistribAn1, coutDistribRec,
+          medBrut, medNet, favNet, defNet, coutFraisHorizon, an1, btAns, btR, btVals, btCumul, btAnnu,
+          quest, controles, verdict, justification, objPrincipal, plaf};
+}
+
+/* ---------- Graphiques SVG ---------- */
+function propoDonut(cible, size=170){
+  const cx=size/2, cy=size/2, r=size/2-6, r2=r*0.62;
+  let a0=-Math.PI/2, segs="";
+  cible.forEach((w,i)=>{
+    if (w<=0.0001) return;
+    const a1 = a0 + w*2*Math.PI, big = (a1-a0)>Math.PI?1:0;
+    const p = (a,rr)=>`${cx+rr*Math.cos(a)},${cy+rr*Math.sin(a)}`;
+    segs += `<path d="M ${p(a0,r)} A ${r} ${r} 0 ${big} 1 ${p(a1,r)} L ${p(a1,r2)} A ${r2} ${r2} 0 ${big} 0 ${p(a0,r2)} Z" fill="${MIX_COLORS[i%MIX_COLORS.length]}" opacity=".92"><title>${PROPO_CLASSES[i]} : ${fmtPct(w)}</title></path>`;
+    a0 = a1;
+  });
+  return `<svg viewBox="0 0 ${size} ${size}" style="width:${size}px;max-width:100%">${segs}</svg>`;
+}
+function propoFan(c, w=560, h=190){
+  const M=c.M, H=Math.max(1,c.H), n=Math.max(2,Math.ceil(H));
+  const pts=[];
+  for (let t=0; t<=n; t++){
+    const tt=t*H/n;
+    const f=(z)=>M*Math.exp((c.muNet-0.5*c.sigma*c.sigma)*tt+z*c.sigma*Math.sqrt(tt));
+    pts.push({t:tt, fav:f(1.28), med:f(0), def:f(-1.28)});
+  }
+  const ymax=Math.max(...pts.map(p=>p.fav))*1.04, ymin=Math.min(M*.9, ...pts.map(p=>p.def))*0.96;
+  const X=t=>34+(w-46)*t/H, Y=v=>12+(h-40)*(1-(v-ymin)/(ymax-ymin||1));
+  const line=k=>pts.map((p,i)=>`${i?"L":"M"}${X(p.t).toFixed(1)},${Y(p[k]).toFixed(1)}`).join(" ");
+  const band = line("fav") + " " + pts.slice().reverse().map(p=>`L${X(p.t).toFixed(1)},${Y(p.def).toFixed(1)}`).join(" ") + " Z";
+  const ticks = [0, Math.round(H/2), Math.round(H)].filter((v,i,a)=>a.indexOf(v)===i);
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%">
+    <path d="${band}" fill="var(--sidebar-active)" opacity=".13"/>
+    <path d="${line("fav")}" fill="none" stroke="var(--good)" stroke-width="1.6" stroke-dasharray="4 3"/>
+    <path d="${line("med")}" fill="none" stroke="var(--sidebar-active)" stroke-width="2.4"/>
+    <path d="${line("def")}" fill="none" stroke="var(--critical)" stroke-width="1.6" stroke-dasharray="4 3"/>
+    ${ticks.map(v=>`<text x="${X(v)}" y="${h-6}" font-size="10" fill="var(--muted)" text-anchor="middle">${v} an${v>1?"s":""}</text>`).join("")}
+    <text x="${w-8}" y="${Y(pts[pts.length-1].fav)-4}" font-size="10" fill="var(--good)" text-anchor="end">${eur(pts[pts.length-1].fav)}</text>
+    <text x="${w-8}" y="${Y(pts[pts.length-1].med)-4}" font-size="10.5" font-weight="700" fill="var(--sidebar-active)" text-anchor="end">${eur(pts[pts.length-1].med)}</text>
+    <text x="${w-8}" y="${Y(pts[pts.length-1].def)+11}" font-size="10" fill="var(--critical)" text-anchor="end">${eur(pts[pts.length-1].def)}</text>
+  </svg>`;
+}
+function propoAllocBars(c){
+  return `<div class="mix">${PROPO_CLASSES.map((cl,i)=>`<div class="mrow">
+    <span class="mlabel"><span class="cdot" style="background:${MIX_COLORS[i%MIX_COLORS.length]}"></span>${cl}</span>
+    <div class="mtrack"><div class="mfill" style="width:${(c.cible[i]*100).toFixed(1)}%;background:${MIX_COLORS[i%MIX_COLORS.length]}"></div></div>
+    <span class="mval">${fmtPct(c.cible[i])} · ${eur(c.montants[i])}</span></div>`).join("")}</div>`;
+}
+function propoSriScale(sri){
+  return `<div class="sri-scale">${[1,2,3,4,5,6,7].map(n=>`<span class="sri-cell ${n===sri?"on":""}">${n}</span>`).join("")}</div>`;
+}
+
+/* ---------- Assistant de proposition (wizard) ---------- */
+const PROPO_STEPS = ["Client & montants","Objectifs","Profil de risque","Allocation","Enveloppes","Frais & hypothèses","Adéquation & document"];
+function propoWizard(propo){
+  const p = propo;                     // {id?, client_key, pipeline_id, conseiller_id, statut, mode, data}
+  const d = p.data;
+  if (!d.P) d.P = propoParams();
+  let step = 0;
+  const back = document.createElement("div");
+  back.className = "modal-back wiz-back";
+  document.body.appendChild(back);
+
+  const num = (v, dec=0) => (+v||0).toLocaleString("fr-FR", {maximumFractionDigits:dec});
+  const pctIn = v => Math.round((+v||0)*1000)/10;   // 0.25 -> 25
+  const inPct = v => (+String(v).replace(",","."))/100;
+
+  function strip(c){
+    const okV = c.verdict==="ADÉQUAT";
+    return `<div class="wiz-strip">
+      <span><b>${eur(c.M)}</b> placés</span>
+      <span>horizon <b>${c.H.toFixed(1)} ans</b></span>
+      <span>rendement net <b>${fmtPct(c.muNet)}</b></span>
+      <span>volatilité <b>${fmtPct(c.sigma)}</b></span>
+      <span>SRI <b>${c.sriPort}/7</b></span>
+      <span class="badge ${okV?"ok":"watch"}"><span class="dot"></span>${esc(c.verdict)}</span>
+    </div>`;
+  }
+
+  function stepHTML(c){
+    if (step===0) return `
+      <div class="form-grid">
+        <label class="fld"><span>Client (pipeline)</span><input type="text" value="${esc(d.nomClient)}" disabled></label>
+        <label class="fld"><span>Date de l'entretien</span><input type="date" data-k="dateEntretien" value="${esc(d.dateEntretien||"")}"></label>
+        <label class="fld"><span>Cible</span><select data-k="cible">${PROPO_CIBLES.map(x=>`<option ${x===d.cible?"selected":""}>${x}</option>`).join("")}</select></label>
+        <label class="fld"><span>Stade</span><select data-k="mode2">${["Prospect","Client"].map(x=>`<option ${x===p.mode?"selected":""}>${x}</option>`).join("")}</select></label>
+        <label class="fld"><span>Montant à placer / arbitrer (€)</span><input type="number" data-k="montant" value="${+d.montant||0}" min="0" step="1000"></label>
+        <label class="fld"><span>Patrimoine financier déjà constitué (€)</span><input type="number" data-k="patrimoine" value="${+d.patrimoine||0}" min="0" step="1000"></label>
+        <label class="fld"><span>Épargne de précaution (mois)</span><input type="number" data-k="precaution" value="${+d.precaution||0}" min="0" step="1"></label>
+        <label class="fld"><span>TMI (%)</span><input type="number" data-k="tmi_pct" value="${pctIn(d.tmi)}" min="0" max="60" step="1"></label>
+        <label class="fld"><span>Stabilité des revenus</span><select data-k="stabilite">${["Élevée","Moyenne","Faible"].map(x=>`<option ${x===d.stabilite?"selected":""}>${x}</option>`).join("")}</select></label>
+        ${d.cible==="Frontalier"? `<label class="fld"><span>Exposition actuelle au CHF (%)</span><input type="number" data-k="chf_pct" value="${pctIn(d.chf)}" min="0" max="100" step="5"></label>`:""}
+      </div>
+      <p class="small muted">Le stade pilote le document généré : <b>Prospect</b> → synthèse 1 page ; <b>Client</b> → dossier complet. Rappel : ce placement ne doit pas entamer l'épargne de précaution (contrôlé à l'étape Adéquation).</p>`;
+
+    if (step===1){
+      const tot = d.objectifs.reduce((a,o)=>a+(+o.part||0),0);
+      return `
+      <p class="small muted mt0">Le pourquoi avant le produit : répartir <b>100 %</b> du montant entre les objectifs. Chaque objectif porte un horizon et un besoin de liquidité.</p>
+      <div class="card tbl-scroll"><table class="tbl dense">
+        <thead><tr><th>Objectif</th><th class="num">Horizon (ans)</th><th class="num">Part (%)</th><th>Liquidité requise ?</th></tr></thead>
+        <tbody>${d.objectifs.map((o,i)=>`<tr>
+          <td>${esc(o.nom)}</td>
+          <td class="num"><input type="number" class="wiz-obj" data-i="${i}" data-f="horizon" value="${+o.horizon||0}" min="0" step="1" style="width:74px"></td>
+          <td class="num"><input type="number" class="wiz-obj" data-i="${i}" data-f="part_pct" value="${pctIn(o.part)}" min="0" max="100" step="5" style="width:74px"></td>
+          <td><select class="wiz-obj" data-i="${i}" data-f="liq">${PROPO_OBJ_LIQ.map(x=>`<option ${x===o.liq?"selected":""}>${x}</option>`).join("")}</select></td>
+        </tr>`).join("")}</tbody>
+        <tfoot><tr><td><b>Total</b></td><td></td><td class="num"><b class="${Math.abs(tot-1)<.005?"":"txt-bad"}">${fmtPct(tot)}</b>${Math.abs(tot-1)<.005?"":" ≠ 100 %"}</td><td></td></tr></tfoot>
+      </table></div>
+      <div class="row" style="margin-top:10px">
+        <div class="card grow"><span class="small muted">Horizon moyen pondéré</span><div style="font-size:1.3rem;font-weight:700">${c.hPond.toFixed(1)} ans</div></div>
+        <div class="card grow"><span class="small muted">Part avec besoin de liquidité</span><div style="font-size:1.3rem;font-weight:700">${fmtPct(c.liqBesoin)}</div></div>
+        <div class="card grow"><label class="fld" style="margin:0"><span>Horizon global (optionnel — remplace le pondéré)</span>
+          <input type="number" data-k="horizonGlobal" value="${+d.horizonGlobal||0}" min="0" step="1"></label></div>
+      </div>`;
+    }
+
+    if (step===2){
+      const q = d.quest;
+      return `
+      <div class="row">
+        <div class="card grow" style="min-width:300px">
+          <h3 class="mt0">Profil retenu (pilote toute la proposition)</h3>
+          <div class="wiz-profils">${PROPO_PROFILS.map((lbl,i)=>`
+            <button class="wiz-profil ${i+1===+d.profil?"on":""}" data-niv="${i+1}"><b>${i+1}</b> ${lbl}</button>`).join("")}</div>
+          <p class="small muted">${esc(["Sécurité et faible volatilité ; préservation du capital.","Prudence avec une part mesurée de croissance.","Équilibre entre rendement et risque.","Recherche de croissance ; tolérance aux fluctuations.","Performance maximale ; forte volatilité acceptée."][(+d.profil||3)-1])}</p>
+        </div>
+        <div class="card grow" style="min-width:320px">
+          <h3 class="mt0">Aide facultative — questionnaire ${q? "":"<span class='small muted'>(replié)</span>"}</h3>
+          <p class="small muted mt0">À utiliser seulement si le profil n'est pas déjà connu. Tolérance (ressenti, 1 prudent → 4 audacieux) croisée avec la capacité objective : le plus prudent des deux l'emporte.</p>
+          ${q? `
+          ${PROPO_QUESTIONS.map((qq,i)=>`<div class="wiz-q"><span class="small">${esc(qq)}</span>
+            <span class="wiz-q-btns">${[1,2,3,4].map(v=>`<button class="wiz-qv ${+q[i]===v?"on":""}" data-i="${i}" data-v="${v}">${v}</button>`).join("")}</span></div>`).join("")}
+          ${c.quest? `<div class="card" style="margin-top:10px;background:var(--surface-2)">
+            <span class="small">Tolérance ${fmtPct(c.quest.tol)} · Capacité ${fmtPct(c.quest.cap)} → profil suggéré :
+            <b>${PROPO_PROFILS[c.quest.sugg-1]}</b></span>
+            <button class="btn small" id="wq-apply" style="margin-left:10px">Retenir ce profil</button></div>`:""}
+          <button class="btn secondary small" id="wq-clear" style="margin-top:8px">Masquer le questionnaire</button>`
+          : `<button class="btn secondary small" id="wq-open">Ouvrir le questionnaire</button>`}
+        </div>
+      </div>`;
+    }
+
+    if (step===3) return `
+      <div class="row">
+        <div class="card" style="min-width:230px;text-align:center">
+          <h3 class="mt0">Allocation cible</h3>${propoDonut(c.cible)}
+          <div class="small muted">profil ${c.niv} · horizon ${c.H.toFixed(1)} ans</div>
+        </div>
+        <div class="card grow" style="min-width:330px">
+          <h3 class="mt0">Répartition — ${eur(c.M)}</h3>${propoAllocBars(c)}
+          <p class="small muted" style="margin-bottom:0">Grille du profil ajustée par l'horizon (${c.H<3?"court":c.H<8?"moyen":"long"} terme), puis renormalisée. Allocation stratégique, hors tout produit nommé.</p>
+        </div>
+        <div class="card grow" style="min-width:280px">
+          <h3 class="mt0">Détail des poches</h3>
+          ${Object.entries(c.P.poches).map(([cl,po])=>{ const i = PROPO_CLASSES.indexOf(cl); return `
+            <div class="small" style="margin-bottom:8px"><b>${cl}</b> — ${eur(c.montants[i])}
+            ${po.map(([nm,w])=>`<div style="display:flex;justify-content:space-between;padding:2px 0 2px 12px"><span>${esc(nm)}</span><span>${fmtPct(w)} · ${eur(w*c.montants[i])}</span></div>`).join("")}</div>`; }).join("")}
+        </div>
+      </div>
+      <div class="row" style="margin-top:12px">
+        <div class="card grow"><h3 class="mt0">Rendement & risque du portefeuille</h3>
+          <div class="tiles" style="grid-template-columns:repeat(auto-fit,minmax(150px,1fr))">
+            ${tile("Rendement attendu (µ)", fmtPct(c.mu), "annuel brut")}
+            ${tile("Volatilité (σ)", fmtPct(c.sigma), `bénéfice de diversification : ${fmtPct(c.volPond-c.sigma)}`)}
+            ${tile("Sharpe simplifié", c.sharpe.toFixed(2))}
+            ${tile("Échelle de risque", `${c.sriPort} / 7`, c.sriCoherent? "cohérent avec le profil":"⚠ SRI élevé pour le profil")}
+          </div>
+          <div class="small muted" style="margin-top:6px">Scénarios à 1 an (±1,28 σ ≈ intervalle 80 %) : favorable ${eur(c.an1.fav)} · central ${eur(c.an1.cen)} · défavorable ${eur(c.an1.def)}</div>
+        </div>
+      </div>`;
+
+    if (step===4){
+      const totE = c.envTotal;
+      return `
+      <p class="small muted mt0">Les <b>contenants</b> : régler la part de chaque enveloppe (total 100 %) et adapter le contrat. Les enveloppes PEE / PERCO sont réservées au dirigeant.</p>
+      <div class="card tbl-scroll"><table class="tbl dense">
+        <thead><tr><th>Enveloppe</th><th>Contrat / support</th><th>Rôle</th><th class="num">Part (%)</th><th class="num">Montant</th><th>Contrôle</th></tr></thead>
+        <tbody>${c.env.map((e,i)=>`<tr class="${e.dirigeant && d.cible!=="Dirigeant"?"wiz-env-off":""}">
+          <td><b>${esc(e.nom)}</b><div class="small muted">${esc(e.dispo)}</div></td>
+          <td><input type="text" class="wiz-env" data-i="${i}" data-f="contrat" value="${esc(e.contrat)}" style="min-width:150px"></td>
+          <td class="small">${esc(e.role)}</td>
+          <td class="num"><input type="number" class="wiz-env" data-i="${i}" data-f="part_pct" value="${pctIn(e.part)}" min="0" max="100" step="1" style="width:70px" ${e.dirigeant && d.cible!=="Dirigeant"?"disabled":""}></td>
+          <td class="num"><b>${eur(e.mt)}</b></td>
+          <td>${e.alerte? `<span class="badge watch"><span class="dot"></span>${e.alerte}</span>`:"—"}</td>
+        </tr>`).join("")}</tbody>
+        <tfoot><tr><td><b>Total</b></td><td></td><td></td><td class="num"><b class="${Math.abs(totE-1)<.005?"":"txt-bad"}">${fmtPct(totE)}</b></td><td class="num"><b>${eur(c.env.reduce((a,e)=>a+e.mt,0))}</b></td>
+        <td>${Math.abs(totE-1)<.005? `<span class="badge ok"><span class="dot"></span>= 100 %</span>`:`<span class="badge urgent"><span class="dot"></span>≠ 100 %</span>`}</td></tr></tfoot>
+      </table></div>
+      <div class="row" style="margin-top:10px"><div class="card grow">
+        <h3 class="mt0">Types de supports (jamais de fonds nommés)</h3>
+        <table class="tbl dense"><tbody>${c.P.supports.map(s=>`<tr><td><b>${esc(s[0])}</b></td><td>${esc(s[1])}</td><td class="small muted">${esc(s[2])}</td><td class="num">${esc(s[3])}</td></tr>`).join("")}</tbody></table>
+        <p class="small muted" style="margin-bottom:0">Critères ELIGI : cohérence avec l'allocation d'abord, frais les plus bas à qualité égale, aucune rétrocommission n'oriente le choix, liquidité et transparence, option ISR proposée.</p>
+      </div></div>`;
+    }
+
+    if (step===5) return `
+      <div class="row">
+        <div class="card grow" style="min-width:330px">
+          <h3 class="mt0">Frais annuels par enveloppe</h3>
+          <table class="tbl dense"><thead><tr><th>Enveloppe</th><th class="num">Frais env. %</th><th class="num">Frais support %</th><th class="num">Coût annuel</th></tr></thead>
+          <tbody>${c.env.filter(e=>e.part>0).map((e)=>{ const i = c.P.envDefs.findIndex(x=>x.nom===e.nom); return `<tr>
+            <td>${esc(e.nom)}</td>
+            <td class="num"><input type="number" class="wiz-frais" data-i="${i}" data-f="fe" value="${(e.fe*100).toFixed(2)}" min="0" step="0.05" style="width:72px"></td>
+            <td class="num"><input type="number" class="wiz-frais" data-i="${i}" data-f="fs" value="${(e.fs*100).toFixed(2)}" min="0" step="0.05" style="width:72px"></td>
+            <td class="num"><b>${eur(e.cout)}</b></td></tr>`; }).join("")}</tbody>
+          <tfoot><tr><td><b>Total (TFA)</b></td><td></td><td class="num"><b>${(c.tfa*100).toFixed(2).replace(".",",")} %</b></td><td class="num"><b>${eur(c.frais)}</b></td></tr></tfoot></table>
+        </div>
+        <div class="card grow" style="min-width:300px">
+          <h3 class="mt0">Honoraires & modèle</h3>
+          <div class="form-grid">
+            <label class="fld"><span>Honoraires de mise en œuvre (€)</span><input type="number" data-k="hono_mise" value="${c.hono.mise}" min="0" step="100"></label>
+            <label class="fld"><span>Honoraires de suivi / an (€)</span><input type="number" data-k="hono_suivi" value="${c.hono.suivi}" min="0" step="100"></label>
+            <label class="fld"><span>Rétrocom. modèle classique (%)</span><input type="number" data-k="hono_retro" value="${(c.hono.retro*100).toFixed(2)}" min="0" step="0.1"></label>
+            <label class="fld"><span>Taux sans risque (%)</span><input type="number" data-k="macro_rf" value="${(c.P.macro.sansRisque*100).toFixed(2)}" min="0" step="0.1"></label>
+          </div>
+          <table class="tbl dense"><thead><tr><th>Modèle</th><th class="num">Coût an 1</th><th class="num">Récurrent /an</th></tr></thead><tbody>
+            <tr><td><b>ELIGI</b> — indépendant + honoraires</td><td class="num">${eur(c.coutEligiAn1)}</td><td class="num"><b>${eur(c.coutEligiRec)}</b></td></tr>
+            <tr><td>Distributeur classique — rétrocom.</td><td class="num">${eur(c.coutDistribAn1)}</td><td class="num">${eur(c.coutDistribRec)}</td></tr>
+          </tbody></table>
+          <p class="small muted" style="margin-bottom:0">L'honoraire est visible et ponctuel ; la rétrocommission est invisible et récurrente. Économie d'impôt PER : <b>${eur(c.ecoPER)}</b> (versement × TMI).</p>
+        </div>
+        <div class="card grow" style="min-width:300px">
+          <h3 class="mt0">Hypothèses par classe (cette proposition)</h3>
+          <table class="tbl dense"><thead><tr><th>Classe</th><th class="num">Rendement %</th><th class="num">Volatilité %</th></tr></thead>
+          <tbody>${PROPO_CLASSES.map((cl,i)=>`<tr><td>${cl}</td>
+            <td class="num"><input type="number" class="wiz-hyp" data-i="${i}" data-f="r" value="${(c.P.hyp[i].r*100).toFixed(1)}" step="0.1" style="width:70px"></td>
+            <td class="num"><input type="number" class="wiz-hyp" data-i="${i}" data-f="v" value="${(c.P.hyp[i].v*100).toFixed(1)}" min="0" step="0.5" style="width:70px"></td></tr>`).join("")}</tbody></table>
+          <p class="small muted" style="margin-bottom:0">Hypothèses non garanties, photographiées dans la proposition (le document archivé reste stable).</p>
+        </div>
+      </div>`;
+
+    // step 6
+    return `
+      <div class="row">
+        <div class="card grow" style="min-width:340px">
+          <h3 class="mt0">Contrôles d'adéquation ${c.verdict==="ADÉQUAT"? `<span class="badge ok"><span class="dot"></span>ADÉQUAT</span>` : `<span class="badge urgent"><span class="dot"></span>${esc(c.verdict)}</span>`}</h3>
+          <table class="tbl dense"><tbody>${c.controles.map(x=>`<tr>
+            <td>${x.ok?"✅":"⚠️"}</td><td>${esc(x.nom)}</td><td class="small muted">${esc(x.detail)}</td></tr>`).join("")}</tbody></table>
+          <p class="small" style="background:var(--surface-2);border-radius:8px;padding:8px 11px">${esc(c.justification)}</p>
+        </div>
+        <div class="card grow" style="min-width:340px">
+          <h3 class="mt0">Projection nette de frais — ${c.H.toFixed(0)} ans</h3>
+          ${propoFan(c)}
+          <div class="small muted">médiane <b>${eur(c.medNet)}</b> · favorable ${eur(c.favNet)} · défavorable ${eur(c.defNet)} · coût cumulé des frais ${eur(c.coutFraisHorizon)}</div>
+          <div class="small muted" style="margin-top:6px">Backtest 3 ans (indices, indicatif) : ${c.btAns.map((a,i)=>`${a} ${fmtPct(c.btR[i])}`).join(" · ")} → cumul <b>${fmtPct(c.btCumul)}</b> (${fmtPct(c.btAnnu)}/an)</div>
+        </div>
+      </div>
+      <div class="card" style="margin-top:12px">
+        <div class="inline-controls">
+          <label class="fld"><span>Stade → document généré</span><select data-k="mode2">${["Prospect","Client"].map(x=>`<option ${x===p.mode?"selected":""}>${x}</option>`).join("")}</select></label>
+          <span class="small muted" style="padding-bottom:9px">${p.mode==="Prospect"? "Synthèse 1 page — le détail complet est réservé au stade client." : "Dossier complet (10 sections) + synthèse en tête."}</span>
+          <span style="flex:1"></span>
+          <button class="btn" id="wiz-doc">${ICONS.doc} Générer le document</button>
+        </div>
+      </div>`;
+  }
+
+  function renderWiz(){
+    const c = propoCompute(d);
+    back.innerHTML = `<div class="wiz">
+      <div class="wiz-head">
+        <img src="logo-blanc.png" alt="Eligi" style="height:30px">
+        <div><b>Proposition d'investissement</b><div class="small" style="opacity:.75">${esc(d.nomClient)} · ${esc(consName(p.conseiller_id))} · ${esc(p.statut)}</div></div>
+        <span style="flex:1"></span>
+        <button class="btn secondary small" id="wiz-save">Enregistrer</button>
+        <button class="btn secondary small" id="wiz-close">${ICONS.close} Fermer</button>
+      </div>
+      <div class="wiz-body">
+        <div class="wiz-steps">${PROPO_STEPS.map((s,i)=>`<button class="wiz-step ${i===step?"on":""} ${i<step?"done":""}" data-s="${i}"><span class="wiz-n">${i+1}</span> ${s}</button>`).join("")}</div>
+        <div class="wiz-content"><h2 class="mt0" style="margin-bottom:14px">${PROPO_STEPS[step]}</h2>${stepHTML(c)}</div>
+      </div>
+      ${strip(c)}
+      <div class="wiz-foot">
+        <button class="btn secondary" id="wiz-prev" ${step===0?"disabled":""}>◀ Précédent</button>
+        <span class="small muted">Étape ${step+1} / ${PROPO_STEPS.length}</span>
+        <button class="btn" id="wiz-next" ${step===PROPO_STEPS.length-1?"disabled":""}>Suivant ▶</button>
+      </div>
+    </div>`;
+    bindWiz();
+  }
+
+  async function save(silent){
+    try{
+      p.mode = p.mode || "Prospect";
+      const id = await state.db.saveProposition(p);
+      if (!p.id) p.id = id;
+      await state.db.loadAll();
+      if (!silent) toast("Proposition enregistrée ✓");
+      return true;
+    }catch(err){ toast("Erreur : "+(err.message||err)); return false; }
+  }
+
+  function bindWiz(){
+    back.querySelector("#wiz-close").addEventListener("click", async ()=>{ await save(true); back.remove(); render(); });
+    back.querySelector("#wiz-save").addEventListener("click", ()=>save());
+    back.querySelector("#wiz-prev")?.addEventListener("click", ()=>{ if (step>0){ step--; renderWiz(); } });
+    back.querySelector("#wiz-next")?.addEventListener("click", ()=>{ if (step<PROPO_STEPS.length-1){ step++; renderWiz(); } });
+    back.querySelectorAll(".wiz-step").forEach(b=>b.addEventListener("click", ()=>{ step = +b.dataset.s; renderWiz(); }));
+
+    const rk = {dateEntretien:v=>d.dateEntretien=v, cible:v=>{ d.cible=v; d.envParts = propoEnvParts(d.P, v); },
+      montant:v=>d.montant=+v||0, patrimoine:v=>d.patrimoine=+v||0, precaution:v=>d.precaution=+v||0,
+      tmi_pct:v=>d.tmi=inPct(v), chf_pct:v=>d.chf=inPct(v), stabilite:v=>d.stabilite=v,
+      horizonGlobal:v=>d.horizonGlobal=+v||0, mode2:v=>p.mode=v,
+      hono_mise:v=>d.P.honoraires.mise=+v||0, hono_suivi:v=>d.P.honoraires.suivi=+v||0,
+      hono_retro:v=>d.P.honoraires.retro=inPct(v), macro_rf:v=>d.P.macro.sansRisque=inPct(v)};
+    back.querySelectorAll("[data-k]").forEach(el=>{
+      const ev = el.tagName==="SELECT" || el.type==="date" ? "change" : "change";
+      el.addEventListener(ev, ()=>{ rk[el.dataset.k]?.(el.value); renderWiz(); });
+    });
+    back.querySelectorAll(".wiz-obj").forEach(el=>el.addEventListener("change", ()=>{
+      const o = d.objectifs[+el.dataset.i];
+      if (el.dataset.f==="part_pct") o.part = inPct(el.value);
+      else if (el.dataset.f==="horizon") o.horizon = +el.value||0;
+      else o.liq = el.value;
+      renderWiz();
+    }));
+    back.querySelectorAll(".wiz-profil").forEach(b=>b.addEventListener("click", ()=>{ d.profil = +b.dataset.niv; renderWiz(); }));
+    back.querySelector("#wq-open")?.addEventListener("click", ()=>{ d.quest = [3,3,3,3,3,3]; renderWiz(); });
+    back.querySelector("#wq-clear")?.addEventListener("click", ()=>{ d.quest = null; renderWiz(); });
+    back.querySelectorAll(".wiz-qv").forEach(b=>b.addEventListener("click", ()=>{ d.quest[+b.dataset.i] = +b.dataset.v; renderWiz(); }));
+    back.querySelector("#wq-apply")?.addEventListener("click", ()=>{ const c = propoCompute(d); if (c.quest){ d.profil = c.quest.sugg; step = 2; renderWiz(); } });
+    back.querySelectorAll(".wiz-env").forEach(el=>el.addEventListener("change", ()=>{
+      const i = +el.dataset.i;
+      if (el.dataset.f==="part_pct"){ d.envParts[i] = inPct(el.value); }
+      else d.P.envDefs[i].contrat = el.value;
+      renderWiz();
+    }));
+    back.querySelectorAll(".wiz-frais").forEach(el=>el.addEventListener("change", ()=>{
+      d.P.envDefs[+el.dataset.i][el.dataset.f] = inPct(el.value); renderWiz();
+    }));
+    back.querySelectorAll(".wiz-hyp").forEach(el=>el.addEventListener("change", ()=>{
+      d.P.hyp[+el.dataset.i][el.dataset.f] = inPct(el.value); renderWiz();
+    }));
+    back.querySelector("#wiz-doc")?.addEventListener("click", async ()=>{
+      if (await save(true)) propoDoc(p);
+    });
+  }
+  renderWiz();
+}
+
+/* ---------- Document généré (Synthèse / Dossier) ---------- */
+function propoDoc(p){
+  const d = p.data, c = propoCompute(d);
+  const fdate = s => s? new Date(s+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "";
+  const complet = p.mode === "Client";
+  const synthese = `
+    <div class="pd-hero">
+      <div class="pd-tiles">
+        <div><span>Montant placé</span><b>${eur(c.M)}</b></div>
+        <div><span>Profil de risque</span><b>${PROPO_PROFILS[c.niv-1]}</b><i>SRI ${c.sriPort}/7</i></div>
+        <div><span>Rendement net attendu</span><b>${fmtPct(c.muNet)}</b><i>brut ${fmtPct(c.mu)} − frais ${(c.tfa*100).toFixed(2).replace(".",",")} %</i></div>
+        <div><span>Horizon</span><b>${c.H.toFixed(0)} ans</b></div>
+      </div>
+    </div>
+    <div class="pd-cols">
+      <div class="pd-block" style="text-align:center">${propoDonut(c.cible, 150)}
+        <div class="pd-legend">${PROPO_CLASSES.map((cl,i)=>c.cible[i]>0.001?`<span><i style="background:${MIX_COLORS[i]}"></i>${cl} ${fmtPct(c.cible[i])}</span>`:"").join("")}</div>
+      </div>
+      <div class="pd-block">
+        <h4>Projection nette de frais à ${c.H.toFixed(0)} ans</h4>
+        ${propoFan(c, 460, 150)}
+        <div class="pd-note">Défavorable ${eur(c.defNet)} · <b>médiane ${eur(c.medNet)}</b> · favorable ${eur(c.favNet)} — hypothèses non garanties.</div>
+      </div>
+    </div>
+    <div class="pd-line">Sur 3 ans, cette allocation aurait progressé de <b>${fmtPct(c.btCumul)}</b> au total (${fmtPct(c.btAnnu)} par an) — simulation sur indices passés, ne préjuge pas de l'avenir.</div>
+    <div class="pd-line">Frais totaux <b>${(c.tfa*100).toFixed(2).replace(".",",")} % / an</b> · coût des frais sur l'horizon ${eur(c.coutFraisHorizon)} · économie d'impôt PER ${eur(c.ecoPER)}</div>
+    <div class="pd-risk"><span>Échelle de risque</span>${propoSriScale(c.sriPort)}<span class="pd-note">1 = faible · 7 = élevé · perte en capital possible</span></div>
+    <div class="pd-engage">
+      <span>✓ Conseil indépendant (CIF) — votre seul intérêt</span>
+      <span>✓ Honoraires transparents — sans commission cachée</span>
+      <span>✓ Une méthode, pas un catalogue — issue du diagnostic</span>
+    </div>
+    <div class="pd-line"><b>${c.verdict}</b> — ${p.mode==="Prospect"? "prochaine étape : un diagnostic CAP, déductible de la mission (premier pas simple et réversible)." : "prochaine étape : lettre de mission, ouverture des enveloppes, première revue à 12 mois."}</div>`;
+
+  const dossier = !complet? "" : `
+    <div class="pd-sec"><h3>1 · Votre situation & vos objectifs</h3>
+      <table class="pd-tbl"><tbody>
+        <tr><td>Objectif principal</td><td><b>${esc(c.objPrincipal?.nom||"")}</b></td></tr>
+        <tr><td>Horizon moyen</td><td>${c.H.toFixed(1)} an(s)</td></tr>
+        <tr><td>Montant concerné</td><td>${eur(c.M)}</td></tr>
+      </tbody></table>
+      <table class="pd-tbl"><thead><tr><th>Objectif</th><th class="num">Horizon</th><th class="num">Part</th><th>Liquidité</th></tr></thead>
+      <tbody>${d.objectifs.filter(o=>+o.part>0).map(o=>`<tr><td>${esc(o.nom)}</td><td class="num">${o.horizon} ans</td><td class="num">${fmtPct(o.part)}</td><td>${esc(o.liq)}</td></tr>`).join("")}</tbody></table>
+    </div>
+    <div class="pd-sec"><h3>2 · Votre profil de risque</h3>
+      <p>Profil retenu : <b>niveau ${c.niv} — ${PROPO_PROFILS[c.niv-1]}</b>. Méthode : le plus prudent de votre tolérance et de votre capacité à subir une perte.</p></div>
+    <div class="pd-sec"><h3>3 · Allocation cible</h3>
+      <table class="pd-tbl"><thead><tr><th>Classe d'actifs</th><th class="num">Part</th><th class="num">Montant</th></tr></thead>
+      <tbody>${PROPO_CLASSES.map((cl,i)=>`<tr><td>${cl}</td><td class="num">${fmtPct(c.cible[i])}</td><td class="num">${eur(c.montants[i])}</td></tr>`).join("")}</tbody></table>
+      <p class="pd-note">En clair : voici comment votre argent est réparti entre grandes familles de placements.</p></div>
+    <div class="pd-sec"><h3>4 · Enveloppes, contrats & disponibilité</h3>
+      <table class="pd-tbl"><thead><tr><th>Enveloppe</th><th>Contrat</th><th>Disponibilité</th><th class="num">Montant</th></tr></thead>
+      <tbody>${c.env.filter(e=>e.part>0.001).map(e=>`<tr><td>${esc(e.nom)}</td><td>${esc(e.contrat)}</td><td>${esc(e.dispo)}</td><td class="num">${eur(e.mt)}</td></tr>`).join("")}</tbody></table></div>
+    <div class="pd-sec"><h3>5 · Rendement, risque & projection (nette de frais)</h3>
+      <p>Rendement attendu : brut ${fmtPct(c.mu)} · net de frais <b>${fmtPct(c.muNet)}</b> · volatilité ${fmtPct(c.sigma)}.<br>
+      À ${c.H.toFixed(0)} ans : médiane <b>${eur(c.medNet)}</b> · défavorable ${eur(c.defNet)} · favorable ${eur(c.favNet)}.<br>
+      Coût cumulé des frais sur l'horizon : ${eur(c.coutFraisHorizon)}. Échelle de risque : ${c.sriPort} / 7.</p>
+      <p class="pd-note">« Net de frais » = ce qu'il vous reste vraiment une fois les frais payés. « Défavorable » = si les marchés vont mal.</p></div>
+    <div class="pd-sec"><h3>6 · Transparence des frais & fiscalité</h3>
+      <p>Frais totaux estimés : <b>${(c.tfa*100).toFixed(2).replace(".",",")} % / an</b> (${eur(c.frais)}). Honoraires de mise en œuvre : ${eur(c.hono.mise)} (HT) — séparés de tout support.
+      Économie d'impôt liée au PER : ${eur(c.ecoPER)} (versement PER × votre TMI).</p></div>
+    <div class="pd-sec"><h3>7 · Votre accompagnement dans le temps</h3>
+      <p>Première revue à 12 mois puis revue annuelle : dérive vs cible, rééquilibrage, événements de vie. Un point de contact unique qui garde le cap dans la durée — c'est le cœur de la méthode ELIGI. Honoraires de suivi : ${eur(c.hono.suivi)} / an (abonnement CAP).</p></div>
+    <div class="pd-sec"><h3>8 · Pourquoi cette proposition</h3><p>${esc(c.justification)}</p></div>
+    <div class="pd-sec"><h3>9 · Adéquation & prochaine étape</h3>
+      <table class="pd-tbl"><tbody>${c.controles.map(x=>`<tr><td>${x.ok?"✅":"⚠️"}</td><td>${esc(x.nom)}</td><td>${esc(x.detail)}</td></tr>`).join("")}
+      <tr><td></td><td><b>Verdict</b></td><td><b>${esc(c.verdict)}</b></td></tr></tbody></table></div>
+    <div class="pd-sec"><h3>10 · Performance passée de cette allocation (3 ans)</h3>
+      <p>${c.btAns.map((a,i)=>`${a} : ${fmtPct(c.btR[i])}`).join(" · ")} — cumulée <b>${fmtPct(c.btCumul)}</b>, soit ${fmtPct(c.btAnnu)} par an. ${eur(c.btVals[c.btVals.length-1])} simulés à fin ${c.btAns[c.btAns.length-1]}.</p>
+      <p class="pd-note">Simulation sur indices passés, hors frais réels — les performances passées ne préjugent pas des performances futures.</p></div>`;
+
+  const back = document.createElement("div");
+  back.className = "modal-back doc-back";
+  back.innerHTML = `<div class="pd-wrap">
+    <div class="pd-actions no-print">
+      <button class="btn" id="pd-print">${ICONS.doc} Imprimer / PDF</button>
+      <button class="btn secondary" id="pd-close">${ICONS.close} Fermer</button>
+    </div>
+    <div class="pd-page">
+      <div class="pd-head">
+        <img src="logo-teal.png" alt="Eligi">
+        <div class="pd-title"><b>Proposition d'investissement</b><span>Le pourquoi avant le produit</span></div>
+      </div>
+      <div class="pd-meta">Établie pour <b>${esc(d.nomClient)}</b> · ${fdate(d.dateEntretien)} · cadre ${esc(d.cible)} · ${esc(consName(p.conseiller_id))}</div>
+      ${synthese}
+      ${dossier}
+      <div class="pd-mentions">${esc(PROPO_MENTIONS)}</div>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  document.body.classList.add("doc-open");
+  const close = ()=>{ back.remove(); document.body.classList.remove("doc-open"); };
+  back.querySelector("#pd-close").addEventListener("click", close);
+  back.querySelector("#pd-print").addEventListener("click", ()=>window.print());
+  back.addEventListener("click", e=>{ if (e.target===back) close(); });
+}
+
+/* ---------- Statuts & intégrations ---------- */
+async function propoSetStatut(propo, statut){
+  try{
+    propo.statut = statut;
+    await state.db.saveProposition(propo);
+    if (statut==="Envoyée" || statut==="Acceptée" || statut==="Refusée"){
+      await state.db.addInteraction({client_key:propo.client_key, conseiller_id:state.profile.conseiller_id||null,
+        type:"Note", note:`📄 Proposition ${eur(+propo.data?.montant||0)} — ${statut.toLowerCase()}`});
+    }
+    if (statut==="Acceptée" && propo.pipeline_id){
+      const op = state.pipeline.find(x=>x.id===propo.pipeline_id);
+      if (op && (op.etape||"").toLowerCase()!=="signé" && confirm(`Proposition acceptée 🎉 — passer l'opportunité « ${op.client} » en Signature probable dans le pipeline ?`)){
+        await state.db.savePipeline({...op, etape:"Signature probable", signature_probable:true});
+      }
+    }
+    await state.db.loadAll(); toast(`Proposition ${statut.toLowerCase()} ✓`);
+  }catch(err){ toast("Erreur : "+(err.message||err)); }
+}
+function propoStatutBadge(s){
+  const cls = s==="Acceptée"?"ok":s==="Refusée"?"urgent":s==="Envoyée"?"watch":"neutral";
+  return `<span class="badge ${cls}"><span class="dot"></span>${esc(s)}</span>`;
+}
+function propoClientPicker(){
+  const groups = {};
+  for (const x of state.pipeline){ const k = normName(x.client); (groups[k] = groups[k]||[]).push(x); }
+  const list = Object.values(groups).map(rows=>rows.sort((a,b)=>pondere(b)-pondere(a))[0])
+    .sort((a,b)=>String(a.client).localeCompare(String(b.client),"fr"));
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal" style="width:480px">
+    <h3>Nouvelle proposition</h3>
+    <p class="small muted" style="margin-top:0">Une proposition part toujours d'un client du pipeline — c'est lui qui porte le suivi. Client absent ? Crée d'abord son opportunité dans le Pipeline.</p>
+    <label class="fld"><span>Client</span><select id="pk-client">${list.map(x=>`<option value="${x.id}">${esc((x.client||"").trim())} — ${esc(consName(x.conseiller_id))}</option>`).join("")}</select></label>
+    <div class="modal-actions">
+      <button class="btn secondary" id="pk-cancel">Annuler</button>
+      <button class="btn" id="pk-ok">Commencer</button>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  back.querySelector("#pk-cancel").addEventListener("click", ()=>back.remove());
+  back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
+  back.querySelector("#pk-ok").addEventListener("click", ()=>{
+    const op = state.pipeline.find(x=>x.id===+back.querySelector("#pk-client").value);
+    if (!op) return;
+    back.remove();
+    propoWizard(propoNew(op));
+  });
+}
+function propoRowsHTML(props, showClient){
+  return props.map(pr=>{
+    return `<tr class="clickable propo-row" data-id="${pr.id}">
+      ${showClient? `<td><b>${esc(pr.data?.nomClient||pr.client_key)}</b></td>`:""}
+      <td>${new Date(pr.updated_at||pr.created_at).toLocaleDateString("fr-FR")}</td>
+      <td><span class="cdot" style="background:${consColor(pr.conseiller_id)}"></span>${esc(consName(pr.conseiller_id))}</td>
+      <td class="num"><b>${eur(+pr.data?.montant||0)}</b></td>
+      <td>${esc(PROPO_PROFILS[(+pr.data?.profil||3)-1])}</td>
+      <td>${esc(pr.mode)}</td>
+      <td><select class="propo-statut" data-id="${pr.id}">${PROPO_STATUTS.map(s=>`<option ${s===pr.statut?"selected":""}>${s}</option>`).join("")}</select></td>
+      <td style="white-space:nowrap">
+        <button class="btn secondary small propo-doc" data-id="${pr.id}">${ICONS.doc} Document</button>
+        <button class="btn danger small propo-del" data-id="${pr.id}">✕</button>
+      </td></tr>`;
+  }).join("");
+}
+function bindPropoRows(scope, refresh){
+  scope.querySelectorAll(".propo-row").forEach(r=>r.addEventListener("click", e=>{
+    if (e.target.closest("select,button")) return;
+    e.stopPropagation();
+    const pr = state.propositions.find(x=>x.id===+r.dataset.id);
+    if (pr) propoWizard(JSON.parse(JSON.stringify(pr)));
+  }));
+  scope.querySelectorAll(".propo-statut").forEach(sel=>sel.addEventListener("click", e=>e.stopPropagation()));
+  scope.querySelectorAll(".propo-statut").forEach(sel=>sel.addEventListener("change", async e=>{
+    e.stopPropagation();
+    const pr = state.propositions.find(x=>x.id===+sel.dataset.id);
+    if (pr){ await propoSetStatut({...pr}, sel.value); refresh(); }
+  }));
+  scope.querySelectorAll(".propo-doc").forEach(b=>b.addEventListener("click", e=>{
+    e.stopPropagation();
+    const pr = state.propositions.find(x=>x.id===+b.dataset.id);
+    if (pr) propoDoc(pr);
+  }));
+  scope.querySelectorAll(".propo-del").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    if (!confirm("Supprimer cette proposition ?")) return;
+    try{ await state.db.deleteProposition(+b.dataset.id); await state.db.loadAll(); toast("Proposition supprimée"); refresh(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+}
+
+/* ---------- Vue Propositions ---------- */
+function viewPropositions(root){
+  const q = (state._propSearch||"").toLowerCase();
+  let list = state.propositions.slice();
+  if (q) list = list.filter(pr=>String(pr.data?.nomClient||pr.client_key).toLowerCase().includes(q));
+  const enCours = list.filter(pr=>pr.statut==="Brouillon"||pr.statut==="Envoyée").length;
+  const acceptees = list.filter(pr=>pr.statut==="Acceptée");
+  root.innerHTML = `
+  ${vhead("Propositions de placement", `${list.length} proposition(s) — méthode ELIGI : objectifs → profil → allocation → enveloppes → document`,
+    `<button class="btn" id="prop-new">＋ Nouvelle proposition</button>`)}
+  <div class="tiles">
+    ${tile("En cours", enCours, "brouillons + envoyées")}
+    ${tile("Acceptées", acceptees.length, eur(acceptees.reduce((a,pr)=>a+(+pr.data?.montant||0),0)) + " placés")}
+    ${tile("Taux d'acceptation", (()=>{ const t = list.filter(pr=>pr.statut==="Acceptée"||pr.statut==="Refusée").length; return t? fmtPct(acceptees.length/t) : "—"; })(), "sur les propositions tranchées")}
+  </div>
+  <div class="inline-controls" style="margin:12px 0">
+    <label class="fld" style="min-width:240px"><span>Recherche</span>
+      <input type="search" id="prop-search" placeholder="nom du client…" value="${esc(state._propSearch||"")}"></label>
+  </div>
+  <div class="card tbl-scroll"><table class="tbl">
+    <thead><tr><th>Client</th><th>Mise à jour</th><th>Conseiller</th><th class="num">Montant</th><th>Profil</th><th>Stade</th><th>Statut</th><th></th></tr></thead>
+    <tbody>${propoRowsHTML(list, true) || `<tr><td colspan="8" class="empty">Aucune proposition — clique sur « Nouvelle proposition » pour démarrer depuis un client du pipeline</td></tr>`}</tbody>
+  </table></div>`;
+  $("#prop-new").addEventListener("click", propoClientPicker);
+  $("#prop-search").addEventListener("input", e=>{ state._propSearch = e.target.value; viewPropositions(root); });
+  bindPropoRows(root, ()=>viewPropositions(root));
 }
 
 /* ---------------- Rapport hebdo (manager) ---------------- */
@@ -2401,6 +3261,7 @@ const VIEWS = {
   saisie:{label:"Saisie hebdo", icon:ICONS.edit, fn:viewSaisie},
   pipeline:{label:"Pipeline", icon:ICONS.funnel, fn:viewPipeline},
   clients:{label:"Clients", icon:ICONS.people, fn:viewClients},
+  propositions:{label:"Propositions", icon:ICONS.pie, fn:viewPropositions},
   fiche:{label:"Fiches", icon:ICONS.user, fn:viewFiche},
   rapport:{label:"Rapport hebdo", icon:ICONS.doc, fn:viewRapport, manager:true},
   progression:{label:"Progression", icon:ICONS.chart, fn:viewProgression, manager:true},
