@@ -262,6 +262,11 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .action-item input[type=checkbox]{width:auto; flex:none}
 .action-item.done .ac-text{text-decoration:line-through; color:var(--muted)}
 
+/* ============ Bascule Semaine / Mois ============ */
+.seg{display:inline-flex; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:2px; gap:2px}
+.seg-btn{border:0; background:none; padding:6px 13px; border-radius:8px; cursor:pointer; font:inherit; font-size:13px; color:var(--ink-2)}
+.seg-btn.on{background:var(--surface); color:var(--ink); font-weight:600; box-shadow:var(--shadow)}
+
 /* ============ Assistant proposition (v9) ============ */
 .wiz-back{align-items:stretch; justify-content:stretch; padding:0}
 .wiz{display:flex; flex-direction:column; width:100%; height:100%; background:var(--page)}
@@ -508,6 +513,59 @@ function objFor(consId, week){
   return o ? {ca:+o.objectif_ca||0, coll:+o.objectif_collecte||0, rdv:+o.objectif_rdv||0}
            : {ca:c.objectif_ca_hebdo||0, coll:c.objectif_collecte_hebdo||0, rdv:c.objectif_rdv_hebdo||0};
 }
+/* Vue mensuelle : un mois = les semaines dont le lundi tombe dans ce mois */
+function monthOfWeek(week){
+  const s = state.semaines.find(x=>x.code===week);
+  return s? String(s.lundi).slice(0,7) : null;
+}
+function monthCodes(){ return [...new Set(state.semaines.map(s=>String(s.lundi).slice(0,7)))].sort(); }
+function monthLabel(m){
+  const d = new Date(m+"-01T00:00:00");
+  const t = d.toLocaleDateString("fr-FR",{month:"long",year:"numeric"});
+  return t.charAt(0).toUpperCase()+t.slice(1);
+}
+function monthWeeks(m){ return state.semaines.filter(s=>String(s.lundi).slice(0,7)===m).map(s=>s.code).sort(wcmp); }
+function monthAgg(consId, m){
+  const z = {rdv:0, nb_signatures:0, collecte_scpi:0, ca_scpi:0, collecte_structures:0, ca_structures:0,
+             collecte_audit:0, ca_audit:0, collecte_assurance:0, ca_autres:0, collecte_totale:0, ca_total:0};
+  for (const w of monthWeeks(m)){
+    const s = weekAgg(consId, w);
+    for (const k of Object.keys(z)) z[k] += +s[k]||0;
+  }
+  return z;
+}
+function objForMonth(consId, m){
+  return monthWeeks(m).reduce((a,w)=>{ const o = objFor(consId,w); a.ca+=o.ca; a.coll+=o.coll; a.rdv+=o.rdv; return a; }, {ca:0, coll:0, rdv:0});
+}
+function monthCongeCount(consId, m){ return monthWeeks(m).filter(w=>isConge(consId,w)).length; }
+function curMonth(){ return monthOfWeek(state.week) || monthCodes()[monthCodes().length-1]; }
+function periodNavHTML(){
+  const mois = state._periode==="mois";
+  const toggle = `<div class="seg" title="Granularité d'affichage">
+    <button class="seg-btn ${!mois?"on":""}" data-per="semaine">Semaine</button>
+    <button class="seg-btn ${mois?"on":""}" data-per="mois">Mois</button></div>`;
+  if (!mois) return toggle + weekNavHTML();
+  const ms = monthCodes(), m = state._mois || curMonth(), i = ms.indexOf(m);
+  return toggle + `<div class="weeknav">
+    <button class="wk-btn" id="mo-prev" title="Mois précédent" ${i<=0?"disabled":""}>${ICONS.left}</button>
+    <select id="mo-select">${ms.map(x=>`<option value="${x}" ${x===m?"selected":""}>${monthLabel(x)}</option>`).join("")}</select>
+    <button class="wk-btn" id="mo-next" title="Mois suivant" ${i>=ms.length-1?"disabled":""}>${ICONS.right}</button>
+  </div>`;
+}
+function bindPeriodNav(){
+  document.querySelectorAll("[data-per]").forEach(b=>b.addEventListener("click", ()=>{
+    state._periode = b.dataset.per;
+    if (state._periode==="mois" && !state._mois) state._mois = curMonth();
+    render();
+  }));
+  bindWeekNav();
+  const ms = monthCodes();
+  const shift = d=>{ const i = ms.indexOf(state._mois||curMonth()); const n = ms[i+d]; if (n){ state._mois = n; render(); } };
+  $("#mo-prev")?.addEventListener("click", ()=>shift(-1));
+  $("#mo-next")?.addEventListener("click", ()=>shift(1));
+  $("#mo-select")?.addEventListener("change", e=>{ state._mois = e.target.value; render(); });
+}
+
 /* Vitalité pipeline */
 const STALE_JOURS = 14;
 function staleDays(p){ const t = p.updated_at || p.created_at; return t? Math.floor((Date.now() - new Date(t).getTime())/86400000) : 0; }
@@ -1314,20 +1372,27 @@ function joursDepuisSauvegarde(){
 /* ---------------- Dashboard équipe (manager) ---------------- */
 function viewDashboard(root){
   const week = state.week;
+  const mois = state._periode==="mois";
+  const m = mois? (state._mois || (state._mois = curMonth())) : null;
+  const perLabel = mois? monthLabel(m) : `semaine ${week}`;
+  const nSemMois = mois? monthWeeks(m).length : 0;
   const cons = activeConseillers();
   const rows = cons.map(c => {
-    const w = weekAgg(c.id, week), p = pipeAgg(c.id);
+    const w = mois? monthAgg(c.id, m) : weekAgg(c.id, week), p = pipeAgg(c.id);
     const proj = w.ca_total + p.pond - p.signe;
     const hist = consSeries(c.id, week).slice(-8).map(r=>r.ca);
-    const o = objFor(c.id, week);
-    return {c, w, p, o, proj, hist, conge: isConge(c.id, week), al: alerteFor(c.id, week, proj, o.ca)};
+    const o = mois? objForMonth(c.id, m) : objFor(c.id, week);
+    const nConge = mois? monthCongeCount(c.id, m) : (isConge(c.id, week)? 1:0);
+    const conge = mois? nConge===nSemMois && nSemMois>0 : isConge(c.id, week);
+    const al = conge? BADGE_CONGE : alerte(proj, o.ca);
+    return {c, w, p, o, proj, hist, conge, nConge, al};
   });
   const sum = k => rows.reduce((a,r)=>a+r.w[k],0);
   const caEq = sum("ca_total"), collEq = sum("collecte_totale"), rdvEq = sum("rdv");
   const pondEq = rows.reduce((a,r)=>a+r.p.pond,0);
   const projEq = rows.reduce((a,r)=>a+r.proj,0);
-  const objCAEq = cons.reduce((a,c)=>a+objFor(c.id,week).ca,0);
-  const objRdvEq = cons.reduce((a,c)=>a+objFor(c.id,week).rdv,0);
+  const objCAEq = rows.reduce((a,r)=>a+r.o.ca,0);
+  const objRdvEq = rows.reduce((a,r)=>a+r.o.rdv,0);
   const enConges = cons.filter(c => isConge(c.id, week));
   const noSaisie = cons.filter(c => !isConge(c.id, week) && !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===week));
   const mix = [
@@ -1339,8 +1404,8 @@ function viewDashboard(root){
   ];
 
   root.innerHTML = `
-  ${vhead("Dashboard équipe", `Semaine actuelle : ${todayWeekCode()}`, `
-    ${weekNavHTML()}
+  ${vhead("Dashboard équipe", mois? `${perLabel} — ${nSemMois} semaine(s) : ${esc(monthWeeks(m)[0]||"")} → ${esc(monthWeeks(m)[nSemMois-1]||"")}` : `Semaine actuelle : ${todayWeekCode()}`, `
+    ${periodNavHTML()}
     <button class="btn secondary" id="dash-meeting">${ICONS.play} Mode réunion</button>
     <button class="btn secondary" id="dash-export">${ICONS.dl} Exporter</button>`)}
 
@@ -1358,13 +1423,13 @@ function viewDashboard(root){
     return (j===null || j>=7)? `<div class="card reminder" style="border-left-color:var(--s1)">💾 <b>${j===null? "Aucune sauvegarde exportée depuis ce navigateur" : `Dernière sauvegarde il y a ${j} jours`}</b>
       <span class="muted small">— un export Excel = une copie de secours de toutes tes données</span>
       <span style="flex:1"></span><button class="btn small" id="bk-now">${ICONS.dl} Exporter maintenant</button></div>` : ""; })()}
-  ${(noSaisie.length || enConges.length)? `<div class="card sect" style="padding:11px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+  ${!mois && (noSaisie.length || enConges.length)? `<div class="card sect" style="padding:11px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
     ${noSaisie.length? `<b class="small">Saisies manquantes ${esc(week)} :</b>
     ${noSaisie.map(c=>`<span class="chip warn" data-saisie="${c.id}"><span class="cdot" style="background:${consColor(c.id)};margin:0"></span>${esc(c.nom)}</span>`).join("")}
     <span class="small muted">— clique pour saisir</span>`:""}
     ${enConges.length? `<span class="small" style="margin-left:${noSaisie.length?"14px":"0"}">✈ <b>En congés :</b> ${enConges.map(c=>esc(c.nom)).join(", ")}</span>`:""}</div>` : ""}
 
-  <div class="sect sect-head"><h2>Conseillers — semaine ${esc(week)}</h2></div>
+  <div class="sect sect-head"><h2>Conseillers — ${esc(perLabel)}</h2>${mois? `<span class="sub">cumul des ${nSemMois} semaines du mois · objectifs mensuels = somme des objectifs hebdo (congés déduits)</span>`:""}</div>
   <div class="card tbl-scroll">
     <table class="tbl dense">
       <thead><tr>
@@ -1390,7 +1455,7 @@ function viewDashboard(root){
           <td class="num">${eur(r.p.signe)}</td>
           <td class="num"><b>${eur(r.proj)}</b></td>
           <td class="num">${eur(r.w.rdv? r.w.ca_total/r.w.rdv : 0)}</td>
-          <td>${badgeHTML(r.al)}</td>
+          <td>${badgeHTML(r.al)}${mois && r.nConge && !r.conge? ` <span class="small muted">✈ ${r.nConge} sem.</span>`:""}</td>
         </tr>`).join("")}
         <tr class="total">
           <td>Équipe</td><td></td><td class="num">${eur(objCAEq)}</td>
@@ -1407,7 +1472,7 @@ function viewDashboard(root){
   </div>
 
   <div class="row sect">
-    <div class="card grow"><h3 class="mt0">Mix produits — semaine ${esc(week)}</h3><div id="dash-mix"></div></div>
+    <div class="card grow"><h3 class="mt0">Mix produits — ${esc(perLabel)}</h3><div id="dash-mix"></div></div>
     <div class="card grow">
       <h3 class="mt0">Mode d'emploi réunion</h3>
       <ol class="challenge">
@@ -1421,7 +1486,7 @@ function viewDashboard(root){
   </div>`;
 
   mixBars($("#dash-mix"), mix);
-  bindWeekNav();
+  bindPeriodNav();
   $("#dash-export").addEventListener("click", exportXLSX);
   $("#bk-now")?.addEventListener("click", exportXLSX);
   const openMeeting = ()=>meetingMode();
@@ -1901,10 +1966,16 @@ function viewFiche(root){
   const c = state.conseillers.find(x=>x.id===consId);
   if (!c){ root.innerHTML = `<div class="card">Aucun conseiller associé à ce compte. Contacte le manager.</div>`; return; }
 
-  const w = weekAgg(consId, state.week), p = pipeAgg(consId);
+  const mois = state._periode==="mois";
+  const m = mois? (state._mois || (state._mois = curMonth())) : null;
+  const perLabel = mois? monthLabel(m) : state.week;
+  const w = mois? monthAgg(consId, m) : weekAgg(consId, state.week), p = pipeAgg(consId);
   const proj = w.ca_total + p.pond - p.signe;
-  const ow = objFor(consId, state.week);
-  const al = alerteFor(consId, state.week, proj, ow.ca);
+  const ow = mois? objForMonth(consId, m) : objFor(consId, state.week);
+  const nSemMois = mois? monthWeeks(m).length : 0;
+  const nCongeM = mois? monthCongeCount(consId, m) : 0;
+  const al = mois? (nCongeM===nSemMois && nSemMois>0? BADGE_CONGE : alerte(proj, ow.ca))
+                 : alerteFor(consId, state.week, proj, ow.ca);
   const cu = cumul(consId, state.week);
   const serie = consSeries(consId, state.week);
   const mix = [
@@ -1916,9 +1987,10 @@ function viewFiche(root){
 
   root.innerHTML = `
   ${vhead(`<span class="cdot" style="background:${consColor(consId)};width:12px;height:12px"></span> ${isManager()? "Fiche — " : "Ma semaine — "}${esc(c.nom)} &nbsp;${badgeHTML(al)}`,
-    "", `${isManager()? `<label class="fld" style="margin:0;min-width:140px"><select id="fi-cons">
+    mois? `${monthLabel(m)} — cumul de ${nSemMois} semaine(s)${nCongeM? `, dont ${nCongeM} en congés`:""}` : "",
+    `${isManager()? `<label class="fld" style="margin:0;min-width:140px"><select id="fi-cons">
       ${list.map(x=>`<option value="${x.id}" ${x.id===consId?"selected":""}>${esc(x.nom)}</option>`).join("")}</select></label>`:""}
-    ${weekNavHTML()}
+    ${periodNavHTML()}
     <button class="btn secondary" id="fi-export">${ICONS.dl} Exporter</button>`)}
 
   <div class="tiles">
@@ -1932,7 +2004,7 @@ function viewFiche(root){
   </div>
 
   <div class="row sect">
-    <div class="card grow"><h3 class="mt0">Répartition CA par support — ${esc(state.week)}</h3><div id="fi-mix"></div></div>
+    <div class="card grow"><h3 class="mt0">Répartition CA par support — ${esc(perLabel)}</h3><div id="fi-mix"></div></div>
     <div class="card grow"><h3 class="mt0">Points à challenger</h3>
       <ol class="challenge">
         <li>Quels dossiers doivent signer cette semaine ?</li>
@@ -1972,7 +2044,7 @@ function viewFiche(root){
     {name:"Objectif", color:"var(--s2)", values:serie.map(r=>r.cumObj), dashed:true},
   ]});
   if (isManager()) $("#fi-cons").addEventListener("change", e=>{ state.ficheConseillerId = +e.target.value; render(); });
-  bindWeekNav();
+  bindPeriodNav();
   $("#fi-export").addEventListener("click", exportXLSX);
   bindActionsCards(root);
 }
@@ -2521,12 +2593,13 @@ function propoCompute(d){
      detail: cible[0]+cible[1]>=liqBesoin-1e-9? `Liquide ${fmtPct(cible[0]+cible[1])} ≥ besoin ${fmtPct(liqBesoin)}` : "Liquidité insuffisante : renforcer sécurisé/obligataire"},
     {nom:"Épargne de précaution préservée", ok: +d.precaution >= 3,
      detail: +d.precaution>=3? `Précaution en place (${d.precaution} mois)` : "Précaution < 3 mois : sécuriser d'abord une réserve"},
-    {nom:"Concentration devise CHF (frontalier)", ok: d.cible==="Dirigeant" || +d.chf < .7,
-     detail: d.cible==="Dirigeant"? "Sans objet (dirigeant)" : (+d.chf<.7? "Exposition CHF maîtrisée" : `Exposition CHF ${fmtPct(+d.chf)} élevée : diversifier en EUR`)},
   ];
+  if (d.cible && d.cible!=="Dirigeant")
+    controles.push({nom:"Concentration devise CHF (frontalier)", ok: +d.chf < .7,
+      detail: +d.chf<.7? "Exposition CHF maîtrisée" : `Exposition CHF ${fmtPct(+d.chf)} élevée : diversifier en EUR`});
   const nRevoir = controles.filter(c=>!c.ok).length;
   const verdict = nRevoir===0? "ADÉQUAT" : `À AJUSTER (${nRevoir})`;
-  const justification = `Profil retenu : niveau ${niv} (${PROPO_PROFILS[niv-1]}). Horizon moyen pondéré de ${H.toFixed(1)} an(s). L'allocation cible retient ${fmtPct(cible[2])} d'actions, ${fmtPct(cible[0])} de sécurisé et ${fmtPct(cible[1])} d'obligataire, cohérente avec le profil de risque du client. Enveloppes privilégiées selon la cible ${d.cible}, frais totaux estimés à ${(tfa*100).toFixed(2).replace(".",",")} % par an.`;
+  const justification = `Profil retenu : niveau ${niv} (${PROPO_PROFILS[niv-1]}). Horizon moyen pondéré de ${H.toFixed(1)} an(s). L'allocation cible retient ${fmtPct(cible[2])} d'actions, ${fmtPct(cible[0])} de sécurisé et ${fmtPct(cible[1])} d'obligataire, cohérente avec le profil de risque du client. Enveloppes privilégiées selon la situation du client, frais totaux estimés à ${(tfa*100).toFixed(2).replace(".",",")} % par an.`;
   const objPrincipal = d.objectifs.reduce((a,o)=>(+o.part||0)>(+a.part||0)?o:a, d.objectifs[0]);
   return {P, M, H, hPond, liqBesoin, niv, cible, montants, mu, sigma, volPond, sriPort, sriCoherent, sharpe,
           env, envTotal, frais, tfa, muNet, perMt, ecoPER, hono, coutEligiAn1, coutEligiRec, coutDistribAn1, coutDistribRec,
@@ -2613,14 +2686,12 @@ function propoWizard(propo){
       <div class="form-grid">
         <label class="fld"><span>Client (pipeline)</span><input type="text" value="${esc(d.nomClient)}" disabled></label>
         <label class="fld"><span>Date de l'entretien</span><input type="date" data-k="dateEntretien" value="${esc(d.dateEntretien||"")}"></label>
-        <label class="fld"><span>Cible</span><select data-k="cible">${PROPO_CIBLES.map(x=>`<option ${x===d.cible?"selected":""}>${x}</option>`).join("")}</select></label>
         <label class="fld"><span>Stade</span><select data-k="mode2">${["Prospect","Client"].map(x=>`<option ${x===p.mode?"selected":""}>${x}</option>`).join("")}</select></label>
         <label class="fld"><span>Montant à placer / arbitrer (€)</span><input type="number" data-k="montant" value="${+d.montant||0}" min="0" step="1000"></label>
         <label class="fld"><span>Patrimoine financier déjà constitué (€)</span><input type="number" data-k="patrimoine" value="${+d.patrimoine||0}" min="0" step="1000"></label>
         <label class="fld"><span>Épargne de précaution (mois)</span><input type="number" data-k="precaution" value="${+d.precaution||0}" min="0" step="1"></label>
         <label class="fld"><span>TMI (%)</span><input type="number" data-k="tmi_pct" value="${pctIn(d.tmi)}" min="0" max="60" step="1"></label>
         <label class="fld"><span>Stabilité des revenus</span><select data-k="stabilite">${["Élevée","Moyenne","Faible"].map(x=>`<option ${x===d.stabilite?"selected":""}>${x}</option>`).join("")}</select></label>
-        ${d.cible==="Frontalier"? `<label class="fld"><span>Exposition actuelle au CHF (%)</span><input type="number" data-k="chf_pct" value="${pctIn(d.chf)}" min="0" max="100" step="5"></label>`:""}
       </div>
       <p class="small muted">Le stade pilote le document généré : <b>Prospect</b> → synthèse 1 page ; <b>Client</b> → dossier complet. Rappel : ce placement ne doit pas entamer l'épargne de précaution (contrôlé à l'étape Adéquation).</p>`;
 
@@ -2704,7 +2775,7 @@ function propoWizard(propo){
     if (step===4){
       const totE = c.envTotal;
       return `
-      <p class="small muted mt0">Les <b>contenants</b> : régler la part de chaque enveloppe (total 100 %) et adapter le contrat. Les enveloppes PEE / PERCO sont réservées au dirigeant.</p>
+      <p class="small muted mt0">Les <b>contenants</b> : régler la part de chaque enveloppe (total 100 %) et adapter le contrat.</p>
       <div class="card tbl-scroll"><table class="tbl dense">
         <thead><tr><th>Enveloppe</th><th>Contrat / support</th><th>Rôle</th><th class="num">Part (%)</th><th class="num">Montant</th><th>Contrôle</th></tr></thead>
         <tbody>${c.env.map((e,i)=>`<tr class="${e.dirigeant && d.cible!=="Dirigeant"?"wiz-env-off":""}">
@@ -2953,7 +3024,7 @@ function propoDoc(p){
         <img src="logo-teal.png" alt="Eligi">
         <div class="pd-title"><b>Proposition d'investissement</b><span>Le pourquoi avant le produit</span></div>
       </div>
-      <div class="pd-meta">Établie pour <b>${esc(d.nomClient)}</b> · ${fdate(d.dateEntretien)} · cadre ${esc(d.cible)} · ${esc(consName(p.conseiller_id))}</div>
+      <div class="pd-meta">Établie pour <b>${esc(d.nomClient)}</b> · ${fdate(d.dateEntretien)} · ${esc(consName(p.conseiller_id))}</div>
       ${synthese}
       ${dossier}
       <div class="pd-mentions">${esc(PROPO_MENTIONS)}</div>
