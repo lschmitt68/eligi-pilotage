@@ -256,6 +256,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .loader{display:flex; align-items:center; justify-content:center; min-height:100vh; color:var(--muted); gap:10px}
 .spinner{width:20px;height:20px;border-radius:50%;border:3px solid var(--grid);border-top-color:var(--s1);animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+.reminder{border-left:4px solid var(--warn); display:flex; align-items:center; gap:12px; padding:11px 16px; margin-bottom:14px; flex-wrap:wrap}
+.ksleep{color:var(--muted); font-weight:700; font-size:10.5px}
+@media print{
+  .sidebar,.weeknav,.btn,.toast,.viz-tooltip{display:none !important}
+  .main{padding:0; max-width:none}
+  body{background:#fff}
+  .card,.tile{box-shadow:none; break-inside:avoid}
+}
 .matrix td.hit{color:var(--good-text); font-weight:700}
 .matrix td.miss{color:var(--critical); font-weight:700}
 
@@ -343,7 +351,7 @@ const pondere = p => (p.ca_potentiel||0) * (p.probabilite||0);
 /* ---------------- État global ---------------- */
 const state = {
   profile:null,       // {email, role, conseiller_id}
-  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[],
+  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[],
   week:null,          // semaine suivie (équivalent Dashboard!B3)
   view:null,
   ficheConseillerId:null,
@@ -363,7 +371,11 @@ function defaultWeek(){
   const codes = state.semaines.map(s=>s.code).sort(wcmp);
   const today = todayWeekCode();
   const past = codes.filter(c => wcmp(c, today) <= 0);
-  return past.length ? past[past.length-1] : codes[0];
+  let wk = past.length ? past[past.length-1] : codes[0];
+  // Lundi et mardi (jour de la réunion) : on regarde la semaine précédente
+  const d = dayOfWeek();
+  if ((d===1 || d===2) && codes.indexOf(wk) > 0 && wk === today) wk = codes[codes.indexOf(wk)-1];
+  return wk;
 }
 
 /* ---------------- Calculs métier (répliquent les formules Excel) ---------------- */
@@ -391,6 +403,25 @@ function congesCount(consId, uptoWeek){
   return state.absences.filter(a=>a.conseiller_id===consId && set.has(a.semaine)).length;
 }
 const BADGE_CONGE = {cls:"neutral", label:"Congés", icon:"✈"};
+/* Jour forcé (tests) : ?jour=1..7 */
+const FORCE_DAY = (()=>{ try{ const v = new URLSearchParams(location.search).get("jour"); return v? +v : null; }catch(e){ return null; } })();
+const dayOfWeek = () => FORCE_DAY ?? new Date().getDay();
+const yearOf = w => String(w||"").slice(0,4);
+function prevWeek(code){ const cs = weekCodes ? weekCodes() : state.semaines.map(s=>s.code).sort(wcmp); const i = cs.indexOf(code); return i>0? cs[i-1] : null; }
+/* Objectif d'une semaine donnée : override saisonnier > objectif hebdo standard ; congés = 0 */
+function objFor(consId, week){
+  if (isConge(consId, week)) return {ca:0, coll:0, rdv:0};
+  const o = state.objSemaine.find(x=>x.conseiller_id===consId && x.semaine===week);
+  const c = state.conseillers.find(x=>x.id===consId) || {};
+  return o ? {ca:+o.objectif_ca||0, coll:+o.objectif_collecte||0, rdv:+o.objectif_rdv||0}
+           : {ca:c.objectif_ca_hebdo||0, coll:c.objectif_collecte_hebdo||0, rdv:c.objectif_rdv_hebdo||0};
+}
+/* Vitalité pipeline */
+const STALE_JOURS = 14;
+function staleDays(p){ const t = p.updated_at || p.created_at; return t? Math.floor((Date.now() - new Date(t).getTime())/86400000) : 0; }
+function isStale(p){ return (p.etape||"").toLowerCase()!=="signé" && staleDays(p) >= STALE_JOURS; }
+function isOverdue(p){ return (p.etape||"").toLowerCase()!=="signé" && p.closing_prevu && String(p.closing_prevu).slice(0,10) < new Date().toISOString().slice(0,10); }
+function aRelancer(rows){ return rows.filter(p=>isStale(p) || isOverdue(p)); }
 function alerteFor(consId, week, proj, objectif){
   return isConge(consId, week) ? BADGE_CONGE : alerte(proj, objectif);
 }
@@ -407,43 +438,44 @@ function alerte(proj, objectif){
   return {cls:"urgent", label:"Urgent", icon:"⚠"};
 }
 function cumul(consId, week){
-  const upTo = new Set(weeksUpTo(week));
+  const weeks = weeksUpTo(week).filter(w => yearOf(w) === yearOf(week)); // cumul par année civile
+  const upTo = new Set(weeks);
   const rows = state.saisies.filter(s => s.conseiller_id === consId && upTo.has(s.semaine)).map(computed);
-  const n = weeksUpTo(week).length;
-  const nConges = congesCount(consId, week);
-  const nEff = Math.max(0, n - nConges);
-  const c = state.conseillers.find(x=>x.id===consId) || {};
+  let objCA = 0, objColl = 0, nConges = 0;
+  for (const w of weeks){
+    if (isConge(consId, w)) nConges++;
+    const o = objFor(consId, w);
+    objCA += o.ca; objColl += o.coll;
+  }
   return {
     rdv: rows.reduce((a,s)=>a+(s.rdv||0),0),
     ca: rows.reduce((a,s)=>a+s.ca_total,0),
     collecte: rows.reduce((a,s)=>a+s.collecte_totale,0),
-    objCA: (c.objectif_ca_hebdo||0) * nEff,
-    objCollecte: (c.objectif_collecte_hebdo||0) * nEff,
-    nSemaines: n, nConges,
+    objCA, objCollecte: objColl,
+    nSemaines: weeks.length, nConges,
   };
 }
 /* Série hebdo équipe (table Q26:Y65 du Dashboard) */
 function teamSeries(uptoWeek){
-  const weeks = weeksUpTo(uptoWeek);
+  const weeks = weeksUpTo(uptoWeek).filter(w => yearOf(w) === yearOf(uptoWeek));
   let cumCA=0, cumColl=0, cumObjCA=0, cumObjColl=0;
   return weeks.map(w => {
     const rows = state.saisies.filter(s=>s.semaine===w).map(computed);
     const ca = rows.reduce((a,s)=>a+s.ca_total,0);
     const coll = rows.reduce((a,s)=>a+s.collecte_totale,0);
-    const objCA = activeConseillers().reduce((a,c)=>a+(isConge(c.id,w)?0:(c.objectif_ca_hebdo||0)),0);
-    const objColl = activeConseillers().reduce((a,c)=>a+(isConge(c.id,w)?0:(c.objectif_collecte_hebdo||0)),0);
+    const objCA = activeConseillers().reduce((a,c)=>a+objFor(c.id,w).ca,0);
+    const objColl = activeConseillers().reduce((a,c)=>a+objFor(c.id,w).coll,0);
     cumCA+=ca; cumColl+=coll; cumObjCA+=objCA; cumObjColl+=objColl;
     return {week:w, ca, coll, cumCA, cumColl, cumObjCA, cumObjColl,
             tauxCA: cumObjCA? cumCA/cumObjCA : 0, tauxColl: cumObjColl? cumColl/cumObjColl : 0};
   });
 }
 function consSeries(consId, uptoWeek){
-  const weeks = weeksUpTo(uptoWeek);
-  const c = state.conseillers.find(x=>x.id===consId) || {};
+  const weeks = weeksUpTo(uptoWeek).filter(w => yearOf(w) === yearOf(uptoWeek));
   let cumCA=0, cumColl=0, cumObj=0;
   return weeks.map(w => {
     const s = weekAgg(consId, w);
-    cumCA += s.ca_total; cumColl += s.collecte_totale; cumObj += isConge(consId, w)? 0 : (c.objectif_ca_hebdo||0);
+    cumCA += s.ca_total; cumColl += s.collecte_totale; cumObj += objFor(consId, w).ca;
     return {week:w, ca:s.ca_total, coll:s.collecte_totale, rdv:s.rdv||0, cumCA, cumColl, cumObj};
   });
 }
@@ -456,25 +488,26 @@ function stripComputedSaisie(s){
   return rest;
 }
 function stripComputedPipe(p){
-  const {id, valeur_ponderee, created_at, ...rest} = p;
+  const {id, valeur_ponderee, created_at, updated_at, ...rest} = p;
   return rest;
 }
 
 class SupaDB {
   constructor(client){ this.c = client; }
   async loadAll(){
-    const [co, se, sa, pi, pr, ab] = await Promise.all([
+    const [co, se, sa, pi, pr, ab, os] = await Promise.all([
       this.c.from("conseillers").select("*").order("id"),
       this.c.from("semaines").select("*").order("lundi"),
       this.c.from("saisies").select("*"),
       this.c.from("pipeline").select("*").order("id"),
       this.c.from("profiles").select("*"),
       this.c.from("absences").select("*"),
+      this.c.from("objectifs_semaine").select("*"),
     ]);
-    for (const r of [co,se,sa,pi,pr,ab]) if (r.error) throw r.error;
+    for (const r of [co,se,sa,pi,pr,ab,os]) if (r.error) throw r.error;
     state.conseillers = co.data; state.semaines = se.data;
     state.saisies = sa.data; state.pipeline = pi.data; state.profiles = pr.data;
-    state.absences = ab.data;
+    state.absences = ab.data; state.objSemaine = os.data;
   }
   async upsertSaisie(s){
     const {error} = await this.c.from("saisies")
@@ -489,6 +522,14 @@ class SupaDB {
     const ex = state.absences.find(a=>a.conseiller_id===consId && a.semaine===week);
     if (ex){ const {error} = await this.c.from("absences").delete().eq("id", ex.id); if (error) throw error; }
     else { const {error} = await this.c.from("absences").insert({conseiller_id:consId, semaine:week}); if (error) throw error; }
+  }
+  async saveObjSemaines(rows){
+    const {error} = await this.c.from("objectifs_semaine").upsert(rows, {onConflict:"conseiller_id,semaine"});
+    if (error) throw error;
+  }
+  async deleteObjSemaine(id){
+    const {error} = await this.c.from("objectifs_semaine").delete().eq("id", id);
+    if (error) throw error;
   }
   async savePipeline(p){
     if (p.id){
@@ -549,7 +590,9 @@ class DemoDB {
     this.pipeline = D.pipeline.map(p=>({id:this._id++, conseiller_id:byName[p.conseiller], client:p.client,
       support:p.support, etape:p.etape, collecte_potentielle:p.collecte_potentielle,
       ca_potentiel:p.ca_potentiel, probabilite:p.probabilite, closing_prevu:p.closing_prevu,
-      priorite:p.priorite, prochaine_action:p.prochaine_action, signature_probable:p.signature_probable}));
+      priorite:p.priorite, prochaine_action:p.prochaine_action, signature_probable:p.signature_probable,
+      updated_at: new Date(Date.now() - (p.etape==="Découverte"? 20:3)*86400000).toISOString()}));
+    this.objSemaine = [];
     this.absences = (D.absences||[]).map(a=>({id:this._id++, conseiller_id:byName[a.conseiller], semaine:wkey(a.semaine)}));
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
@@ -566,6 +609,19 @@ class DemoDB {
     state.pipeline = this.pipeline.filter(p=>this._mine(p.conseiller_id)).map(p=>({...p}));
     state.profiles = isManager()? [...this.profiles] : this.profiles.filter(p=>p.email===state.profile.email);
     state.absences = this.absences.filter(a=>this._mine(a.conseiller_id)).map(a=>({...a}));
+    state.objSemaine = this.objSemaine.filter(o=>this._mine(o.conseiller_id)).map(o=>({...o}));
+  }
+  async saveObjSemaines(rows){
+    if (!isManager()) throw new Error("Réservé au manager");
+    for (const r of rows){
+      const i = this.objSemaine.findIndex(o=>o.conseiller_id===r.conseiller_id && o.semaine===r.semaine);
+      if (i>=0) Object.assign(this.objSemaine[i], r);
+      else this.objSemaine.push({id:this._id++, ...r});
+    }
+  }
+  async deleteObjSemaine(id){
+    const i = this.objSemaine.findIndex(o=>o.id===id);
+    if (i>=0) this.objSemaine.splice(i,1);
   }
   async toggleAbsence(consId, week){
     if (!this._mine(consId)) throw new Error("Accès refusé");
@@ -714,6 +770,7 @@ const ICONS = {
   right:'<svg class="ic" viewBox="0 0 24 24"><path d="m10 6 6 6-6 6"/></svg>',
   copy:'<svg class="ic" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
   close:'<svg class="ic" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19"/></svg>',
+  doc:'<svg class="ic" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6Z"/><path d="M14 2v6h6"/><path d="M9 13h7M9 17h7"/></svg>',
 };
 
 /* Thème clair / sombre / auto */
@@ -758,6 +815,28 @@ function bindWeekNav(){
   $("#wk-prev")?.addEventListener("click", ()=>shiftWeek(-1));
   $("#wk-next")?.addEventListener("click", ()=>shiftWeek(1));
   $("#wk-select")?.addEventListener("change", e=>{ state.week = e.target.value; render(); });
+}
+function saisieReminderHTML(){
+  const me = myConseiller(); if (!me) return "";
+  const d = dayOfWeek();
+  const codes = weekCodes();
+  const cur = todayWeekCode();
+  const done = w => !codes.includes(w) || isConge(me.id, w) || state.saisies.some(s=>s.conseiller_id===me.id && s.semaine===w);
+  let msg = null, wk = null;
+  if (d === 5 && !done(cur)){ msg = "C'est vendredi : pense à saisir ta semaine avant de partir"; wk = cur; }
+  const pw = prevWeek(cur);
+  if (d === 1 && pw && !done(pw)){ msg = "C'est lundi : la semaine dernière n'est pas encore saisie"; wk = pw; }
+  if (d === 2 && pw && !done(pw)){ msg = "Réunion ce matin : la semaine dernière n'est toujours pas saisie !"; wk = pw; }
+  if (!msg) return "";
+  return `<div class="card reminder">📌 <b>${msg}</b> <span class="muted small">(${esc(wk)})</span>
+    <span style="flex:1"></span><button class="btn small" id="rem-go" data-wk="${esc(wk)}">Saisir maintenant</button></div>`;
+}
+function bindReminder(){
+  $("#rem-go")?.addEventListener("click", ()=>{
+    state.week = $("#rem-go").dataset.wk;
+    state.saisieConseillerId = myConseiller()?.id || null;
+    go("saisie");
+  });
 }
 function vhead(title, sub, controls=""){
   return `<div class="vhead"><div class="titles"><h1>${title}</h1>${sub?`<div class="sub">${sub}</div>`:""}</div>${controls}</div>`;
@@ -808,10 +887,11 @@ function exportXLSX(){
   const dash = cons.map(c => {
     const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
     const proj = w.ca_total + p.pond - p.signe;
-    return {"Conseiller":c.nom, "Obj. CA":c.objectif_ca_hebdo, "RDV":w.rdv, "Obj. RDV":c.objectif_rdv_hebdo,
+    const o = objFor(c.id, state.week);
+    return {"Conseiller":c.nom, "Obj. CA":o.ca, "RDV":w.rdv, "Obj. RDV":o.rdv,
       "CA total":w.ca_total, "CA SCPI":w.ca_scpi, "CA structurés":w.ca_structures, "CA audit":w.ca_audit,
       "CA autres":w.ca_autres, "Collecte":w.collecte_totale, "Pipeline pondéré":p.pond, "Pipeline signé":p.signe,
-      "Projection":proj, "Alerte":alerteFor(c.id, state.week, proj, c.objectif_ca_hebdo||0).label};
+      "Projection":proj, "Alerte":alerteFor(c.id, state.week, proj, o.ca).label};
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dash), `Dashboard ${state.week.replace("2026-","")}`);
   // Saisies
@@ -847,14 +927,15 @@ function viewDashboard(root){
     const w = weekAgg(c.id, week), p = pipeAgg(c.id);
     const proj = w.ca_total + p.pond - p.signe;
     const hist = consSeries(c.id, week).slice(-8).map(r=>r.ca);
-    return {c, w, p, proj, hist, conge: isConge(c.id, week), al: alerteFor(c.id, week, proj, c.objectif_ca_hebdo||0)};
+    const o = objFor(c.id, week);
+    return {c, w, p, o, proj, hist, conge: isConge(c.id, week), al: alerteFor(c.id, week, proj, o.ca)};
   });
   const sum = k => rows.reduce((a,r)=>a+r.w[k],0);
   const caEq = sum("ca_total"), collEq = sum("collecte_totale"), rdvEq = sum("rdv");
   const pondEq = rows.reduce((a,r)=>a+r.p.pond,0);
   const projEq = rows.reduce((a,r)=>a+r.proj,0);
-  const objCAEq = cons.reduce((a,c)=>a+(isConge(c.id,week)?0:(c.objectif_ca_hebdo||0)),0);
-  const objRdvEq = cons.reduce((a,c)=>a+(isConge(c.id,week)?0:(c.objectif_rdv_hebdo||0)),0);
+  const objCAEq = cons.reduce((a,c)=>a+objFor(c.id,week).ca,0);
+  const objRdvEq = cons.reduce((a,c)=>a+objFor(c.id,week).rdv,0);
   const enConges = cons.filter(c => isConge(c.id, week));
   const noSaisie = cons.filter(c => !isConge(c.id, week) && !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===week));
   const mix = [
@@ -875,7 +956,7 @@ function viewDashboard(root){
     ${tile("CA équipe", eur(caEq), `Objectif : ${eur(objCAEq)} — ${caEq>=objCAEq?`<span class="up">✓ atteint</span>`:`<span>${fmtPct(objCAEq?caEq/objCAEq:0)}</span>`}`, objCAEq?caEq/objCAEq:0)}
     ${tile("Collecte équipe", eur(collEq))}
     ${tile("RDV équipe", `${fmtNum.format(rdvEq)} <span class="small muted">/ ${fmtNum.format(objRdvEq)}</span>`, "", objRdvEq?rdvEq/objRdvEq:0)}
-    ${tile("Pipeline pondéré", eur(pondEq), `${state.pipeline.length} opportunités`)}
+    ${tile("Pipeline pondéré", eur(pondEq), `${state.pipeline.length} opportunités${aRelancer(state.pipeline).length? ` · <span class="down">${aRelancer(state.pipeline).length} à relancer</span>`:""}`)}
     ${tile("Projection équipe", eur(projEq), "CA + pipeline pondéré − signé")}
   </div>
 
@@ -899,8 +980,8 @@ function viewDashboard(root){
         ${rows.map(r=>`<tr class="clickable" data-fiche="${r.c.id}" title="Ouvrir la fiche">
           <td><span class="cdot" style="background:${consColor(r.c.id)}"></span><b>${esc(r.c.nom)}</b></td>
           <td>${sparkline(r.hist, consColor(r.c.id))}</td>
-          <td class="num">${eur(r.c.objectif_ca_hebdo)}</td>
-          <td class="num">${fmtNum.format(r.w.rdv)} / ${fmtNum.format(r.c.objectif_rdv_hebdo)}</td>
+          <td class="num">${eur(r.o.ca)}</td>
+          <td class="num">${fmtNum.format(r.w.rdv)} / ${fmtNum.format(r.o.rdv)}</td>
           <td class="num"><b>${eur(r.w.ca_total)}</b></td>
           <td class="num">${eur(r.w.ca_scpi)}</td>
           <td class="num">${eur(r.w.ca_structures)}</td>
@@ -962,9 +1043,9 @@ function meetingMode(){
   function slideTeam(){
     const rows = cons.map(c => { const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
       const proj = w.ca_total + p.pond - p.signe;
-      return {c, w, p, proj, al: alerteFor(c.id, state.week, proj, c.objectif_ca_hebdo||0)}; });
+      return {c, w, p, proj, al: alerteFor(c.id, state.week, proj, objFor(c.id, state.week).ca)}; });
     const caEq = rows.reduce((a,r)=>a+r.w.ca_total,0), collEq = rows.reduce((a,r)=>a+r.w.collecte_totale,0);
-    const projEq = rows.reduce((a,r)=>a+r.proj,0), objEq = cons.reduce((a,c)=>a+(c.objectif_ca_hebdo||0),0);
+    const projEq = rows.reduce((a,r)=>a+r.proj,0), objEq = cons.reduce((a,c)=>a+objFor(c.id, state.week).ca,0);
     return `<h1>Point équipe</h1>
     <div class="bigtiles tiles">
       ${tile("CA équipe", eur(caEq), `Objectif ${eur(objEq)}`, objEq?caEq/objEq:0)}
@@ -982,7 +1063,8 @@ function meetingMode(){
   function slideCons(c){
     const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
     const proj = w.ca_total + p.pond - p.signe;
-    const al = alerteFor(c.id, state.week, proj, c.objectif_ca_hebdo||0);
+    const ow = objFor(c.id, state.week);
+    const al = alerteFor(c.id, state.week, proj, ow.ca);
     const conge = isConge(c.id, state.week);
     const cu = cumul(c.id, state.week);
     const top = state.pipeline.filter(x=>x.conseiller_id===c.id && (x.etape||"").toLowerCase()!=="signé")
@@ -990,8 +1072,8 @@ function meetingMode(){
     return `<h1><span class="cdot" style="background:${consColor(c.id)};width:14px;height:14px"></span> ${esc(c.nom)} &nbsp;${badgeHTML(al)}</h1>
     ${conge? `<p class="muted" style="margin:8px 0 0">✈ En congés cette semaine — pas d'objectif ni d'alerte.</p>`:""}
     <div class="bigtiles tiles">
-      ${tile("CA semaine", eur(w.ca_total), `Objectif ${eur(c.objectif_ca_hebdo)}`, c.objectif_ca_hebdo? w.ca_total/c.objectif_ca_hebdo:0)}
-      ${tile("RDV", `${fmtNum.format(w.rdv)} <span class="small muted">/ ${fmtNum.format(c.objectif_rdv_hebdo)}</span>`)}
+      ${tile("CA semaine", eur(w.ca_total), `Objectif ${eur(ow.ca)}`, ow.ca? w.ca_total/ow.ca:0)}
+      ${tile("RDV", `${fmtNum.format(w.rdv)} <span class="small muted">/ ${fmtNum.format(ow.rdv)}</span>`)}
       ${tile("Collecte", eur(w.collecte_totale))}
       ${tile("Projection", eur(proj))}
       ${tile("CA cumulé", eur(cu.ca), `${cu.objCA?fmtPct(cu.ca/cu.objCA):"—"} de l'objectif`)}
@@ -1020,6 +1102,12 @@ function meetingMode(){
       <div class="card grow"><h3 class="mt0">Plus grosses opportunités en cours</h3>
         <table class="tbl"><tbody>${top.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
           <td><b>${esc(x.client)}</b></td><td>${esc(x.etape)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>
+      </div>
+      <div class="card grow"><h3 class="mt0">🔥 À relancer (pipeline endormi)</h3>
+        ${(()=>{ const st = aRelancer(state.pipeline).sort((a,b)=>pondere(b)-pondere(a)).slice(0,6);
+          return st.length? `<table class="tbl"><tbody>${st.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
+            <td><b>${esc(x.client)}</b></td><td>${isOverdue(x)? "⏰ closing dépassé" : `💤 ${staleDays(x)} j`}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>`
+          : `<div class="empty">Rien à relancer — pipeline vivant ✓</div>`; })()}
       </div>
     </div>`;
   }
@@ -1181,6 +1269,8 @@ function viewPipeline(root){
   let rows = state.pipeline.filter(p =>
     (!fCons || p.conseiller_id===+fCons) &&
     (!q || (p.client||"").toLowerCase().includes(q) || (p.prochaine_action||"").toLowerCase().includes(q)));
+  const nRelance = aRelancer(rows).length;
+  if (state._pipeStale) rows = aRelancer(rows);
   const tableRows = [...rows].filter(p=>!fEtape || p.etape===fEtape).sort((a,b)=> pondere(b)-pondere(a));
   const pond = rows.reduce((a,p)=>a+pondere(p),0);
   const signe = rows.filter(p=>(p.etape||"").toLowerCase()==="signé").reduce((a,p)=>a+pondere(p),0);
@@ -1200,6 +1290,7 @@ function viewPipeline(root){
       ${activeConseillers().map(c=>`<option value="${c.id}" ${String(c.id)===String(fCons)?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`:""}
     ${state._pipeView==="table"? `<label class="fld"><span>Étape</span><select id="pi-etape"><option value="">Toutes</option>
       ${ETAPES.map(e=>`<option ${e===fEtape?"selected":""}>${e}</option>`).join("")}</select></label>`:""}
+    ${nRelance? `<button class="chip ${state._pipeStale?"warn":""}" id="pi-stale" style="margin-bottom:8px" title="Sans mouvement depuis ${STALE_JOURS} j ou closing dépassé">🔥 À relancer (${nRelance})</button>`:""}
     <span style="flex:1"></span>
     <div class="small muted" style="padding-bottom:8px">
       <b>${rows.length}</b> opportunités · pondéré <b>${eur(pond)}</b> · dont signé <b>${eur(signe)}</b></div>
@@ -1212,6 +1303,7 @@ function viewPipeline(root){
 
   $("#pi-seg").querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{ state._pipeView = b.dataset.v; render(); }));
   $("#pi-add").addEventListener("click", ()=>pipeModal(null));
+  $("#pi-stale")?.addEventListener("click", ()=>{ state._pipeStale = !state._pipeStale; render(); });
   $("#pi-search").addEventListener("input", e=>{
     state._pipeSearch = e.target.value;
     const q2 = e.target.value.toLowerCase();
@@ -1230,7 +1322,8 @@ function kcardHTML(p){
       <span class="kc-name">${esc(p.client||"(sans nom)")}</span>
       <span class="kpond">${eur(pondere(p))}</span></div>
     <div class="kmeta"><span class="tag">${esc(p.support)}</span><span>${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</span>
-      ${p.signature_probable? `<span class="ksig">SIGNATURE ?</span>`:""}</div>
+      ${p.signature_probable? `<span class="ksig">SIGNATURE ?</span>`:""}
+      ${isOverdue(p)? `<span class="ksig">⏰ CLOSING DÉPASSÉ</span>` : isStale(p)? `<span class="ksleep">💤 ${staleDays(p)} j sans mouvement</span>`:""}</div>
     ${p.prochaine_action? `<div class="kmeta" style="margin-top:4px">→ ${esc(p.prochaine_action)}</div>`:""}
   </div>`;
 }
@@ -1372,7 +1465,8 @@ function viewFiche(root){
 
   const w = weekAgg(consId, state.week), p = pipeAgg(consId);
   const proj = w.ca_total + p.pond - p.signe;
-  const al = alerteFor(consId, state.week, proj, c.objectif_ca_hebdo||0);
+  const ow = objFor(consId, state.week);
+  const al = alerteFor(consId, state.week, proj, ow.ca);
   const cu = cumul(consId, state.week);
   const serie = consSeries(consId, state.week);
   const mix = [
@@ -1390,8 +1484,8 @@ function viewFiche(root){
     <button class="btn secondary" id="fi-export">${ICONS.dl} Exporter</button>`)}
 
   <div class="tiles">
-    ${tile("RDV", `${fmtNum.format(w.rdv)} <span class="small muted">/ ${fmtNum.format(c.objectif_rdv_hebdo||0)}</span>`, "", c.objectif_rdv_hebdo? w.rdv/c.objectif_rdv_hebdo:0)}
-    ${tile("CA total", eur2(w.ca_total), `Objectif : ${eur(c.objectif_ca_hebdo)}`, c.objectif_ca_hebdo? w.ca_total/c.objectif_ca_hebdo:0)}
+    ${tile("RDV", `${fmtNum.format(w.rdv)} <span class="small muted">/ ${fmtNum.format(ow.rdv)}</span>`, "", ow.rdv? w.rdv/ow.rdv:0)}
+    ${tile("CA total", eur2(w.ca_total), `Objectif : ${eur(ow.ca)}`, ow.ca? w.ca_total/ow.ca:0)}
     ${tile("Collecte", eur(w.collecte_totale))}
     ${tile("Pipeline pondéré", eur(p.pond), `${p.count} opportunités`)}
     ${tile("Projection", eur(proj), "CA + pondéré − signé")}
@@ -1488,6 +1582,93 @@ function viewProgression(root){
   });
 }
 
+/* ---------------- Rapport hebdo (manager) ---------------- */
+function viewRapport(root){
+  const week = state.week;
+  const sem = state.semaines.find(s=>s.code===week);
+  const lundi = sem? new Date(sem.lundi+"T00:00:00") : null;
+  const dimanche = lundi? new Date(lundi.getTime()+6*86400000) : null;
+  const fdate = d => d? d.toLocaleDateString("fr-FR",{day:"numeric",month:"long"}) : "";
+  const cons = activeConseillers();
+  const rows = cons.map(c=>{
+    const w = weekAgg(c.id, week), p = pipeAgg(c.id);
+    const proj = w.ca_total + p.pond - p.signe;
+    const o = objFor(c.id, week);
+    return {c, w, p, o, proj, conge:isConge(c.id,week), al:alerteFor(c.id, week, proj, o.ca)};
+  });
+  const caEq = rows.reduce((a,r)=>a+r.w.ca_total,0), collEq = rows.reduce((a,r)=>a+r.w.collecte_totale,0);
+  const rdvEq = rows.reduce((a,r)=>a+(r.w.rdv||0),0), objEq = rows.reduce((a,r)=>a+r.o.ca,0);
+  const projEq = rows.reduce((a,r)=>a+r.proj,0);
+  const serie = teamSeries(week);
+  const last = serie[serie.length-1] || {cumCA:0,cumObjCA:0,tauxCA:0};
+  const sig = state.pipeline.filter(p=>p.signature_probable);
+  const relance = aRelancer(state.pipeline).sort((a,b)=>pondere(b)-pondere(a));
+  const comments = state.saisies.filter(s=>s.semaine===week && (s.commentaire||"").trim());
+
+  root.innerHTML = `
+  ${vhead("Rapport hebdomadaire", `semaine ${esc(week)}${lundi? ` — du ${fdate(lundi)} au ${fdate(dimanche)}`:""}`, `
+    ${weekNavHTML()}
+    <button class="btn secondary" id="rp-print">${ICONS.doc} Imprimer / PDF</button>
+    <button class="btn secondary" id="rp-export">${ICONS.dl} Exporter</button>`)}
+
+  <div class="tiles">
+    ${tile("CA équipe", eur(caEq), `Objectif : ${eur(objEq)} — ${objEq? fmtPct(caEq/objEq):"—"}`, objEq? caEq/objEq:0)}
+    ${tile("Collecte", eur(collEq))}
+    ${tile("RDV", fmtNum.format(rdvEq))}
+    ${tile("Projection", eur(projEq))}
+    ${tile("Cumul annuel", fmtPct(last.tauxCA), `${eur(last.cumCA)} / ${eur(last.cumObjCA)}`, last.tauxCA)}
+  </div>
+
+  <div class="sect sect-head"><h2>Par conseiller</h2></div>
+  <div class="card tbl-scroll"><table class="tbl">
+    <thead><tr><th>Conseiller</th><th class="num">RDV</th><th class="num">CA</th><th class="num">Objectif</th>
+    <th class="num">Collecte</th><th class="num">Pipeline pondéré</th><th class="num">Projection</th><th>Statut</th></tr></thead>
+    <tbody>${rows.map(r=>`<tr>
+      <td><span class="cdot" style="background:${consColor(r.c.id)}"></span><b>${esc(r.c.nom)}</b></td>
+      <td class="num">${fmtNum.format(r.w.rdv)}${r.o.rdv? ` / ${fmtNum.format(r.o.rdv)}`:""}</td>
+      <td class="num"><b>${eur(r.w.ca_total)}</b></td><td class="num">${r.conge? "—" : eur(r.o.ca)}</td>
+      <td class="num">${eur(r.w.collecte_totale)}</td><td class="num">${eur(r.p.pond)}</td>
+      <td class="num">${eur(r.proj)}</td><td>${badgeHTML(r.al)}</td></tr>`).join("")}</tbody>
+  </table></div>
+
+  <div class="row sect">
+    <div class="card grow">
+      <h3 class="mt0">✍ Signatures probables annoncées</h3>
+      ${sig.length? `<table class="tbl"><tbody>${sig.map(x=>`<tr><td>${esc(consName(x.conseiller_id))}</td>
+        <td><b>${esc(x.client)}</b></td><td>${esc(x.support)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>`
+        : `<div class="empty">Aucune signature marquée « probable »</div>`}
+    </div>
+    <div class="card grow">
+      <h3 class="mt0">🔥 Pipeline à relancer</h3>
+      ${relance.length? `<table class="tbl"><tbody>${relance.slice(0,8).map(x=>`<tr><td>${esc(consName(x.conseiller_id))}</td>
+        <td><b>${esc(x.client)}</b></td><td>${isOverdue(x)? "⏰ closing dépassé" : `💤 ${staleDays(x)} j`}</td>
+        <td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>`
+        : `<div class="empty">Rien à relancer — pipeline vivant ✓</div>`}
+    </div>
+  </div>
+
+  <div class="row sect">
+    <div class="card grow">
+      <h3 class="mt0">💬 Commentaires de la semaine</h3>
+      ${comments.length? comments.map(s=>`<p class="small" style="margin:6px 0"><span class="cdot" style="background:${consColor(s.conseiller_id)}"></span><b>${esc(consName(s.conseiller_id))}</b> — ${esc(s.commentaire)}</p>`).join("")
+        : `<div class="empty">Aucun commentaire saisi cette semaine</div>`}
+    </div>
+    <div class="card grow">
+      <h3 class="mt0">Ordre du jour suggéré</h3>
+      <ol class="challenge">
+        <li>Résultats de la semaine ${esc(week)} (${objEq? fmtPct(caEq/objEq):"—"} de l'objectif)</li>
+        <li>Conseillers en alerte : ${rows.filter(r=>r.al.cls==="urgent").map(r=>esc(r.c.nom)).join(", ") || "aucun ✓"}</li>
+        <li>Signatures à concrétiser : ${sig.length}</li>
+        <li>Opportunités à relancer : ${relance.length}</li>
+      </ol>
+    </div>
+  </div>`;
+
+  bindWeekNav();
+  $("#rp-print").addEventListener("click", ()=>window.print());
+  $("#rp-export").addEventListener("click", exportXLSX);
+}
+
 /* ---------------- Paramétrage (manager) ---------------- */
 function viewParam(root){
   const lastSem = [...state.semaines].sort((a,b)=>wcmp(a.code,b.code)).slice(-1)[0];
@@ -1519,6 +1700,29 @@ function viewParam(root){
     </div>
   </div>
 
+  <div class="sect sect-head"><h2>Objectifs par période (saisonnalité)</h2>
+    <span class="sub">remplace l'objectif hebdo standard pour une plage de semaines (été allégé, rentrée renforcée…)</span></div>
+  <div class="card">
+    <div class="inline-controls" style="margin-bottom:12px">
+      <label class="fld"><span>Conseiller</span><select id="os-cons"><option value="">Toute l'équipe</option>
+        ${state.conseillers.map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join("")}</select></label>
+      <label class="fld"><span>De la semaine</span><select id="os-from">${weekCodes().map(w=>`<option>${w}</option>`).join("")}</select></label>
+      <label class="fld"><span>À la semaine</span><select id="os-to">${weekCodes().map(w=>`<option>${w}</option>`).join("")}</select></label>
+      <label class="fld" style="min-width:110px"><span>Obj. CA (€)</span><input type="number" id="os-ca" value="0" min="0"></label>
+      <label class="fld" style="min-width:110px"><span>Obj. collecte (€)</span><input type="number" id="os-coll" value="0" min="0"></label>
+      <label class="fld" style="min-width:90px"><span>Obj. RDV</span><input type="number" id="os-rdv" value="0" min="0"></label>
+      <button class="btn" id="os-apply">Appliquer</button>
+    </div>
+    ${state.objSemaine.length? `<div class="tbl-scroll" style="max-height:260px;overflow-y:auto"><table class="tbl dense">
+      <thead><tr><th>Conseiller</th><th>Semaine</th><th class="num">Obj. CA</th><th class="num">Obj. collecte</th><th class="num">Obj. RDV</th><th></th></tr></thead>
+      <tbody>${[...state.objSemaine].sort((a,b)=>wcmp(a.semaine,b.semaine)||a.conseiller_id-b.conseiller_id).map(o=>`<tr>
+        <td><span class="cdot" style="background:${consColor(o.conseiller_id)}"></span>${esc(consName(o.conseiller_id))}</td>
+        <td>${esc(o.semaine)}</td><td class="num">${eur(o.objectif_ca)}</td>
+        <td class="num">${eur(o.objectif_collecte)}</td><td class="num">${fmtNum.format(o.objectif_rdv)}</td>
+        <td class="rowactions num"><button class="btn danger small os-del" data-id="${o.id}">✕</button></td></tr>`).join("")}</tbody>
+    </table></div>` : `<div class="small muted">Aucun objectif spécifique — l'objectif hebdo standard s'applique partout.</div>`}
+  </div>
+
   <div class="sect sect-head"><h2>Comptes et accès</h2></div>
   <div class="card">
     <div class="helpbox" style="margin-bottom:12px">
@@ -1543,6 +1747,26 @@ function viewParam(root){
     <div style="margin-top:12px"><button class="btn secondary small" id="pp-add">+ Ajouter un accès</button></div>
   </div>`;
 
+  $("#os-apply").addEventListener("click", async ()=>{
+    const consId = $("#os-cons").value;
+    const from = $("#os-from").value, to = $("#os-to").value;
+    if (wcmp(from, to) > 0){ toast("La semaine de début doit précéder la fin"); return; }
+    const weeks = weekCodes().filter(w => wcmp(w, from)>=0 && wcmp(w, to)<=0);
+    const cible = consId? [+consId] : activeConseillers().map(c=>c.id);
+    const rows = [];
+    for (const cid of cible) for (const w of weeks)
+      rows.push({conseiller_id:cid, semaine:w, objectif_ca:+$("#os-ca").value||0,
+        objectif_collecte:+$("#os-coll").value||0, objectif_rdv:+$("#os-rdv").value||0});
+    try{
+      await state.db.saveObjSemaines(rows);
+      await state.db.loadAll();
+      toast(`Objectifs appliqués à ${rows.length} semaine(s)-conseiller ✓`); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+  root.querySelectorAll(".os-del").forEach(b=>b.addEventListener("click", async ()=>{
+    try{ await state.db.deleteObjSemaine(+b.dataset.id); await state.db.loadAll(); toast("Objectif spécifique supprimé"); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
   root.querySelectorAll(".pc-save").forEach(b=>b.addEventListener("click", async ()=>{
     const tr = b.closest("tr");
     try{
@@ -1611,6 +1835,7 @@ const VIEWS = {
   saisie:{label:"Saisie hebdo", icon:ICONS.edit, fn:viewSaisie},
   pipeline:{label:"Pipeline", icon:ICONS.funnel, fn:viewPipeline},
   fiche:{label:"Fiches", icon:ICONS.user, fn:viewFiche},
+  rapport:{label:"Rapport hebdo", icon:ICONS.doc, fn:viewRapport, manager:true},
   progression:{label:"Progression", icon:ICONS.chart, fn:viewProgression, manager:true},
   param:{label:"Paramétrage", icon:ICONS.gear, fn:viewParam, manager:true},
 };
@@ -1646,7 +1871,10 @@ function render(){
   app.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click", ()=>go(b.dataset.nav)));
   $("#logout").addEventListener("click", logout);
   $("#theme-toggle").addEventListener("click", cycleTheme);
+  const rem = saisieReminderHTML();
+  if (rem) $("#view").insertAdjacentHTML("beforebegin", rem);
   VIEWS[state.view].fn($("#view"));
+  bindReminder();
 }
 
 /* ================================================================
