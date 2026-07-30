@@ -689,12 +689,21 @@ class SupaDB {
     }
     const {error: e2} = await this.c.from("actions").update({client_key:newKey}).eq("client_key", oldKey);
     if (e2) throw e2;
+    await this.c.from("clients_infos").update({nom:newName.trim()}).eq("client_key", newKey);
+    const {error: e3} = await this.c.from("propositions").update({client_key:newKey}).eq("client_key", oldKey);
+    if (e3) throw e3;
   }
   async saveClientInfo(info){
-    const {error} = await this.c.from("clients_infos").upsert(
-      {client_key:info.client_key, statut:info.statut, origine:info.origine, notes:info.notes, maj_le:new Date().toISOString()},
-      {onConflict:"client_key"});
+    const row = {client_key:info.client_key, statut:info.statut, origine:info.origine, notes:info.notes, maj_le:new Date().toISOString()};
+    if (info.nom !== undefined) row.nom = info.nom;
+    const {error} = await this.c.from("clients_infos").upsert(row, {onConflict:"client_key"});
     if (error) throw error;
+  }
+  async deleteClientFiche(key){
+    let r = await this.c.from("interactions").delete().eq("client_key", key);
+    if (r.error) throw r.error;
+    r = await this.c.from("clients_infos").delete().eq("client_key", key);
+    if (r.error) throw r.error;
   }
   async saveAction(a){
     const row = {conseiller_id:a.conseiller_id, texte:a.texte, echeance:a.echeance||null, semaine:a.semaine||null, fait:!!a.fait, client_key:a.client_key||null};
@@ -851,13 +860,20 @@ class DemoDB {
     for (const e of this.pipeEvents) if (normName(e.client)===oldKey) e.client = newName.trim();
     for (const t of [this.clientsInfos, this.interactions])
       for (const r of t) if (r.client_key===oldKey) r.client_key = newKey;
+    for (const ci of this.clientsInfos) if (ci.client_key===newKey) ci.nom = newName.trim();
     for (const a of this.actions) if (a.client_key===oldKey) a.client_key = newKey;
+    for (const pr of this.propositions) if (pr.client_key===oldKey) pr.client_key = newKey;
   }
   async saveClientInfo(info){
     const i = this.clientsInfos.findIndex(c=>c.client_key===info.client_key);
     const row = {client_key:info.client_key, statut:info.statut, origine:info.origine, notes:info.notes, maj_le:new Date().toISOString()};
+    if (info.nom !== undefined) row.nom = info.nom;
     if (i>=0) Object.assign(this.clientsInfos[i], row);
     else this.clientsInfos.push({id:this._id++, ...row});
+  }
+  async deleteClientFiche(key){
+    this.interactions = this.interactions.filter(x=>x.client_key!==key);
+    this.clientsInfos = this.clientsInfos.filter(x=>x.client_key!==key);
   }
   async saveAction(a){
     if (!this._mine(a.conseiller_id)) throw new Error("Accès refusé");
@@ -2044,6 +2060,62 @@ function suiviClient(g){
   ev.sort((x,y)=>y.t-x.t);
   return ev;
 }
+function clientModal(afterSave){
+  const STATUTS = ["Prospect","Client","Inactif"];
+  const ORIGINES = ["","Recommandation","Famille / proche","Partenaire","Salon / événement","Site web","Autre"];
+  const existing = new Map();
+  for (const p of state.pipeline) if (p.client) existing.set(normName(p.client), (p.client||"").trim());
+  for (const ci of state.clientsInfos) if (!existing.has(ci.client_key)) existing.set(ci.client_key, ci.nom||ci.client_key);
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal" style="width:520px">
+    <h3>Nouveau client</h3>
+    <p class="small muted" style="margin-top:0">Crée une fiche client sans passer par le pipeline : connaissance client, suivi (appels, RDV, notes, tâches) — l'opportunité pipeline pourra venir plus tard.</p>
+    <div class="form-grid">
+      <label class="fld full"><span>Nom du client</span><input type="text" id="cm-nom" placeholder="ex : DURAND Marie" autocomplete="off"></label>
+      <label class="fld"><span>Statut</span><select id="cm-statut">${STATUTS.map(s=>`<option>${s}</option>`).join("")}</select></label>
+      <label class="fld"><span>Origine du contact</span><select id="cm-origine">${ORIGINES.map(o=>`<option value="${o}">${o||"—"}</option>`).join("")}</select></label>
+      <label class="fld full"><span>Notes du cabinet (facultatif)</span><textarea id="cm-notes" rows="2" placeholder="contexte, famille, préférences…"></textarea></label>
+      <div class="dup-warn" id="cm-dup" style="display:none"></div>
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="cm-cancel">Annuler</button>
+      <button class="btn" id="cm-save">Créer la fiche</button>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  const nomEl = back.querySelector("#cm-nom");
+  const updDup = ()=>{
+    const box = back.querySelector("#cm-dup");
+    const k = normName(nomEl.value);
+    if (k && existing.has(k)){
+      box.innerHTML = `⚠️ Une fiche existe déjà pour <b>${esc(existing.get(k))}</b> — « Créer » ouvrira cette fiche au lieu d'en créer une deuxième.`;
+      box.style.display = "";
+    } else box.style.display = "none";
+  };
+  nomEl.addEventListener("input", updDup);
+  nomEl.focus();
+  back.querySelector("#cm-cancel").addEventListener("click", ()=>back.remove());
+  back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
+  back.querySelector("#cm-save").addEventListener("click", async ()=>{
+    const nom = nomEl.value.trim();
+    if (!nom){ toast("Indique le nom du client"); return; }
+    const key = normName(nom);
+    try{
+      if (existing.has(key)){
+        back.remove(); state._cliOpen = key; state._cliSearch = ""; afterSave(key); toast("Fiche existante ouverte");
+        return;
+      }
+      await state.db.saveClientInfo({client_key:key, nom,
+        statut:back.querySelector("#cm-statut").value,
+        origine:back.querySelector("#cm-origine").value,
+        notes:back.querySelector("#cm-notes").value.trim()});
+      await state.db.loadAll();
+      back.remove(); state._cliOpen = key; state._cliSearch = "";
+      toast("Fiche client créée ✓"); afterSave(key);
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+}
 function viewClients(root){
   const STATUTS = ["Prospect","Client","Inactif"];
   const ORIGINES = ["","Recommandation","Famille / proche","Partenaire","Salon / événement","Site web","Autre"];
@@ -2055,6 +2127,10 @@ function viewClients(root){
     const key = normName(p.client||"(sans nom)");
     (groups[key] = groups[key] || {key, name:(p.client||"(sans nom)").trim(), rows:[]}).rows.push(p);
   }
+  for (const ci of state.clientsInfos){
+    if (!groups[ci.client_key])
+      groups[ci.client_key] = {key:ci.client_key, name:(ci.nom||ci.client_key).trim(), rows:[], standalone:true};
+  }
   let list = Object.values(groups);
   if (q) list = list.filter(g=>g.name.toLowerCase().includes(q));
   for (const g of list){
@@ -2065,6 +2141,7 @@ function viewClients(root){
     g.cons = [...new Set(g.rows.map(p=>p.conseiller_id))];
     g.info = state.clientsInfos.find(ci=>ci.client_key===g.key) || {statut:"Prospect", origine:"", notes:""};
     g.dernier = g.rows.reduce((a,p)=>Math.max(a, new Date(p.updated_at||p.created_at||0).getTime()), 0);
+    if (!g.dernier && g.info.maj_le) g.dernier = new Date(g.info.maj_le).getTime();
     g.suivi = suiviClient(g);
     const lastIx = state.interactions.filter(i=>i.client_key===g.key)
       .reduce((a,i)=>Math.max(a, new Date(i.quand||0).getTime()), 0);
@@ -2076,7 +2153,8 @@ function viewClients(root){
     : `<span class="badge"><span class="dot" style="background:var(--s1)"></span>Prospect</span>`;
 
   root.innerHTML = `
-  ${vhead("Clients", `${list.length} client(s) — fiche partagée par le cabinet`)}
+  ${vhead("Clients", `${list.length} client(s) — fiche partagée par le cabinet`,
+    `<button class="btn" id="cli-new">＋ Nouveau client</button>`)}
   <div class="inline-controls" style="margin-bottom:12px">
     <label class="fld" style="min-width:240px"><span>Recherche</span>
       <input type="search" id="cli-search" placeholder="nom du client…" value="${esc(state._cliSearch||"")}"></label>
@@ -2110,6 +2188,7 @@ function viewClients(root){
           </div>
           <div class="card grow tbl-scroll">
             <h3 class="mt0">Dossiers</h3>
+            ${g.rows.length? "" : `<div class="empty">Aucune opportunité pour l'instant — le bouton « ＋ Proposition » ou la vue Pipeline permettent d'en créer une.</div>`}
             <table class="tbl dense"><tbody>${g.rows.sort((a,b)=>pondere(b)-pondere(a)).map(p=>`<tr class="clickable cli-op" data-id="${p.id}">
               <td><span class="cdot" style="background:${consColor(p.conseiller_id)}"></span>${esc(consName(p.conseiller_id))}</td>
               <td>${esc(p.support)}</td>
@@ -2121,10 +2200,11 @@ function viewClients(root){
             </tr>`).join("")}</tbody></table>
           </div>
           <div class="card" style="flex:1.1;min-width:340px">
-            <h3 class="mt0">🗂 Suivi client
-              <span style="float:right;display:flex;gap:6px">
+            <h3 class="mt0" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px"><span>🗂 Suivi client</span>
+              <span style="display:flex;gap:6px;flex-wrap:wrap">
                 <button class="btn small ci-propo" data-key="${esc(g.key)}">＋ Proposition</button>
                 ${isManager()? `<button class="btn secondary small ci-rename" data-key="${esc(g.key)}">Renommer / fusionner</button>`:""}
+                ${isManager() && !g.rows.length? `<button class="btn danger small ci-delfiche" data-key="${esc(g.key)}">Supprimer</button>`:""}
               </span></h3>
             ${(state.propositions.filter(pr=>pr.client_key===g.key).length? `
             <div class="tbl-scroll" style="margin-bottom:8px"><table class="tbl dense">
@@ -2157,6 +2237,7 @@ function viewClients(root){
       </td></tr>`).join("") || `<tr><td colspan="8" class="empty">Aucun client</td></tr>`}</tbody>
   </table></div>`;
 
+  $("#cli-new").addEventListener("click", ()=>clientModal(()=>viewClients(root)));
   $("#cli-search").addEventListener("input", e=>{ state._cliSearch = e.target.value; viewClients(root); });
   root.querySelectorAll(".cli-row").forEach(r=>r.addEventListener("click", ()=>{
     state._cliOpen = state._cliOpen === r.dataset.key ? null : r.dataset.key;
@@ -2170,8 +2251,23 @@ function viewClients(root){
   root.querySelectorAll(".ci-propo").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
     const rows = state.pipeline.filter(x=>normName(x.client)===b.dataset.key).sort((a,b2)=>pondere(b2)-pondere(a));
-    if (!rows.length){ toast("Aucune opportunité pipeline pour ce client"); return; }
+    if (!rows.length){
+      const g = list.find(x=>x.key===b.dataset.key);
+      if (confirm(`Une proposition part toujours d'une opportunité pipeline, et « ${g? g.name : b.dataset.key} » n'en a pas encore. Créer l'opportunité maintenant ?`)){
+        pipeModal(null);
+        const el = document.querySelector("#pm-client");
+        if (el && g){ el.value = g.name; el.dispatchEvent(new Event("input")); }
+      }
+      return;
+    }
     propoWizard(propoNew(rows[0]));
+  }));
+  root.querySelectorAll(".ci-delfiche").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    const g = list.find(x=>x.key===b.dataset.key);
+    if (!confirm(`Supprimer la fiche « ${g? g.name : b.dataset.key} » et son suivi ? (aucun dossier pipeline n'est concerné)`)) return;
+    try{ await state.db.deleteClientFiche(b.dataset.key); await state.db.loadAll(); toast("Fiche supprimée"); viewClients(root); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
   bindPropoRows(root, ()=>viewClients(root));
   root.querySelectorAll(".ix-type").forEach(sel=>sel.addEventListener("change", e=>{
@@ -2233,8 +2329,10 @@ function viewClients(root){
     e.stopPropagation();
     const det = b.closest(".cli-detail");
     try{
+      const gg = list.find(x=>x.key===b.dataset.key);
       await state.db.saveClientInfo({
         client_key: b.dataset.key,
+        nom: gg? gg.name : undefined,
         statut: det.querySelector(".ci-statut").value,
         origine: det.querySelector(".ci-origine").value,
         notes: det.querySelector(".ci-notes").value.trim(),
