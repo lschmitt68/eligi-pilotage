@@ -271,6 +271,14 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .seg-btn{border:0; background:none; padding:6px 13px; border-radius:8px; cursor:pointer; font:inherit; font-size:13px; color:var(--ink-2)}
 .seg-btn.on{background:var(--surface); color:var(--ink); font-weight:600; box-shadow:var(--shadow)}
 
+/* Entonnoir (v13) */
+.fun-row{display:flex; align-items:center; gap:10px; margin:7px 0}
+.fun-lab{width:150px; flex:none; font-size:12.5px; color:var(--ink-2)}
+.fun-bar{flex:1; height:16px; background:var(--surface-2); border-radius:6px; overflow:hidden}
+.fun-fill{height:100%; background:var(--s1); border-radius:6px}
+.fun-n{width:34px; flex:none; text-align:right; font-weight:700; font-variant-numeric:tabular-nums}
+.fun-conv{width:52px; flex:none; text-align:right; font-size:12px; color:var(--ink-2); font-variant-numeric:tabular-nums}
+
 /* ============ Assistant proposition (v9) ============ */
 .wiz-back{align-items:stretch; justify-content:stretch; padding:0}
 .wiz{display:flex; flex-direction:column; width:100%; height:100%; background:var(--page)}
@@ -543,23 +551,52 @@ function objForMonth(consId, m){
 }
 function monthCongeCount(consId, m){ return monthWeeks(m).filter(w=>isConge(consId,w)).length; }
 function curMonth(){ return monthOfWeek(state.week) || monthCodes()[monthCodes().length-1]; }
+/* Vue annuelle (v13) */
+function yearsList(){ return [...new Set(state.semaines.map(s=>yearOf(s.code)))].sort(); }
+function yearWeeks(y){ return state.semaines.map(s=>s.code).filter(w=>yearOf(w)===y).sort(wcmp); }
+function yearAgg(consId, y){
+  const z = {rdv:0, nb_signatures:0, collecte_scpi:0, ca_scpi:0, collecte_structures:0, ca_structures:0,
+             collecte_audit:0, ca_audit:0, collecte_assurance:0, ca_autres:0, collecte_totale:0, ca_total:0};
+  for (const w of yearWeeks(y)){
+    const s = weekAgg(consId, w);
+    for (const k of Object.keys(z)) z[k] += +s[k]||0;
+  }
+  return z;
+}
+function objForYear(consId, y){
+  return yearWeeks(y).reduce((a,w)=>{ const o = objFor(consId,w); a.ca+=o.ca; a.coll+=o.coll; a.rdv+=o.rdv; return a; }, {ca:0, coll:0, rdv:0});
+}
+function yearCongeCount(consId, y){ return yearWeeks(y).filter(w=>isConge(consId,w)).length; }
+function curYear(){ return yearOf(state.week); }
 function periodNavHTML(){
-  const mois = state._periode==="mois";
+  const per = state._periode || "semaine";
   const toggle = `<div class="seg" title="Granularité d'affichage">
-    <button class="seg-btn ${!mois?"on":""}" data-per="semaine">Semaine</button>
-    <button class="seg-btn ${mois?"on":""}" data-per="mois">Mois</button></div>`;
-  if (!mois) return toggle + weekNavHTML();
-  const ms = monthCodes(), m = state._mois || curMonth(), i = ms.indexOf(m);
-  return toggle + `<div class="weeknav">
-    <button class="wk-btn" id="mo-prev" title="Mois précédent" ${i<=0?"disabled":""}>${ICONS.left}</button>
-    <select id="mo-select">${ms.map(x=>`<option value="${x}" ${x===m?"selected":""}>${monthLabel(x)}</option>`).join("")}</select>
-    <button class="wk-btn" id="mo-next" title="Mois suivant" ${i>=ms.length-1?"disabled":""}>${ICONS.right}</button>
-  </div>`;
+    <button class="seg-btn ${per==="semaine"?"on":""}" data-per="semaine">Semaine</button>
+    <button class="seg-btn ${per==="mois"?"on":""}" data-per="mois">Mois</button>
+    <button class="seg-btn ${per==="annee"?"on":""}" data-per="annee">Année</button></div>`;
+  if (per==="mois"){
+    const ms = monthCodes(), m = state._mois || curMonth(), i = ms.indexOf(m);
+    return toggle + `<div class="weeknav">
+      <button class="wk-btn" id="mo-prev" title="Mois précédent" ${i<=0?"disabled":""}>${ICONS.left}</button>
+      <select id="mo-select">${ms.map(x=>`<option value="${x}" ${x===m?"selected":""}>${monthLabel(x)}</option>`).join("")}</select>
+      <button class="wk-btn" id="mo-next" title="Mois suivant" ${i>=ms.length-1?"disabled":""}>${ICONS.right}</button>
+    </div>`;
+  }
+  if (per==="annee"){
+    const ys = yearsList(), yy = state._annee || curYear(), i = ys.indexOf(yy);
+    return toggle + `<div class="weeknav">
+      <button class="wk-btn" id="yr-prev" title="Année précédente" ${i<=0?"disabled":""}>${ICONS.left}</button>
+      <select id="yr-select">${ys.map(x=>`<option value="${x}" ${x===yy?"selected":""}>${x}</option>`).join("")}</select>
+      <button class="wk-btn" id="yr-next" title="Année suivante" ${i>=ys.length-1?"disabled":""}>${ICONS.right}</button>
+    </div>`;
+  }
+  return toggle + weekNavHTML();
 }
 function bindPeriodNav(){
   document.querySelectorAll("[data-per]").forEach(b=>b.addEventListener("click", ()=>{
     state._periode = b.dataset.per;
     if (state._periode==="mois" && !state._mois) state._mois = curMonth();
+    if (state._periode==="annee" && !state._annee) state._annee = curYear();
     render();
   }));
   bindWeekNav();
@@ -568,6 +605,11 @@ function bindPeriodNav(){
   $("#mo-prev")?.addEventListener("click", ()=>shift(-1));
   $("#mo-next")?.addEventListener("click", ()=>shift(1));
   $("#mo-select")?.addEventListener("change", e=>{ state._mois = e.target.value; render(); });
+  const ys = yearsList();
+  const yShift = d=>{ const i = ys.indexOf(state._annee||curYear()); const n = ys[i+d]; if (n){ state._annee = n; render(); } };
+  $("#yr-prev")?.addEventListener("click", ()=>yShift(-1));
+  $("#yr-next")?.addEventListener("click", ()=>yShift(1));
+  $("#yr-select")?.addEventListener("change", e=>{ state._annee = e.target.value; render(); });
 }
 
 /* Vitalité pipeline */
@@ -758,6 +800,7 @@ class SupaDB {
   async saveClientInfo(info){
     const row = {client_key:info.client_key, statut:info.statut, origine:info.origine, notes:info.notes, maj_le:new Date().toISOString()};
     if (info.nom !== undefined) row.nom = info.nom;
+    if (info.derniere_revue !== undefined) row.derniere_revue = info.derniere_revue || null;
     const {error} = await this.c.from("clients_infos").upsert(row, {onConflict:"client_key"});
     if (error) throw error;
   }
@@ -819,6 +862,12 @@ class SupaDB {
     const {error} = await this.c.from("pipeline").delete().eq("id", id);
     if (error) throw error;
   }
+  async markPerdu(p, raison){
+    const {error} = await this.c.from("pipeline").update({etape:"Perdu", raison_perte:raison}).eq("id", p.id);
+    if (error) throw error;
+    const {error: e2} = await this.c.from("pipeline").delete().eq("id", p.id);
+    if (e2) throw e2;
+  }
   async saveConseiller(c){
     if (c.id){
       const {id, ...rest} = c;
@@ -844,6 +893,10 @@ class SupaDB {
   }
   async deleteProfile(email){
     const {error} = await this.c.from("profiles").delete().eq("email", email);
+    if (error) throw error;
+  }
+  async saveParamsCabinet(data){
+    const {error} = await this.c.from("params_cabinet").upsert({id:1, data, maj_le:new Date().toISOString()});
     if (error) throw error;
   }
 }
@@ -930,6 +983,7 @@ class DemoDB {
     const i = this.clientsInfos.findIndex(c=>c.client_key===info.client_key);
     const row = {client_key:info.client_key, statut:info.statut, origine:info.origine, notes:info.notes, maj_le:new Date().toISOString()};
     if (info.nom !== undefined) row.nom = info.nom;
+    if (info.derniere_revue !== undefined) row.derniere_revue = info.derniere_revue || null;
     if (i>=0) Object.assign(this.clientsInfos[i], row);
     else this.clientsInfos.push({id:this._id++, ...row});
   }
@@ -1003,6 +1057,14 @@ class DemoDB {
     const i = this.pipeline.findIndex(x=>x.id===id);
     if (i>=0 && this._mine(this.pipeline[i].conseiller_id)) this.pipeline.splice(i,1);
   }
+  async markPerdu(p, raison){
+    if (!this._mine(p.conseiller_id)) throw new Error("Accès refusé");
+    const i = this.pipeline.findIndex(x=>x.id===p.id);
+    if (i<0) return;
+    this.pipeEvents.push({id:this._id++, pipeline_id:p.id, conseiller_id:p.conseiller_id, client:p.client,
+      de_etape:p.etape, vers_etape:"Perdu", raison, quand:new Date().toISOString()});
+    this.pipeline.splice(i,1);
+  }
   async saveConseiller(c){
     if (!isManager()) throw new Error("Réservé au manager");
     if (c.id){ Object.assign(this.conseillers.find(x=>x.id===c.id), c); }
@@ -1017,6 +1079,10 @@ class DemoDB {
   async deleteProfile(email){
     const i = this.profiles.findIndex(x=>x.email===email);
     if (i>=0) this.profiles.splice(i,1);
+  }
+  async saveParamsCabinet(data){
+    if (!isManager()) throw new Error("Réservé au manager");
+    this.paramsCabinet = data;
   }
 }
 
@@ -1377,18 +1443,21 @@ function joursDepuisSauvegarde(){
 /* ---------------- Dashboard équipe (manager) ---------------- */
 function viewDashboard(root){
   const week = state.week;
-  const mois = state._periode==="mois";
+  const per = state._periode || "semaine";
+  const mois = per==="mois", annee = per==="annee";
   const m = mois? (state._mois || (state._mois = curMonth())) : null;
-  const perLabel = mois? monthLabel(m) : `semaine ${week}`;
+  const y = annee? (state._annee || (state._annee = curYear())) : null;
+  const perLabel = annee? `année ${y}` : mois? monthLabel(m) : `semaine ${week}`;
   const nSemMois = mois? monthWeeks(m).length : 0;
+  const nSemAn = annee? yearWeeks(y).length : 0;
   const cons = activeConseillers();
   const rows = cons.map(c => {
-    const w = mois? monthAgg(c.id, m) : weekAgg(c.id, week), p = pipeAgg(c.id);
-    const proj = w.ca_total + p.pond - p.signe;
+    const w = annee? yearAgg(c.id, y) : mois? monthAgg(c.id, m) : weekAgg(c.id, week), p = pipeAgg(c.id);
+    const proj = annee? atterrissage(c.id).avecPipe : w.ca_total + p.pond - p.signe;
     const hist = consSeries(c.id, week).slice(-8).map(r=>r.ca);
-    const o = mois? objForMonth(c.id, m) : objFor(c.id, week);
-    const nConge = mois? monthCongeCount(c.id, m) : (isConge(c.id, week)? 1:0);
-    const conge = mois? nConge===nSemMois && nSemMois>0 : isConge(c.id, week);
+    const o = annee? objForYear(c.id, y) : mois? objForMonth(c.id, m) : objFor(c.id, week);
+    const nConge = annee? yearCongeCount(c.id, y) : mois? monthCongeCount(c.id, m) : (isConge(c.id, week)? 1:0);
+    const conge = mois? nConge===nSemMois && nSemMois>0 : (!annee && isConge(c.id, week));
     const al = conge? BADGE_CONGE : alerte(proj, o.ca);
     return {c, w, p, o, proj, hist, conge, nConge, al};
   });
@@ -1409,7 +1478,7 @@ function viewDashboard(root){
   ];
 
   root.innerHTML = `
-  ${vhead("Dashboard équipe", mois? `${perLabel} — ${nSemMois} semaine(s) : ${esc(monthWeeks(m)[0]||"")} → ${esc(monthWeeks(m)[nSemMois-1]||"")}` : `Semaine actuelle : ${todayWeekCode()}`, `
+  ${vhead("Dashboard équipe", annee? `Année ${y} — cumul de ${nSemAn} semaines · Projection = atterrissage fin d'année` : mois? `${perLabel} — ${nSemMois} semaine(s) : ${esc(monthWeeks(m)[0]||"")} → ${esc(monthWeeks(m)[nSemMois-1]||"")}` : `Semaine actuelle : ${todayWeekCode()}`, `
     ${periodNavHTML()}
     <button class="btn secondary" id="dash-meeting">${ICONS.play} Mode réunion</button>
     <button class="btn secondary" id="dash-export">${ICONS.dl} Exporter</button>`)}
@@ -1428,13 +1497,13 @@ function viewDashboard(root){
     return (j===null || j>=7)? `<div class="card reminder" style="border-left-color:var(--s1)">💾 <b>${j===null? "Aucune sauvegarde exportée depuis ce navigateur" : `Dernière sauvegarde il y a ${j} jours`}</b>
       <span class="muted small">— un export Excel = une copie de secours de toutes tes données</span>
       <span style="flex:1"></span><button class="btn small" id="bk-now">${ICONS.dl} Exporter maintenant</button></div>` : ""; })()}
-  ${!mois && (noSaisie.length || enConges.length)? `<div class="card sect" style="padding:11px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+  ${per==="semaine" && (noSaisie.length || enConges.length)? `<div class="card sect" style="padding:11px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
     ${noSaisie.length? `<b class="small">Saisies manquantes ${esc(week)} :</b>
     ${noSaisie.map(c=>`<span class="chip warn" data-saisie="${c.id}"><span class="cdot" style="background:${consColor(c.id)};margin:0"></span>${esc(c.nom)}</span>`).join("")}
     <span class="small muted">— clique pour saisir</span>`:""}
     ${enConges.length? `<span class="small" style="margin-left:${noSaisie.length?"14px":"0"}">✈ <b>En congés :</b> ${enConges.map(c=>esc(c.nom)).join(", ")}</span>`:""}</div>` : ""}
 
-  <div class="sect sect-head"><h2>Conseillers — ${esc(perLabel)}</h2>${mois? `<span class="sub">cumul des ${nSemMois} semaines du mois · objectifs mensuels = somme des objectifs hebdo (congés déduits)</span>`:""}</div>
+  <div class="sect sect-head"><h2>Conseillers — ${esc(perLabel)}</h2>${annee? `<span class="sub">cumul de l'année civile · objectif annuel = somme des objectifs hebdo (congés déduits) · Projection = tendance fin d'année + pipeline pondéré − signé</span>` : mois? `<span class="sub">cumul des ${nSemMois} semaines du mois · objectifs mensuels = somme des objectifs hebdo (congés déduits)</span>`:""}</div>
   <div class="card tbl-scroll">
     <table class="tbl dense">
       <thead><tr>
@@ -1460,7 +1529,7 @@ function viewDashboard(root){
           <td class="num">${eur(r.p.signe)}</td>
           <td class="num"><b>${eur(r.proj)}</b></td>
           <td class="num">${eur(r.w.rdv? r.w.ca_total/r.w.rdv : 0)}</td>
-          <td>${badgeHTML(r.al)}${mois && r.nConge && !r.conge? ` <span class="small muted">✈ ${r.nConge} sem.</span>`:""}</td>
+          <td>${badgeHTML(r.al)}${(mois||annee) && r.nConge && !r.conge? ` <span class="small muted">✈ ${r.nConge} sem.</span>`:""}</td>
         </tr>`).join("")}
         <tr class="total">
           <td>Équipe</td><td></td><td class="num">${eur(objCAEq)}</td>
@@ -1742,6 +1811,75 @@ function viewSaisie(root){
 }
 
 /* ---------------- Pipeline : kanban + tableau ---------------- */
+function funnelStats(consId){
+  const evs = state.pipeEvents.filter(e=>!consId || e.conseiller_id===+consId);
+  const byPipe = new Map();
+  for (const e of evs){
+    if (!byPipe.has(e.pipeline_id)) byPipe.set(e.pipeline_id, []);
+    byPipe.get(e.pipeline_id).push(e);
+  }
+  const idx = et => ETAPES.indexOf(et);
+  const reached = ETAPES.map(()=>0);
+  const durees = ETAPES.map(()=>({tot:0, n:0}));
+  const perteRaisons = {}, perteEtapes = {};
+  let nPerdu = 0;
+  for (const evList of byPipe.values()){
+    evList.sort((a,b)=>new Date(a.quand)-new Date(b.quand));
+    let maxIdx = -1;
+    for (const e of evList){
+      const i = idx(e.vers_etape);
+      if (i >= 0) maxIdx = Math.max(maxIdx, i);
+      if (e.vers_etape === "Perdu"){
+        nPerdu++;
+        const r = e.raison || "Non précisée";
+        perteRaisons[r] = (perteRaisons[r]||0)+1;
+        if (e.de_etape) perteEtapes[e.de_etape] = (perteEtapes[e.de_etape]||0)+1;
+      }
+    }
+    for (let i=0; i<=maxIdx; i++) reached[i]++;
+    for (let k=0; k<evList.length-1; k++){
+      const i = idx(evList[k].vers_etape);
+      if (i < 0) continue;
+      const dt = (new Date(evList[k+1].quand) - new Date(evList[k].quand))/86400000;
+      if (dt >= 0){ durees[i].tot += dt; durees[i].n++; }
+    }
+  }
+  return {reached, durees, perteRaisons, perteEtapes, nPerdu, total: byPipe.size};
+}
+function funnelHTML(consId){
+  const st = funnelStats(consId);
+  if (!st.total) return `<div class="card grow"><div class="empty">Pas encore d'historique — l'entonnoir se remplit à chaque mouvement du pipeline.</div></div>`;
+  const base = st.reached[0] || 1;
+  const raisons = Object.entries(st.perteRaisons).sort((a,b)=>b[1]-a[1]);
+  const pertesEt = Object.entries(st.perteEtapes).sort((a,b)=>idxEtape(a[0])-idxEtape(b[0]));
+  function idxEtape(e){ return ETAPES.indexOf(e); }
+  return `
+  <div class="card grow" style="min-width:340px"><h3 class="mt0">Entonnoir — ${st.total} dossier(s) historisés</h3>
+    ${ETAPES.map((et,i)=>{
+      const n = st.reached[i];
+      const conv = i? (st.reached[i-1]? n/st.reached[i-1] : 0) : 1;
+      return `<div class="fun-row" data-fet="${esc(et)}">
+        <span class="fun-lab">${esc(et)}</span>
+        <div class="fun-bar"><div class="fun-fill" style="width:${Math.max(2, n/base*100)}%"></div></div>
+        <span class="fun-n">${n}</span>
+        <span class="fun-conv">${i? fmtPct(conv) : "—"}</span></div>`;
+    }).join("")}
+    <p class="small muted" style="margin-bottom:0">Taux global contact → signé : <b>${fmtPct(st.reached[0]? st.reached[ETAPES.length-1]/st.reached[0] : 0)}</b> · la colonne % = conversion depuis l'étape précédente</p>
+  </div>
+  <div class="card grow" style="min-width:250px"><h3 class="mt0">⏱ Durée moyenne par étape</h3>
+    <table class="tbl dense"><tbody>${ETAPES.slice(0,-1).map((et,i)=>`<tr>
+      <td>${esc(et)}</td>
+      <td class="num"><b>${st.durees[i].n? Math.round(st.durees[i].tot/st.durees[i].n)+" j" : "—"}</b></td>
+      <td class="num small muted">${st.durees[i].n} passage(s)</td></tr>`).join("")}</tbody></table>
+    <p class="small muted" style="margin-bottom:0">Temps passé dans l'étape avant le mouvement suivant — repère les étapes qui traînent.</p>
+  </div>
+  <div class="card grow" style="min-width:250px"><h3 class="mt0">❌ Dossiers perdus — ${st.nPerdu}</h3>
+    ${st.nPerdu? `<table class="tbl dense"><tbody>${raisons.map(([r,n])=>`<tr><td>${esc(r)}</td><td class="num"><b>${n}</b></td></tr>`).join("")}</tbody></table>
+      ${pertesEt.length? `<p class="small muted" style="margin-bottom:0">Perdus depuis : ${pertesEt.map(([e,n])=>`${esc(e)} (${n})`).join(" · ")}</p>`:""}`
+      : `<div class="empty">Aucun dossier marqué perdu pour l'instant.</div>
+         <p class="small muted" style="margin-bottom:0">Pour tracer une perte : bouton ✕ d'un dossier → « Dossier perdu » avec sa raison.</p>`}
+  </div>`;
+}
 function viewPipeline(root){
   if (state._pipeView === undefined) state._pipeView = "kanban";
   const q = (state._pipeSearch||"").toLowerCase();
@@ -1776,7 +1914,11 @@ function viewPipeline(root){
     <div class="small muted" style="padding-bottom:8px">
       <b>${rows.length}</b> opportunités · pondéré <b>${eur(pond)}</b> · dont signé <b>${eur(signe)}</b></div>
   </div>
-  <div id="pi-body"></div>`;
+  <div id="pi-body"></div>
+
+  <div class="sect sect-head"><h2>Entonnoir de conversion</h2>
+    <span class="sub">historique complet du flux${fCons? ` — ${esc(consName(+fCons))}`:""} · alimenté automatiquement à chaque mouvement</span></div>
+  <div class="row">${funnelHTML(fCons)}</div>`;
 
   const body = $("#pi-body");
   if (state._pipeView === "kanban") renderKanban(body, rows);
@@ -1867,13 +2009,41 @@ function renderPipeTable(body, rows){
     </tr>`).join("") || `<tr><td colspan="13" class="empty">Aucune opportunité</td></tr>`}</tbody>
   </table></div>`;
   body.querySelectorAll("[data-edit]").forEach(b=>b.addEventListener("click", ()=>pipeModal(state.pipeline.find(p=>p.id===+b.dataset.edit))));
-  body.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click", async ()=>{
-    if (!confirm("Supprimer cette opportunité ?")) return;
-    try{ await state.db.deletePipeline(+b.dataset.del); await state.db.loadAll(); toast("Opportunité supprimée"); render(); }
-    catch(err){ toast("Erreur : " + (err.message||err)); }
-  }));
+  body.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click", ()=>loseModal(state.pipeline.find(p=>p.id===+b.dataset.del))));
 }
 
+const PERTE_RAISONS = ["Honoraires / tarif","Concurrence","Projet reporté","Plus de besoin","Injoignable / sans réponse","Autre"];
+function loseModal(p){
+  if (!p) return;
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal" style="width:470px">
+    <h3>Clôturer « ${esc(p.client||"(sans nom)")} »</h3>
+    <p class="small muted" style="margin-top:0">Un dossier marqué <b>perdu</b> reste dans l'historique : il alimente
+      l'entonnoir de conversion et les raisons de perte. La <b>suppression</b> est réservée aux erreurs de saisie.</p>
+    <label class="fld"><span>Raison de la perte</span><select id="lm-raison">${PERTE_RAISONS.map(r=>`<option>${r}</option>`).join("")}</select></label>
+    <div class="modal-actions">
+      <button class="btn secondary" id="lm-cancel">Annuler</button>
+      <button class="btn danger" id="lm-suppr" title="Erreur de saisie : rien n'est conservé">Supprimer (erreur)</button>
+      <button class="btn" id="lm-perdu">❌ Dossier perdu</button>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
+  back.querySelector("#lm-cancel").addEventListener("click", ()=>back.remove());
+  back.querySelector("#lm-suppr").addEventListener("click", async ()=>{
+    try{ await state.db.deletePipeline(p.id); back.remove(); await state.db.loadAll(); toast("Opportunité supprimée"); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+  back.querySelector("#lm-perdu").addEventListener("click", async ()=>{
+    try{
+      const raison = back.querySelector("#lm-raison").value;
+      await state.db.markPerdu(p, raison);
+      back.remove(); await state.db.loadAll();
+      toast(`Dossier perdu (${raison}) — conservé dans l'entonnoir`); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+}
 function pipeModal(p, etapeInit){
   const isNew = !p;
   p = p || {conseiller_id: isManager()? activeConseillers()[0]?.id : state.profile.conseiller_id,
@@ -1926,11 +2096,7 @@ function pipeModal(p, etapeInit){
   back.querySelector("#pm-proba").addEventListener("change", updPond);
   back.querySelector("#pm-cancel").addEventListener("click", ()=>back.remove());
   back.addEventListener("click", e=>{ if(e.target===back) back.remove(); });
-  back.querySelector("#pm-del")?.addEventListener("click", async ()=>{
-    if (!confirm("Supprimer cette opportunité ?")) return;
-    try{ await state.db.deletePipeline(p.id); back.remove(); await state.db.loadAll(); toast("Opportunité supprimée"); render(); }
-    catch(err){ toast("Erreur : "+(err.message||err)); }
-  });
+  back.querySelector("#pm-del")?.addEventListener("click", ()=>{ back.remove(); loseModal(p); });
   back.querySelector("#pm-save").addEventListener("click", async ()=>{
     try{
       const etaitSigne = (p.etape||"").toLowerCase() === "signé";
@@ -1971,15 +2137,19 @@ function viewFiche(root){
   const c = state.conseillers.find(x=>x.id===consId);
   if (!c){ root.innerHTML = `<div class="card">Aucun conseiller associé à ce compte. Contacte le manager.</div>`; return; }
 
-  const mois = state._periode==="mois";
+  const per = state._periode || "semaine";
+  const mois = per==="mois", annee = per==="annee";
   const m = mois? (state._mois || (state._mois = curMonth())) : null;
-  const perLabel = mois? monthLabel(m) : state.week;
-  const w = mois? monthAgg(consId, m) : weekAgg(consId, state.week), p = pipeAgg(consId);
-  const proj = w.ca_total + p.pond - p.signe;
-  const ow = mois? objForMonth(consId, m) : objFor(consId, state.week);
+  const yA = annee? (state._annee || (state._annee = curYear())) : null;
+  const perLabel = annee? `année ${yA}` : mois? monthLabel(m) : state.week;
+  const w = annee? yearAgg(consId, yA) : mois? monthAgg(consId, m) : weekAgg(consId, state.week), p = pipeAgg(consId);
+  const att = annee? atterrissage(consId) : null;
+  const proj = annee? att.avecPipe : w.ca_total + p.pond - p.signe;
+  const ow = annee? objForYear(consId, yA) : mois? objForMonth(consId, m) : objFor(consId, state.week);
   const nSemMois = mois? monthWeeks(m).length : 0;
-  const nCongeM = mois? monthCongeCount(consId, m) : 0;
-  const al = mois? (nCongeM===nSemMois && nSemMois>0? BADGE_CONGE : alerte(proj, ow.ca))
+  const nCongeM = mois? monthCongeCount(consId, m) : (annee? yearCongeCount(consId, yA) : 0);
+  const al = annee? alerte(proj, ow.ca)
+           : mois? (nCongeM===nSemMois && nSemMois>0? BADGE_CONGE : alerte(proj, ow.ca))
                  : alerteFor(consId, state.week, proj, ow.ca);
   const cu = cumul(consId, state.week);
   const serie = consSeries(consId, state.week);
@@ -1992,7 +2162,7 @@ function viewFiche(root){
 
   root.innerHTML = `
   ${vhead(`<span class="cdot" style="background:${consColor(consId)};width:12px;height:12px"></span> ${isManager()? "Fiche — " : "Ma semaine — "}${esc(c.nom)} &nbsp;${badgeHTML(al)}`,
-    mois? `${monthLabel(m)} — cumul de ${nSemMois} semaine(s)${nCongeM? `, dont ${nCongeM} en congés`:""}` : "",
+    annee? `Année ${yA} — cumul de ${yearWeeks(yA).length} semaines${nCongeM? `, dont ${nCongeM} en congés`:""} · projection fin d'année : ${eur(proj)} (${ow.ca? fmtPct(proj/ow.ca):"—"} de l'objectif)` : mois? `${monthLabel(m)} — cumul de ${nSemMois} semaine(s)${nCongeM? `, dont ${nCongeM} en congés`:""}` : "",
     `${isManager()? `<label class="fld" style="margin:0;min-width:140px"><select id="fi-cons">
       ${list.map(x=>`<option value="${x.id}" ${x.id===consId?"selected":""}>${esc(x.nom)}</option>`).join("")}</select></label>`:""}
     ${periodNavHTML()}
@@ -2003,7 +2173,7 @@ function viewFiche(root){
     ${tile("CA total", eur2(w.ca_total), `Objectif : ${eur(ow.ca)}`, ow.ca? w.ca_total/ow.ca:0)}
     ${tile("Collecte", eur(w.collecte_totale))}
     ${tile("Pipeline pondéré", eur(p.pond), `${p.count} opportunités`)}
-    ${tile("Projection", eur(proj), "CA + pondéré − signé")}
+    ${tile("Projection", eur(proj), annee? "atterrissage fin d'année" : "CA + pondéré − signé")}
     ${tile("CA / RDV", eur(w.rdv? w.ca_total/w.rdv : 0))}
     ${tile("Signatures probables", p.sigProb, "dans le pipeline")}
   </div>
@@ -2183,6 +2353,10 @@ function viewJour(root){
     .sort((a,b)=>String(a.closing_prevu).localeCompare(String(b.closing_prevu)));
   const sig = openPipe.filter(p=>p.signature_probable).sort((a,b)=>pondere(b)-pondere(a));
   const tRetard = state.actions.filter(a=>mine(a) && !a.fait && a.echeance && a.echeance < today).length;
+  const revues = state.clientsInfos.filter(ci=>revueEchue(ci))
+    .filter(ci=>{ if (mgr) return true; const cc = clientConseillers(ci.client_key); return !cc.length || cc.includes(meId); })
+    .map(ci=>({key:ci.client_key, name:(ci.nom||ci.client_key), last:ci.derniere_revue||null}))
+    .sort((a,b)=>String(a.last||"").localeCompare(String(b.last||"")));
   const cur = weekCodes().includes(todayWeekCode())? todayWeekCode() : state.week;
   const noSaisie = mgr? activeConseillers().filter(c=>!isConge(c.id,cur) && !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===cur)) : [];
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
@@ -2203,6 +2377,7 @@ function viewJour(root){
     ${tile("À relancer", relance.length, "dossiers sans mouvement / closing dépassé")}
     ${tile("Closings sous 14 jours", closings.length)}
     ${tile("Signatures probables", sig.length, eur(sig.reduce((a,p)=>a+pondere(p),0)) + " pondérés")}
+    ${tile("Revues annuelles", revues.length, revues.length? "clients à revoir (conformité)" : "à jour ✓")}
   </div>
 
   <div class="row sect">
@@ -2225,6 +2400,14 @@ function viewJour(root){
       ${sig.length? `<table class="tbl dense"><tbody>${sig.slice(0,6).map(p=>opRow(p, esc(p.prochaine_action||""))).join("")}</tbody></table>`
         : `<div class="empty">Aucune signature marquée « probable »</div>`}
     </div>
+    <div class="card grow">
+      <h3 class="mt0">📆 Revues annuelles à programmer</h3>
+      ${revues.length? `<table class="tbl dense"><tbody>${revues.slice(0,6).map(x=>`<tr class="clickable jr-rev" data-key="${esc(x.key)}">
+        <td><b>${esc(x.name)}</b></td>
+        <td class="num small muted">${x.last? "dernière : " + new Date(x.last+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}) : "jamais faite"}</td></tr>`).join("")}</tbody></table>
+        ${revues.length>6? `<p class="small muted" style="margin-bottom:0">+ ${revues.length-6} autres — ouvre la vue Clients</p>`:""}`
+        : `<div class="empty">Aucune revue annuelle en retard ✓</div>`}
+    </div>
     ${!mgr && meId? bilanCardHTML(meId, cur) : ""}
   </div>`;
 
@@ -2234,6 +2417,10 @@ function viewJour(root){
   root.querySelectorAll(".jr-op").forEach(r=>r.addEventListener("click", ()=>{
     const p = state.pipeline.find(x=>x.id===+r.dataset.id);
     if (p) pipeModal(p);
+  }));
+  root.querySelectorAll(".jr-rev").forEach(r=>r.addEventListener("click", ()=>{
+    state._cliOpen = r.dataset.key; state._cliSearch = "";
+    go("clients");
   }));
 }
 
@@ -2261,7 +2448,7 @@ function briefClient(key){
         <img src="logo-teal.png" alt="Eligi">
         <div class="pd-title"><b>Brief client — ${esc(name)}</b><span>Préparation de rendez-vous · ${new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span></div>
       </div>
-      <div class="pd-meta">${esc(info.statut||"Prospect")}${info.origine? ` · origine : ${esc(info.origine)}`:""}${rows.length? ` · conseiller(s) : ${[...new Set(rows.map(p=>consName(p.conseiller_id)))].join(", ")}`:""}</div>
+      <div class="pd-meta">${esc(info.statut||"Prospect")}${info.origine? ` · origine : ${esc(info.origine)}`:""}${rows.length? ` · conseiller(s) : ${[...new Set(rows.map(p=>consName(p.conseiller_id)))].join(", ")}`:""}${info.statut==="Client"? ` · revue annuelle : ${info.derniere_revue? new Date(info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "jamais faite"}${revueEchue(info)? " ⚠":""}`:""}</div>
       ${(info.notes||"").trim()? `<div class="pd-sec"><h3>Notes du cabinet</h3><p>${esc(info.notes)}</p></div>`:""}
       <div class="pd-sec"><h3>Dossiers en cours</h3>
         ${rows.length? `<table class="pd-tbl"><thead><tr><th>Support</th><th>Étape</th><th class="num">Potentiel</th><th class="num">Pondéré</th><th>Prochaine action</th></tr></thead>
@@ -2275,7 +2462,7 @@ function briefClient(key){
       <div class="pd-sec"><h3>Derniers événements</h3>
         ${suivi.length? `<table class="pd-tbl"><tbody>${suivi.map(ev=> ev.kind==="ix"
           ? `<tr><td>${IXI[ev.i.type]||"📝"}</td><td>${esc(ev.i.note)}</td><td>${ev.i.conseiller_id? esc(consName(ev.i.conseiller_id)):"Manager"}</td><td class="num">${fdt(ev.t)}</td></tr>`
-          : `<tr><td>${ev.e.de_etape? "🧭":"✨"}</td><td>${ev.e.de_etape? `${esc(ev.e.de_etape)} → ${esc(ev.e.vers_etape)}` : `Nouveau dossier — ${esc(ev.e.vers_etape)}`}</td><td>${esc(consName(ev.e.conseiller_id))}</td><td class="num">${fdt(ev.t)}</td></tr>`).join("")}</tbody></table>`
+          : `<tr><td>${ev.e.vers_etape==="Perdu"? "❌" : ev.e.de_etape? "🧭":"✨"}</td><td>${ev.e.de_etape? `${esc(ev.e.de_etape)} → ${esc(ev.e.vers_etape)}` : `Nouveau dossier — ${esc(ev.e.vers_etape)}`}${ev.e.raison? ` (${esc(ev.e.raison)})`:""}</td><td>${esc(consName(ev.e.conseiller_id))}</td><td class="num">${fdt(ev.t)}</td></tr>`).join("")}</tbody></table>`
         : `<p class="pd-note">Aucun événement de suivi enregistré.</p>`}</div>
       ${lastProp? `<div class="pd-sec"><h3>Dernière proposition</h3>
         <p>${eur(+lastProp.data?.montant||0)} · profil ${esc(PROPO_PROFILS[(+lastProp.data?.profil||3)-1])} · ${esc(lastProp.mode)} — <b>${esc(lastProp.statut)}</b>
@@ -2301,6 +2488,19 @@ function suiviClient(g){
     ev.push({kind:"ac", t:a.echeance? new Date(a.echeance+"T12:00:00").getTime() : Infinity, a});
   ev.sort((x,y)=>y.t-x.t);
   return ev;
+}
+/* Revue annuelle client (v13) : due si statut Client et dernière revue > 12 mois (ou jamais faite) */
+function revueEchue(info){
+  if (!info || info.statut !== "Client") return false;
+  if (!info.derniere_revue) return true;
+  return (Date.now() - new Date(info.derniere_revue + "T00:00:00").getTime())/86400000 >= 365;
+}
+function clientConseillers(key){
+  const ids = new Set();
+  for (const p of state.pipeline) if (normName(p.client)===key) ids.add(p.conseiller_id);
+  for (const i of state.interactions) if (i.client_key===key && i.conseiller_id) ids.add(i.conseiller_id);
+  for (const a of state.actions) if (a.client_key===key) ids.add(a.conseiller_id);
+  return [...ids];
 }
 function clientModal(afterSave){
   const STATUTS = ["Prospect","Client","Inactif"];
@@ -2407,7 +2607,7 @@ function viewClients(root){
     <tbody>${list.map((g,i)=>`
       <tr class="clickable cli-row" data-key="${esc(g.key)}" title="Ouvrir la fiche client">
         <td><b>${esc(g.name)}</b></td>
-        <td>${statutBadge(g.info.statut)}</td>
+        <td>${statutBadge(g.info.statut)}${revueEchue(g.info)? ` <span class="badge watch" title="Revue annuelle à programmer (dernière : ${g.info.derniere_revue? new Date(g.info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "jamais"})"><span class="dot"></span>Revue due</span>`:""}</td>
         <td>${g.cons.map(id=>`<span class="cdot" style="background:${consColor(id)}" title="${esc(consName(id))}"></span>`).join("")}</td>
         <td class="num">${g.rows.length}</td>
         <td class="num">${eur(g.coll)}</td>
@@ -2422,11 +2622,15 @@ function viewClients(root){
             <div class="inline-controls">
               <label class="fld"><span>Statut</span><select class="ci-statut">${STATUTS.map(s=>`<option ${s===g.info.statut?"selected":""}>${s}</option>`).join("")}</select></label>
               <label class="fld"><span>Origine du contact</span><select class="ci-origine">${ORIGINES.map(o=>`<option value="${o}" ${o===g.info.origine?"selected":""}>${o||"—"}</option>`).join("")}</select></label>
+              <label class="fld"><span>Dernière revue annuelle</span><input type="date" class="ci-revue" value="${g.info.derniere_revue||""}"></label>
               <span class="small muted" style="padding-bottom:9px">Dernier mouvement : ${g.dernier? new Date(g.dernier).toLocaleDateString("fr-FR"):"—"}${g.info.maj_le? ` · fiche mise à jour le ${new Date(g.info.maj_le).toLocaleDateString("fr-FR")}`:""}</span>
             </div>
             <label class="fld"><span>Notes du cabinet (visibles par toute l'équipe)</span>
               <textarea class="ci-notes" rows="3" placeholder="contexte, famille, préférences, points d'attention…">${esc(g.info.notes||"")}</textarea></label>
-            <button class="btn small ci-save" data-key="${esc(g.key)}">Enregistrer la fiche</button>
+            <div style="display:flex;gap:8px;flex-wrap:wrap">
+              <button class="btn small ci-save" data-key="${esc(g.key)}">Enregistrer la fiche</button>
+              <button class="btn secondary small ci-revue-now" data-key="${esc(g.key)}" title="Enregistre la revue à aujourd'hui et trace l'événement dans le suivi">✓ Revue faite aujourd'hui</button>
+            </div>
           </div>
           <div class="card grow tbl-scroll">
             <h3 class="mt0">Dossiers</h3>
@@ -2471,8 +2675,8 @@ function viewClients(root){
                   <div class="tl-meta">Tâche · ${esc(consName(ev.a.conseiller_id))}${ev.a.echeance? ` · pour le ${new Date(ev.a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}`:""}${!ev.a.fait && ev.a.echeance && ev.a.echeance < new Date().toISOString().slice(0,10)? ` · <b style="color:var(--bad)">en retard</b>`:""}</div></div>
                 <input type="checkbox" class="ix-ac-done" data-id="${ev.a.id}" ${ev.a.fait?"checked":""} style="width:auto;flex:none" title="Fait">
               </div>` : `
-              <div class="tl-item"><span class="tl-ico">${ev.e.de_etape? "🧭":"✨"}</span>
-                <div class="tl-body"><span>${ev.e.de_etape? `${esc(ev.e.de_etape)} → <b>${esc(ev.e.vers_etape)}</b>` : `Nouveau dossier — <b>${esc(ev.e.vers_etape)}</b>`}</span>
+              <div class="tl-item"><span class="tl-ico">${ev.e.vers_etape==="Perdu"? "❌" : ev.e.de_etape? "🧭":"✨"}</span>
+                <div class="tl-body"><span>${ev.e.de_etape? `${esc(ev.e.de_etape)} → <b>${esc(ev.e.vers_etape)}</b>` : `Nouveau dossier — <b>${esc(ev.e.vers_etape)}</b>`}${ev.e.raison? ` <span class="small muted">(${esc(ev.e.raison)})</span>`:""}</span>
                   <div class="tl-meta">Pipeline · ${esc(consName(ev.e.conseiller_id))} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
               </div>`).join("") || `<div class="empty">Aucun événement pour l'instant — ajoute un appel, un RDV ou une note ci-dessus</div>`}</div>
           </div>
@@ -2583,8 +2787,27 @@ function viewClients(root){
         statut: det.querySelector(".ci-statut").value,
         origine: det.querySelector(".ci-origine").value,
         notes: det.querySelector(".ci-notes").value.trim(),
+        derniere_revue: det.querySelector(".ci-revue").value || null,
       });
       await state.db.loadAll(); toast("Fiche client enregistrée ✓"); viewClients(root);
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  root.querySelectorAll(".ci-revue-now").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    const det = b.closest(".cli-detail");
+    const g = list.find(x=>x.key===b.dataset.key);
+    try{
+      await state.db.saveClientInfo({
+        client_key: b.dataset.key,
+        nom: g? g.name : undefined,
+        statut: det.querySelector(".ci-statut").value,
+        origine: det.querySelector(".ci-origine").value,
+        notes: det.querySelector(".ci-notes").value.trim(),
+        derniere_revue: new Date().toISOString().slice(0,10),
+      });
+      await state.db.addInteraction({client_key:b.dataset.key, conseiller_id:state.profile.conseiller_id||null,
+        type:"RDV", note:"Revue annuelle effectuée"});
+      await state.db.loadAll(); toast("Revue annuelle enregistrée ✓"); viewClients(root);
     }catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
 }
@@ -3440,6 +3663,101 @@ function viewRapport(root){
 }
 
 /* ---------------- Paramétrage (manager) ---------------- */
+function propoParamsEditorHTML(){
+  const P = propoParams();
+  const pc = v => +(v*100).toFixed(3);
+  const custom = Object.keys(state.paramsCabinet||{}).length > 0;
+  return `<div class="card" id="ppar-card">
+    <div class="helpbox" style="margin-bottom:12px">
+      ${custom? "⚙️ Des <b>paramètres personnalisés</b> sont enregistrés pour le cabinet." : "Le moteur utilise actuellement les <b>valeurs par défaut</b>."}
+      Les modifications s'appliquent aux <b>nouvelles</b> propositions — les documents déjà émis conservent leurs hypothèses d'origine.
+    </div>
+    <div class="row">
+      <div class="card grow" style="min-width:330px">
+        <h3 class="mt0">Hypothèses par classe d'actifs</h3>
+        <table class="tbl dense"><thead><tr><th>Classe</th><th class="num">Rendement / an (%)</th><th class="num">Volatilité (%)</th></tr></thead>
+        <tbody>${PROPO_CLASSES.map((cl,i)=>`<tr>
+          <td>${cl}</td>
+          <td class="num"><input type="number" class="ppar-hyp" data-i="${i}" data-f="r" value="${pc(P.hyp[i].r)}" step="0.1" style="width:82px"></td>
+          <td class="num"><input type="number" class="ppar-hyp" data-i="${i}" data-f="v" value="${pc(P.hyp[i].v)}" step="0.1" style="width:82px"></td>
+        </tr>`).join("")}</tbody></table>
+        <h3>Cadre macro</h3>
+        <div class="inline-controls">
+          <label class="fld" style="min-width:105px"><span>Inflation (%)</span><input type="number" id="ppar-infl" value="${pc(P.macro.inflation)}" step="0.1"></label>
+          <label class="fld" style="min-width:140px"><span>Taux sans risque (%)</span><input type="number" id="ppar-rf" value="${pc(P.macro.sansRisque)}" step="0.1"></label>
+          <label class="fld" style="min-width:150px"><span>Régime de marché</span><input type="text" id="ppar-regime" value="${esc(P.macro.regime)}"></label>
+        </div>
+        <label class="fld"><span>Commentaire macro (repris dans les documents)</span><textarea id="ppar-comm" rows="2">${esc(P.macro.commentaire)}</textarea></label>
+        <h3>Honoraires par défaut</h3>
+        <div class="inline-controls">
+          <label class="fld" style="min-width:135px"><span>Mise en place (€)</span><input type="number" id="ppar-mise" value="${P.honoraires.mise}"></label>
+          <label class="fld" style="min-width:125px"><span>Suivi annuel (€)</span><input type="number" id="ppar-suivi" value="${P.honoraires.suivi}"></label>
+          <label class="fld" style="min-width:140px"><span>Rétrocessions (%)</span><input type="number" id="ppar-retro" value="${pc(P.honoraires.retro)}" step="0.05"></label>
+        </div>
+      </div>
+      <div class="card grow" style="min-width:430px">
+        <h3 class="mt0">Grille d'allocation cible (%) par profil</h3>
+        <table class="tbl dense"><thead><tr><th>Profil</th>${PROPO_CLASSES.map(c=>`<th class="num" title="${c}">${c.slice(0,5)}.</th>`).join("")}<th class="num">Somme</th></tr></thead>
+        <tbody>${PROPO_PROFILS.map((pf,i)=>`<tr>
+          <td>${i+1} · ${pf}</td>
+          ${PROPO_CLASSES.map((c,j)=>`<td class="num"><input type="number" class="ppar-gr" data-i="${i}" data-j="${j}" value="${pc(P.grille[i][j])}" step="0.5" style="width:64px"></td>`).join("")}
+          <td class="num"><b class="ppar-sum" data-i="${i}"></b></td>
+        </tr>`).join("")}</tbody></table>
+        <p class="small muted">Chaque ligne doit totaliser <b>100 %</b> (allocation avant l'ajustement selon l'horizon).
+        Volatilité, SRI, Sharpe et projections sont recalculés automatiquement à partir de ces valeurs.</p>
+      </div>
+    </div>
+    <div class="modal-actions" style="justify-content:flex-start">
+      <button class="btn" id="ppar-save">Enregistrer les paramètres du cabinet</button>
+      <button class="btn secondary" id="ppar-reset">Revenir aux valeurs par défaut</button>
+    </div>
+  </div>`;
+}
+function bindPropoParamsEditor(root){
+  const card = root.querySelector("#ppar-card");
+  if (!card) return;
+  const updSums = ()=>{
+    card.querySelectorAll(".ppar-sum").forEach(el=>{
+      const i = el.dataset.i;
+      let s = 0;
+      card.querySelectorAll(`.ppar-gr[data-i="${i}"]`).forEach(inp=>{ s += +inp.value||0; });
+      el.textContent = (Math.round(s*10)/10) + " %";
+      el.style.color = Math.abs(s-100) <= 0.55 ? "" : "var(--critical, #c0392b)";
+    });
+  };
+  card.querySelectorAll(".ppar-gr").forEach(inp=>inp.addEventListener("input", updSums));
+  updSums();
+  card.querySelector("#ppar-save").addEventListener("click", async ()=>{
+    const hyp = PROPO_CLASSES.map((c,i)=>({
+      r: (+card.querySelector(`.ppar-hyp[data-i="${i}"][data-f="r"]`).value||0)/100,
+      v: (+card.querySelector(`.ppar-hyp[data-i="${i}"][data-f="v"]`).value||0)/100,
+    }));
+    const grille = [];
+    for (let i=0; i<PROPO_PROFILS.length; i++){
+      const row = PROPO_CLASSES.map((c,j)=>(+card.querySelector(`.ppar-gr[data-i="${i}"][data-j="${j}"]`).value||0)/100);
+      const s = row.reduce((a,b)=>a+b,0);
+      if (Math.abs(s-1) > 0.0056){ toast(`Profil ${i+1} (${PROPO_PROFILS[i]}) : la ligne totalise ${(s*100).toFixed(1)} % — ajuste pour arriver à 100 %`); return; }
+      grille.push(row.map(x=>x/s));
+    }
+    const data = {
+      hyp, grille,
+      macro:{inflation:(+card.querySelector("#ppar-infl").value||0)/100,
+             sansRisque:(+card.querySelector("#ppar-rf").value||0)/100,
+             regime:card.querySelector("#ppar-regime").value.trim(),
+             commentaire:card.querySelector("#ppar-comm").value.trim()},
+      honoraires:{mise:+card.querySelector("#ppar-mise").value||0,
+                  suivi:+card.querySelector("#ppar-suivi").value||0,
+                  retro:(+card.querySelector("#ppar-retro").value||0)/100},
+    };
+    try{ await state.db.saveParamsCabinet(data); await state.db.loadAll(); toast("Paramètres du cabinet enregistrés ✓"); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+  card.querySelector("#ppar-reset").addEventListener("click", async ()=>{
+    if (!confirm("Revenir aux valeurs par défaut du moteur ? (les propositions existantes ne changent pas)")) return;
+    try{ await state.db.saveParamsCabinet({}); await state.db.loadAll(); toast("Valeurs par défaut restaurées ✓"); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+}
 function viewParam(root){
   const lastSem = [...state.semaines].sort((a,b)=>wcmp(a.code,b.code)).slice(-1)[0];
   root.innerHTML = `
@@ -3515,7 +3833,11 @@ function viewParam(root){
       </tbody>
     </table></div>
     <div style="margin-top:12px"><button class="btn secondary small" id="pp-add">+ Ajouter un accès</button></div>
-  </div>`;
+  </div>
+
+  <div class="sect sect-head"><h2>Moteur de propositions</h2>
+    <span class="sub">hypothèses de rendement, grilles d'allocation et honoraires utilisés par l'assistant — à ajuster quand les convictions de marché évoluent</span></div>
+  ${propoParamsEditorHTML()}`;
 
   $("#os-apply").addEventListener("click", async ()=>{
     const consId = $("#os-cons").value;
@@ -3595,6 +3917,7 @@ function viewParam(root){
       await state.db.loadAll(); toast("Accès ajouté — pense à créer le compte dans Supabase"); render(); }
     catch(err){ toast("Erreur : "+(err.message||err)); }
   });
+  bindPropoParamsEditor(root);
 }
 
 /* ================================================================
