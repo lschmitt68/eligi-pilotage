@@ -262,6 +262,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .action-item input[type=checkbox]{width:auto; flex:none}
 .action-item.done .ac-text{text-decoration:line-through; color:var(--muted)}
 
+/* ============ Bilan perso ============ */
+.bilan{display:flex; flex-direction:column; gap:7px; font-size:13.5px}
+.bilan .badge{vertical-align:1px}
+
 /* ============ Bascule Semaine / Mois ============ */
 .seg{display:inline-flex; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:2px; gap:2px}
 .seg-btn{border:0; background:none; padding:6px 13px; border-radius:8px; cursor:pointer; font:inherit; font-size:13px; color:var(--ink-2)}
@@ -1123,6 +1127,7 @@ const ICONS = {
   close:'<svg class="ic" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19"/></svg>',
   doc:'<svg class="ic" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6Z"/><path d="M14 2v6h6"/><path d="M9 13h7M9 17h7"/></svg>',
   pie:'<svg class="ic" viewBox="0 0 24 24"><path d="M12 3a9 9 0 1 0 9 9h-9Z"/><path d="M14.5 2.5a9 9 0 0 1 7 7h-7Z"/></svg>',
+  today:'<svg class="ic" viewBox="0 0 24 24"><rect x="3" y="5" width="18" height="16" rx="2.5"/><path d="M8 2.5v5M16 2.5v5M3 10h18"/><path d="m8.5 15.5 2.4 2.4 4.6-4.6"/></svg>',
   people:'<svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1.2-3.2 3.6-5 6.5-5s5.3 1.8 6.5 5"/><circle cx="17.5" cy="9" r="2.6"/><path d="M16.5 15.2c2.4.3 4.2 1.9 5 4.8"/></svg>',
 };
 
@@ -2012,6 +2017,7 @@ function viewFiche(root){
         <li>Quelle action concrète d'ici la prochaine réunion ?</li>
       </ol></div>
     ${actionsCardHTML(consId, isManager()? `Actions — ${esc(c.nom)}` : "Mes actions")}
+    ${bilanCardHTML(consId, mois? (monthWeeks(m)[monthWeeks(m).length-1]||state.week) : state.week)}
   </div>
 
   <div class="sect sect-head"><h2>Progression cumulée</h2>
@@ -2121,6 +2127,170 @@ function viewProgression(root){
 }
 
 /* ---------------- Clients (regroupement du pipeline) ---------------- */
+/* ---------------- Bilan personnel (records du conseiller) ---------------- */
+function bilanPerso(consId, week){
+  const rows = state.saisies.filter(s=>s.conseiller_id===consId).map(computed);
+  if (!rows.length) return null;
+  const cur = rows.find(s=>s.semaine===week);
+  const best = k => rows.reduce((a,s)=> (+s[k]||0) > (+a[k]||0)? s:a, rows[0]);
+  const caMax = best("ca_total"), collMax = best("collecte_totale"), rdvMax = best("rdv");
+  const year = yearOf(week);
+  const sigYear = rows.filter(s=>yearOf(s.semaine)===year).reduce((a,s)=>a+(+s.nb_signatures||0),0);
+  const nonZero = rows.filter(s=>(+s.ca_total||0)>0);
+  const rang = cur && (+cur.ca_total||0)>0 && nonZero.length?
+    nonZero.filter(s=>(+s.ca_total||0) <= (+cur.ca_total||0)).length / nonZero.length : null;
+  const codes = weekCodes().filter(w=>wcmp(w,week)<=0);
+  let streak = 0;
+  for (let i=codes.length-1; i>=0; i--){
+    const w = codes[i];
+    if (isConge(consId, w)) continue;
+    const s = rows.find(x=>x.semaine===w);
+    if (s && (+s.ca_total||0)>0) streak++;
+    else break;
+  }
+  return {caMax, collMax, rdvMax, sigYear, rang, streak, cur, n:rows.length};
+}
+function bilanCardHTML(consId, week){
+  const b = bilanPerso(consId, week);
+  if (!b) return "";
+  const rec = k => `<span class="small muted">(${esc(b[k].semaine)})</span>`;
+  const isRec = b.cur && b.cur.semaine===b.caMax.semaine && (+b.cur.ca_total||0)>0;
+  return `<div class="card grow">
+    <h3 class="mt0">⭐ Bilan personnel</h3>
+    <div class="bilan">
+      <div>🏆 Meilleure semaine CA : <b>${eur2(+b.caMax.ca_total||0)}</b> ${rec("caMax")}${isRec? ` <span class="badge ok"><span class="dot"></span>record cette semaine !</span>`:""}</div>
+      <div>💰 Meilleure collecte : <b>${eur(+b.collMax.collecte_totale||0)}</b> ${rec("collMax")}</div>
+      <div>🤝 Record de RDV : <b>${fmtNum.format(+b.rdvMax.rdv||0)}</b> ${rec("rdvMax")}</div>
+      <div>✍ Signatures ${yearOf(week)} : <b>${fmtNum.format(b.sigYear)}</b></div>
+      ${b.streak>1? `<div>🔥 Série en cours : <b>${b.streak} semaines actives</b> d'affilée</div>`:""}
+      ${b.rang!=null? `<div>📈 Cette semaine fait mieux que <b>${fmtPct(b.rang)}</b> de tes semaines</div>`:""}
+    </div>
+    <p class="small muted" style="margin-bottom:0">Comparé uniquement à ton propre historique.</p>
+  </div>`;
+}
+
+/* ---------------- Cockpit « Ma journée » ---------------- */
+function viewJour(root){
+  const mgr = isManager();
+  const meId = state.profile.conseiller_id;
+  const scope = mgr? activeConseillers().map(c=>c.id) : [meId];
+  const mine = x => scope.includes(x.conseiller_id);
+  const today = new Date().toISOString().slice(0,10);
+  const in14 = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
+  const openPipe = state.pipeline.filter(p=>mine(p) && (p.etape||"").toLowerCase()!=="signé");
+  const relance = aRelancer(openPipe).sort((a,b)=>pondere(b)-pondere(a));
+  const closings = openPipe.filter(p=>p.closing_prevu && String(p.closing_prevu).slice(0,10) <= in14)
+    .sort((a,b)=>String(a.closing_prevu).localeCompare(String(b.closing_prevu)));
+  const sig = openPipe.filter(p=>p.signature_probable).sort((a,b)=>pondere(b)-pondere(a));
+  const tRetard = state.actions.filter(a=>mine(a) && !a.fait && a.echeance && a.echeance < today).length;
+  const cur = weekCodes().includes(todayWeekCode())? todayWeekCode() : state.week;
+  const noSaisie = mgr? activeConseillers().filter(c=>!isConge(c.id,cur) && !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===cur)) : [];
+  const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
+  const opRow = (p, extra="") => `<tr class="clickable jr-op" data-id="${p.id}">
+    ${mgr? `<td><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span></td>`:""}
+    <td><b>${esc(p.client)}</b></td><td class="small">${esc(p.support)}</td><td class="small">${esc(p.etape)}</td>
+    <td class="num"><b>${eur(pondere(p))}</b></td><td class="small">${extra}</td></tr>`;
+
+  root.innerHTML = `
+  ${vhead(mgr? "Aujourd'hui — équipe" : "Ma journée", dateStr.charAt(0).toUpperCase()+dateStr.slice(1), `
+    <button class="btn secondary" id="jr-saisie">${ICONS.edit} Saisie hebdo</button>
+    <button class="btn" id="jr-newop">＋ Opportunité</button>`)}
+  ${mgr && noSaisie.length? `<div class="card reminder" style="border-left-color:var(--warn)">📝 <b>Saisies manquantes ${esc(cur)} :</b>
+    ${noSaisie.map(c=>`<span class="chip warn"><span class="cdot" style="background:${consColor(c.id)};margin:0"></span>${esc(c.nom)}</span>`).join("")}</div>`:""}
+
+  <div class="tiles">
+    ${tile("Tâches en retard", tRetard, tRetard? "à traiter en priorité":"tout est à jour ✓")}
+    ${tile("À relancer", relance.length, "dossiers sans mouvement / closing dépassé")}
+    ${tile("Closings sous 14 jours", closings.length)}
+    ${tile("Signatures probables", sig.length, eur(sig.reduce((a,p)=>a+pondere(p),0)) + " pondérés")}
+  </div>
+
+  <div class="row sect">
+    ${actionsCardHTML(mgr? null : meId, mgr? "Actions de l'équipe" : "Mes tâches")}
+    <div class="card grow">
+      <h3 class="mt0">🔥 À relancer en premier</h3>
+      ${relance.length? `<table class="tbl dense"><tbody>${relance.slice(0,6).map(p=>opRow(p, isOverdue(p)? "⏰ closing dépassé" : `💤 ${staleDays(p)} j sans mouvement`)).join("")}</tbody></table>
+        ${relance.length>6? `<p class="small muted" style="margin-bottom:0">+ ${relance.length-6} autres dans le Pipeline (filtre « À relancer »)</p>`:""}`
+        : `<div class="empty">Rien à relancer — pipeline vivant ✓</div>`}
+    </div>
+  </div>
+  <div class="row sect">
+    <div class="card grow">
+      <h3 class="mt0">📅 Closings à venir (14 jours)</h3>
+      ${closings.length? `<table class="tbl dense"><tbody>${closings.slice(0,6).map(p=>opRow(p, new Date(String(p.closing_prevu).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}) + (String(p.closing_prevu).slice(0,10)<today? " ⚠":""))).join("")}</tbody></table>`
+        : `<div class="empty">Aucun closing prévu sous 14 jours</div>`}
+    </div>
+    <div class="card grow">
+      <h3 class="mt0">✍ Signatures à concrétiser</h3>
+      ${sig.length? `<table class="tbl dense"><tbody>${sig.slice(0,6).map(p=>opRow(p, esc(p.prochaine_action||""))).join("")}</tbody></table>`
+        : `<div class="empty">Aucune signature marquée « probable »</div>`}
+    </div>
+    ${!mgr && meId? bilanCardHTML(meId, cur) : ""}
+  </div>`;
+
+  bindActionsCards(root, ()=>viewJour(root));
+  $("#jr-saisie").addEventListener("click", ()=>go("saisie"));
+  $("#jr-newop").addEventListener("click", ()=>pipeModal(null));
+  root.querySelectorAll(".jr-op").forEach(r=>r.addEventListener("click", ()=>{
+    const p = state.pipeline.find(x=>x.id===+r.dataset.id);
+    if (p) pipeModal(p);
+  }));
+}
+
+/* ---------------- Brief client avant RDV ---------------- */
+function briefClient(key){
+  const rows = state.pipeline.filter(p=>normName(p.client)===key);
+  const info = state.clientsInfos.find(ci=>ci.client_key===key) || {};
+  const name = rows.length? (rows[0].client||"").trim() : (info.nom||key);
+  const suivi = suiviClient({key}).filter(ev=>ev.kind!=="ac").slice(0,8);
+  const taches = state.actions.filter(a=>a.client_key===key && !a.fait);
+  const props = state.propositions.filter(pr=>pr.client_key===key)
+    .sort((a,b)=>new Date(b.updated_at||b.created_at)-new Date(a.updated_at||a.created_at));
+  const lastProp = props[0];
+  const IXI = {Note:"📝", Appel:"📞", RDV:"🤝", Email:"✉️"};
+  const fdt = t => t && t!==Infinity? new Date(t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}) : "";
+  const back = document.createElement("div");
+  back.className = "modal-back doc-back";
+  back.innerHTML = `<div class="pd-wrap" style="max-width:760px">
+    <div class="pd-actions no-print">
+      <button class="btn" id="bc-print">${ICONS.doc} Imprimer / PDF</button>
+      <button class="btn secondary" id="bc-close">${ICONS.close} Fermer</button>
+    </div>
+    <div class="pd-page">
+      <div class="pd-head">
+        <img src="logo-teal.png" alt="Eligi">
+        <div class="pd-title"><b>Brief client — ${esc(name)}</b><span>Préparation de rendez-vous · ${new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span></div>
+      </div>
+      <div class="pd-meta">${esc(info.statut||"Prospect")}${info.origine? ` · origine : ${esc(info.origine)}`:""}${rows.length? ` · conseiller(s) : ${[...new Set(rows.map(p=>consName(p.conseiller_id)))].join(", ")}`:""}</div>
+      ${(info.notes||"").trim()? `<div class="pd-sec"><h3>Notes du cabinet</h3><p>${esc(info.notes)}</p></div>`:""}
+      <div class="pd-sec"><h3>Dossiers en cours</h3>
+        ${rows.length? `<table class="pd-tbl"><thead><tr><th>Support</th><th>Étape</th><th class="num">Potentiel</th><th class="num">Pondéré</th><th>Prochaine action</th></tr></thead>
+        <tbody>${rows.sort((a,b)=>pondere(b)-pondere(a)).map(p=>`<tr>
+          <td>${esc(p.support)}</td><td>${esc(p.etape)}${isOverdue(p)? " ⏰": isStale(p)? " 💤":""}</td>
+          <td class="num">${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</td>
+          <td class="num"><b>${eur(pondere(p))}</b></td><td>${esc(p.prochaine_action||"—")}</td></tr>`).join("")}</tbody></table>`
+        : `<p class="pd-note">Aucune opportunité pipeline pour l'instant.</p>`}</div>
+      ${taches.length? `<div class="pd-sec"><h3>Tâches ouvertes</h3>
+        <table class="pd-tbl"><tbody>${taches.map(a=>`<tr><td>☐</td><td>${esc(a.texte)}</td><td>${esc(consName(a.conseiller_id))}</td><td class="num">${a.echeance? new Date(a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</td></tr>`).join("")}</tbody></table></div>`:""}
+      <div class="pd-sec"><h3>Derniers événements</h3>
+        ${suivi.length? `<table class="pd-tbl"><tbody>${suivi.map(ev=> ev.kind==="ix"
+          ? `<tr><td>${IXI[ev.i.type]||"📝"}</td><td>${esc(ev.i.note)}</td><td>${ev.i.conseiller_id? esc(consName(ev.i.conseiller_id)):"Manager"}</td><td class="num">${fdt(ev.t)}</td></tr>`
+          : `<tr><td>${ev.e.de_etape? "🧭":"✨"}</td><td>${ev.e.de_etape? `${esc(ev.e.de_etape)} → ${esc(ev.e.vers_etape)}` : `Nouveau dossier — ${esc(ev.e.vers_etape)}`}</td><td>${esc(consName(ev.e.conseiller_id))}</td><td class="num">${fdt(ev.t)}</td></tr>`).join("")}</tbody></table>`
+        : `<p class="pd-note">Aucun événement de suivi enregistré.</p>`}</div>
+      ${lastProp? `<div class="pd-sec"><h3>Dernière proposition</h3>
+        <p>${eur(+lastProp.data?.montant||0)} · profil ${esc(PROPO_PROFILS[(+lastProp.data?.profil||3)-1])} · ${esc(lastProp.mode)} — <b>${esc(lastProp.statut)}</b>
+        <span class="pd-note">(${new Date(lastProp.updated_at||lastProp.created_at).toLocaleDateString("fr-FR")})</span></p></div>`:""}
+      <div class="pd-mentions">Document interne ELIGI — préparation de rendez-vous. Ne pas remettre au client.</div>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  document.body.classList.add("doc-open");
+  const close = ()=>{ back.remove(); document.body.classList.remove("doc-open"); };
+  back.querySelector("#bc-close").addEventListener("click", close);
+  back.querySelector("#bc-print").addEventListener("click", ()=>window.print());
+  back.addEventListener("click", e=>{ if (e.target===back) close(); });
+}
+
 function suiviClient(g){
   const ev = [];
   for (const i of state.interactions.filter(x=>x.client_key===g.key))
@@ -2274,6 +2444,7 @@ function viewClients(root){
           <div class="card" style="flex:1.1;min-width:340px">
             <h3 class="mt0" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px"><span>🗂 Suivi client</span>
               <span style="display:flex;gap:6px;flex-wrap:wrap">
+                <button class="btn secondary small ci-brief" data-key="${esc(g.key)}">📋 Brief RDV</button>
                 <button class="btn small ci-propo" data-key="${esc(g.key)}">＋ Proposition</button>
                 ${isManager()? `<button class="btn secondary small ci-rename" data-key="${esc(g.key)}">Renommer / fusionner</button>`:""}
                 ${isManager() && !g.rows.length? `<button class="btn danger small ci-delfiche" data-key="${esc(g.key)}">Supprimer</button>`:""}
@@ -2319,6 +2490,10 @@ function viewClients(root){
   root.querySelectorAll(".cli-op").forEach(r=>r.addEventListener("click", e=>{
     e.stopPropagation();
     pipeModal(state.pipeline.find(p=>p.id===+r.dataset.id));
+  }));
+  root.querySelectorAll(".ci-brief").forEach(b=>b.addEventListener("click", e=>{
+    e.stopPropagation();
+    briefClient(b.dataset.key);
   }));
   root.querySelectorAll(".ci-propo").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
@@ -3427,6 +3602,7 @@ function viewParam(root){
    ================================================================ */
 const VIEWS = {
   dashboard:{label:"Dashboard", icon:ICONS.dash, fn:viewDashboard, manager:true},
+  jour:{label:"Ma journée", icon:ICONS.today, fn:viewJour},
   saisie:{label:"Saisie hebdo", icon:ICONS.edit, fn:viewSaisie},
   pipeline:{label:"Pipeline", icon:ICONS.funnel, fn:viewPipeline},
   clients:{label:"Clients", icon:ICONS.people, fn:viewClients},
@@ -3438,7 +3614,8 @@ const VIEWS = {
 };
 function allowedViews(){
   return Object.entries(VIEWS).filter(([k,v]) => isManager() || !v.manager)
-    .map(([k,v]) => [k, k==="fiche" && !isManager() ? {...v, label:"Ma semaine"} : v]);
+    .map(([k,v]) => [k, k==="fiche" && !isManager() ? {...v, label:"Ma semaine"}
+                       : k==="jour" && isManager() ? {...v, label:"Aujourd'hui"} : v]);
 }
 function go(view){ state.view = view; render(); }
 
