@@ -168,6 +168,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .badge.ok .dot{background:var(--good)} .badge.ok{color:var(--good-text)}
 .badge.watch .dot{background:var(--warn)}
 .badge.urgent .dot{background:var(--critical)} .badge.urgent{color:var(--critical)}
+.badge.neutral .dot{background:var(--muted)} .badge.neutral{color:var(--ink-2)}
 .cdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:1px}
 .tag{display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.3px; padding:2px 7px; border-radius:6px;
   background:var(--surface-2); color:var(--ink-2); border:1px solid var(--border)}
@@ -342,7 +343,7 @@ const pondere = p => (p.ca_potentiel||0) * (p.probabilite||0);
 /* ---------------- État global ---------------- */
 const state = {
   profile:null,       // {email, role, conseiller_id}
-  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[],
+  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[],
   week:null,          // semaine suivie (équivalent Dashboard!B3)
   view:null,
   ficheConseillerId:null,
@@ -383,6 +384,17 @@ function pipeAgg(consId){
   const sigProb = mine.filter(p => p.signature_probable).length;
   return {pond, signe, sigProb, count: mine.length};
 }
+/* Congés : 1 ligne absences = 1 conseiller x 1 semaine en congés */
+function isConge(consId, week){ return state.absences.some(a=>a.conseiller_id===consId && a.semaine===week); }
+function congesCount(consId, uptoWeek){
+  const set = new Set(weeksUpTo(uptoWeek));
+  return state.absences.filter(a=>a.conseiller_id===consId && set.has(a.semaine)).length;
+}
+const BADGE_CONGE = {cls:"neutral", label:"Congés", icon:"✈"};
+function alerteFor(consId, week, proj, objectif){
+  return isConge(consId, week) ? BADGE_CONGE : alerte(proj, objectif);
+}
+
 /* Projection = CA réalisé (semaine) + pipeline pondéré − pipeline signé  (Dashboard!M) */
 function projection(consId, week){
   const w = weekAgg(consId, week), p = pipeAgg(consId);
@@ -398,26 +410,28 @@ function cumul(consId, week){
   const upTo = new Set(weeksUpTo(week));
   const rows = state.saisies.filter(s => s.conseiller_id === consId && upTo.has(s.semaine)).map(computed);
   const n = weeksUpTo(week).length;
+  const nConges = congesCount(consId, week);
+  const nEff = Math.max(0, n - nConges);
   const c = state.conseillers.find(x=>x.id===consId) || {};
   return {
     rdv: rows.reduce((a,s)=>a+(s.rdv||0),0),
     ca: rows.reduce((a,s)=>a+s.ca_total,0),
     collecte: rows.reduce((a,s)=>a+s.collecte_totale,0),
-    objCA: (c.objectif_ca_hebdo||0) * n,
-    objCollecte: (c.objectif_collecte_hebdo||0) * n,
-    nSemaines: n,
+    objCA: (c.objectif_ca_hebdo||0) * nEff,
+    objCollecte: (c.objectif_collecte_hebdo||0) * nEff,
+    nSemaines: n, nConges,
   };
 }
 /* Série hebdo équipe (table Q26:Y65 du Dashboard) */
 function teamSeries(uptoWeek){
   const weeks = weeksUpTo(uptoWeek);
-  const objCA = activeConseillers().reduce((a,c)=>a+(c.objectif_ca_hebdo||0),0);
-  const objColl = activeConseillers().reduce((a,c)=>a+(c.objectif_collecte_hebdo||0),0);
   let cumCA=0, cumColl=0, cumObjCA=0, cumObjColl=0;
   return weeks.map(w => {
     const rows = state.saisies.filter(s=>s.semaine===w).map(computed);
     const ca = rows.reduce((a,s)=>a+s.ca_total,0);
     const coll = rows.reduce((a,s)=>a+s.collecte_totale,0);
+    const objCA = activeConseillers().reduce((a,c)=>a+(isConge(c.id,w)?0:(c.objectif_ca_hebdo||0)),0);
+    const objColl = activeConseillers().reduce((a,c)=>a+(isConge(c.id,w)?0:(c.objectif_collecte_hebdo||0)),0);
     cumCA+=ca; cumColl+=coll; cumObjCA+=objCA; cumObjColl+=objColl;
     return {week:w, ca, coll, cumCA, cumColl, cumObjCA, cumObjColl,
             tauxCA: cumObjCA? cumCA/cumObjCA : 0, tauxColl: cumObjColl? cumColl/cumObjColl : 0};
@@ -429,7 +443,7 @@ function consSeries(consId, uptoWeek){
   let cumCA=0, cumColl=0, cumObj=0;
   return weeks.map(w => {
     const s = weekAgg(consId, w);
-    cumCA += s.ca_total; cumColl += s.collecte_totale; cumObj += (c.objectif_ca_hebdo||0);
+    cumCA += s.ca_total; cumColl += s.collecte_totale; cumObj += isConge(consId, w)? 0 : (c.objectif_ca_hebdo||0);
     return {week:w, ca:s.ca_total, coll:s.collecte_totale, rdv:s.rdv||0, cumCA, cumColl, cumObj};
   });
 }
@@ -449,16 +463,18 @@ function stripComputedPipe(p){
 class SupaDB {
   constructor(client){ this.c = client; }
   async loadAll(){
-    const [co, se, sa, pi, pr] = await Promise.all([
+    const [co, se, sa, pi, pr, ab] = await Promise.all([
       this.c.from("conseillers").select("*").order("id"),
       this.c.from("semaines").select("*").order("lundi"),
       this.c.from("saisies").select("*"),
       this.c.from("pipeline").select("*").order("id"),
       this.c.from("profiles").select("*"),
+      this.c.from("absences").select("*"),
     ]);
-    for (const r of [co,se,sa,pi,pr]) if (r.error) throw r.error;
+    for (const r of [co,se,sa,pi,pr,ab]) if (r.error) throw r.error;
     state.conseillers = co.data; state.semaines = se.data;
     state.saisies = sa.data; state.pipeline = pi.data; state.profiles = pr.data;
+    state.absences = ab.data;
   }
   async upsertSaisie(s){
     const {error} = await this.c.from("saisies")
@@ -468,6 +484,11 @@ class SupaDB {
   async deleteSaisie(id){
     const {error} = await this.c.from("saisies").delete().eq("id", id);
     if (error) throw error;
+  }
+  async toggleAbsence(consId, week){
+    const ex = state.absences.find(a=>a.conseiller_id===consId && a.semaine===week);
+    if (ex){ const {error} = await this.c.from("absences").delete().eq("id", ex.id); if (error) throw error; }
+    else { const {error} = await this.c.from("absences").insert({conseiller_id:consId, semaine:week}); if (error) throw error; }
   }
   async savePipeline(p){
     if (p.id){
@@ -529,6 +550,7 @@ class DemoDB {
       support:p.support, etape:p.etape, collecte_potentielle:p.collecte_potentielle,
       ca_potentiel:p.ca_potentiel, probabilite:p.probabilite, closing_prevu:p.closing_prevu,
       priorite:p.priorite, prochaine_action:p.prochaine_action, signature_probable:p.signature_probable}));
+    this.absences = (D.absences||[]).map(a=>({id:this._id++, conseiller_id:byName[a.conseiller], semaine:wkey(a.semaine)}));
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
       ...this.conseillers.map(c=>({email:c.nom.toLowerCase().normalize("NFD").replace(/[^a-z]/g,"")+"@demo.fr", role:"conseiller", conseiller_id:c.id})),
@@ -543,6 +565,13 @@ class DemoDB {
     state.saisies = this.saisies.filter(s=>this._mine(s.conseiller_id)).map(s=>({...s}));
     state.pipeline = this.pipeline.filter(p=>this._mine(p.conseiller_id)).map(p=>({...p}));
     state.profiles = isManager()? [...this.profiles] : this.profiles.filter(p=>p.email===state.profile.email);
+    state.absences = this.absences.filter(a=>this._mine(a.conseiller_id)).map(a=>({...a}));
+  }
+  async toggleAbsence(consId, week){
+    if (!this._mine(consId)) throw new Error("Accès refusé");
+    const i = this.absences.findIndex(a=>a.conseiller_id===consId && a.semaine===week);
+    if (i>=0) this.absences.splice(i,1);
+    else this.absences.push({id:this._id++, conseiller_id:consId, semaine:week});
   }
   async upsertSaisie(s){
     if (!this._mine(s.conseiller_id)) throw new Error("Accès refusé");
@@ -782,7 +811,7 @@ function exportXLSX(){
     return {"Conseiller":c.nom, "Obj. CA":c.objectif_ca_hebdo, "RDV":w.rdv, "Obj. RDV":c.objectif_rdv_hebdo,
       "CA total":w.ca_total, "CA SCPI":w.ca_scpi, "CA structurés":w.ca_structures, "CA audit":w.ca_audit,
       "CA autres":w.ca_autres, "Collecte":w.collecte_totale, "Pipeline pondéré":p.pond, "Pipeline signé":p.signe,
-      "Projection":proj, "Alerte":alerte(proj, c.objectif_ca_hebdo||0).label};
+      "Projection":proj, "Alerte":alerteFor(c.id, state.week, proj, c.objectif_ca_hebdo||0).label};
   });
   XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dash), `Dashboard ${state.week.replace("2026-","")}`);
   // Saisies
@@ -818,15 +847,16 @@ function viewDashboard(root){
     const w = weekAgg(c.id, week), p = pipeAgg(c.id);
     const proj = w.ca_total + p.pond - p.signe;
     const hist = consSeries(c.id, week).slice(-8).map(r=>r.ca);
-    return {c, w, p, proj, hist, al: alerte(proj, c.objectif_ca_hebdo||0)};
+    return {c, w, p, proj, hist, conge: isConge(c.id, week), al: alerteFor(c.id, week, proj, c.objectif_ca_hebdo||0)};
   });
   const sum = k => rows.reduce((a,r)=>a+r.w[k],0);
   const caEq = sum("ca_total"), collEq = sum("collecte_totale"), rdvEq = sum("rdv");
   const pondEq = rows.reduce((a,r)=>a+r.p.pond,0);
   const projEq = rows.reduce((a,r)=>a+r.proj,0);
-  const objCAEq = cons.reduce((a,c)=>a+(c.objectif_ca_hebdo||0),0);
-  const objRdvEq = cons.reduce((a,c)=>a+(c.objectif_rdv_hebdo||0),0);
-  const noSaisie = cons.filter(c => !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===week));
+  const objCAEq = cons.reduce((a,c)=>a+(isConge(c.id,week)?0:(c.objectif_ca_hebdo||0)),0);
+  const objRdvEq = cons.reduce((a,c)=>a+(isConge(c.id,week)?0:(c.objectif_rdv_hebdo||0)),0);
+  const enConges = cons.filter(c => isConge(c.id, week));
+  const noSaisie = cons.filter(c => !isConge(c.id, week) && !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===week));
   const mix = [
     {label:"CA SCPI", value:sum("ca_scpi")},
     {label:"CA structurés", value:sum("ca_structures")},
@@ -849,10 +879,11 @@ function viewDashboard(root){
     ${tile("Projection équipe", eur(projEq), "CA + pipeline pondéré − signé")}
   </div>
 
-  ${noSaisie.length? `<div class="card sect" style="padding:11px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
-    <b class="small">Saisies manquantes ${esc(week)} :</b>
+  ${(noSaisie.length || enConges.length)? `<div class="card sect" style="padding:11px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+    ${noSaisie.length? `<b class="small">Saisies manquantes ${esc(week)} :</b>
     ${noSaisie.map(c=>`<span class="chip warn" data-saisie="${c.id}"><span class="cdot" style="background:${consColor(c.id)};margin:0"></span>${esc(c.nom)}</span>`).join("")}
-    <span class="small muted">— clique pour saisir</span></div>` : ""}
+    <span class="small muted">— clique pour saisir</span>`:""}
+    ${enConges.length? `<span class="small" style="margin-left:${noSaisie.length?"14px":"0"}">✈ <b>En congés :</b> ${enConges.map(c=>esc(c.nom)).join(", ")}</span>`:""}</div>` : ""}
 
   <div class="sect sect-head"><h2>Conseillers — semaine ${esc(week)}</h2></div>
   <div class="card tbl-scroll">
@@ -931,7 +962,7 @@ function meetingMode(){
   function slideTeam(){
     const rows = cons.map(c => { const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
       const proj = w.ca_total + p.pond - p.signe;
-      return {c, w, p, proj, al: alerte(proj, c.objectif_ca_hebdo||0)}; });
+      return {c, w, p, proj, al: alerteFor(c.id, state.week, proj, c.objectif_ca_hebdo||0)}; });
     const caEq = rows.reduce((a,r)=>a+r.w.ca_total,0), collEq = rows.reduce((a,r)=>a+r.w.collecte_totale,0);
     const projEq = rows.reduce((a,r)=>a+r.proj,0), objEq = cons.reduce((a,c)=>a+(c.objectif_ca_hebdo||0),0);
     return `<h1>Point équipe</h1>
@@ -951,11 +982,13 @@ function meetingMode(){
   function slideCons(c){
     const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
     const proj = w.ca_total + p.pond - p.signe;
-    const al = alerte(proj, c.objectif_ca_hebdo||0);
+    const al = alerteFor(c.id, state.week, proj, c.objectif_ca_hebdo||0);
+    const conge = isConge(c.id, state.week);
     const cu = cumul(c.id, state.week);
     const top = state.pipeline.filter(x=>x.conseiller_id===c.id && (x.etape||"").toLowerCase()!=="signé")
       .sort((a,b)=>pondere(b)-pondere(a)).slice(0,5);
     return `<h1><span class="cdot" style="background:${consColor(c.id)};width:14px;height:14px"></span> ${esc(c.nom)} &nbsp;${badgeHTML(al)}</h1>
+    ${conge? `<p class="muted" style="margin:8px 0 0">✈ En congés cette semaine — pas d'objectif ni d'alerte.</p>`:""}
     <div class="bigtiles tiles">
       ${tile("CA semaine", eur(w.ca_total), `Objectif ${eur(c.objectif_ca_hebdo)}`, c.objectif_ca_hebdo? w.ca_total/c.objectif_ca_hebdo:0)}
       ${tile("RDV", `${fmtNum.format(w.rdv)} <span class="small muted">/ ${fmtNum.format(c.objectif_rdv_hebdo)}</span>`)}
@@ -1027,7 +1060,8 @@ function viewSaisie(root){
   const v = ex ? computed(ex) : computed({});
   const prev = (()=>{ const codes = weekCodes(); const i = codes.indexOf(state.week);
     return i>0 ? state.saisies.find(s=>s.conseiller_id===consId && s.semaine===codes[i-1]) : null; })();
-  const missing = weeksUpTo(todayWeekCode()).filter(w => !state.saisies.some(s=>s.conseiller_id===consId && s.semaine===w));
+  const missing = weeksUpTo(todayWeekCode()).filter(w => !isConge(consId, w) && !state.saisies.some(s=>s.conseiller_id===consId && s.semaine===w));
+  const conge = isConge(consId, state.week);
   const myHist = state.saisies.filter(s=>s.conseiller_id===consId).map(computed).sort((a,b)=>wcmp(b.semaine,a.semaine));
 
   const numFld = (id,label,val) =>
@@ -1046,8 +1080,11 @@ function viewSaisie(root){
           ${editable.map(c=>`<option value="${c.id}" ${c.id===consId?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`
           : `<label class="fld"><span>Conseiller</span><input type="text" value="${esc(consName(consId))}" disabled></label>`}
         <span style="flex:1"></span>
+        <button class="btn secondary small" id="sa-conge">${conge? "Retirer les congés" : "✈ Marquer en congés"}</button>
         ${prev? `<button class="btn secondary small" id="sa-copy" title="Recopier les montants de la semaine précédente">${ICONS.copy} Recopier S−1</button>`:""}
       </div>
+      ${conge? `<div class="helpbox" style="margin-bottom:12px">✈ <b>${esc(consName(consId))} est en congés la semaine ${esc(state.week)}.</b>
+        Aucune saisie attendue : pas d'alerte, et l'objectif de la semaine est neutralisé dans les cumuls.</div>`:""}
       <div class="form-grid" id="sa-form">
         ${numFld("sa-rdv","RDV réalisés", v.rdv)}
         ${numFld("sa-sig","Nb signatures", v.nb_signatures)}
@@ -1106,6 +1143,14 @@ function viewSaisie(root){
     }catch(err){ toast("Erreur : " + (err.message||err)); }
   };
   $("#sa-save").addEventListener("click", save);
+  $("#sa-conge").addEventListener("click", async ()=>{
+    try{
+      await state.db.toggleAbsence(consId, state.week);
+      await state.db.loadAll();
+      toast(isConge(consId, state.week)? `Semaine ${state.week} marquée en congés ✈` : "Congés retirés");
+      render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
   $("#sa-form").querySelectorAll("input[type=number]").forEach(i=>i.addEventListener("keydown", e=>{ if(e.key==="Enter") save(); }));
   if (isManager()) $("#sa-cons").addEventListener("change", e=>{ state.saisieConseillerId = +e.target.value; render(); });
   bindWeekNav();
@@ -1327,7 +1372,7 @@ function viewFiche(root){
 
   const w = weekAgg(consId, state.week), p = pipeAgg(consId);
   const proj = w.ca_total + p.pond - p.signe;
-  const al = alerte(proj, c.objectif_ca_hebdo||0);
+  const al = alerteFor(consId, state.week, proj, c.objectif_ca_hebdo||0);
   const cu = cumul(consId, state.week);
   const serie = consSeries(consId, state.week);
   const mix = [
@@ -1365,7 +1410,7 @@ function viewFiche(root){
   </div>
 
   <div class="sect sect-head"><h2>Progression cumulée</h2>
-    <span class="sub">depuis ${esc(state.semaines[0]?.code||"")} (${cu.nSemaines} semaines)</span></div>
+    <span class="sub">depuis ${esc(state.semaines[0]?.code||"")} (${cu.nSemaines} semaines${cu.nConges? `, dont ${cu.nConges} en congés — objectifs ajustés`:""})</span></div>
   <div class="tiles">
     ${tile("RDV cumulés", fmtNum.format(cu.rdv))}
     ${tile("CA cumulé", eur2(cu.ca), `Objectif : ${eur(cu.objCA)} — ${cu.objCA? fmtPct(cu.ca/cu.objCA):"—"}`, cu.objCA? cu.ca/cu.objCA:0)}
