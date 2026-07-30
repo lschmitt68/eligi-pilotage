@@ -8,179 +8,268 @@
 /* ============ Tokens (palette validée, clair + sombre) ============ */
 :root{
   color-scheme: light;
-  --page:#f9f9f7; --surface:#fcfcfb; --surface-2:#f0efec;
+  --page:#f4f4f1; --surface:#fcfcfb; --surface-2:#f0efec; --surface-3:#e9e8e3;
   --ink:#0b0b0b; --ink-2:#52514e; --muted:#898781;
-  --grid:#e1e0d9; --baseline:#c3c2b7; --border:rgba(11,11,11,.10);
+  --grid:#e1e0d9; --baseline:#c3c2b7; --border:rgba(11,11,11,.09);
   --s1:#2a78d6; --s2:#eb6834; --s3:#1baf7a; --s4:#eda100; --s5:#e87ba4;
   --good:#0ca30c; --warn:#fab219; --serious:#ec835a; --critical:#d03b3b;
   --good-text:#006300;
-  --shadow:0 1px 3px rgba(11,11,11,.06), 0 4px 14px rgba(11,11,11,.05);
+  --sidebar:#1c2733; --sidebar-ink:#e8ecef; --sidebar-muted:#8fa1b0; --sidebar-active:#2a78d6;
+  --shadow:0 1px 2px rgba(11,11,11,.05), 0 6px 20px rgba(11,11,11,.06);
+  --shadow-lg:0 4px 10px rgba(11,11,11,.08), 0 16px 44px rgba(11,11,11,.14);
+  --r:14px;
 }
 @media (prefers-color-scheme: dark){
   :root:not([data-theme="light"]){
     color-scheme: dark;
-    --page:#0d0d0d; --surface:#1a1a19; --surface-2:#242422;
+    --page:#0d0d0d; --surface:#1a1a19; --surface-2:#242422; --surface-3:#2c2c2a;
     --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
     --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,.10);
     --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
     --good-text:#0ca30c;
-    --shadow:none;
+    --sidebar:#141a20; --sidebar-ink:#e8ecef; --sidebar-muted:#7d8ea0; --sidebar-active:#3987e5;
+    --shadow:none; --shadow-lg:0 18px 50px rgba(0,0,0,.5);
   }
 }
+:root[data-theme="dark"]{
+  color-scheme: dark;
+  --page:#0d0d0d; --surface:#1a1a19; --surface-2:#242422; --surface-3:#2c2c2a;
+  --ink:#ffffff; --ink-2:#c3c2b7; --muted:#898781;
+  --grid:#2c2c2a; --baseline:#383835; --border:rgba(255,255,255,.10);
+  --s1:#3987e5; --s2:#d95926; --s3:#199e70; --s4:#c98500; --s5:#d55181;
+  --good-text:#0ca30c;
+  --sidebar:#141a20; --sidebar-ink:#e8ecef; --sidebar-muted:#7d8ea0; --sidebar-active:#3987e5;
+  --shadow:none; --shadow-lg:0 18px 50px rgba(0,0,0,.5);
+}
+
 *{box-sizing:border-box}
-html,body{margin:0;padding:0}
+html,body{margin:0;padding:0;height:100%}
 body{
   font-family:system-ui,-apple-system,"Segoe UI",sans-serif;
-  background:var(--page); color:var(--ink); font-size:14.5px; line-height:1.45;
+  background:var(--page); color:var(--ink); font-size:14px; line-height:1.45;
 }
 button,input,select,textarea{font:inherit; color:inherit}
-h1,h2,h3{margin:0 0 .4em; font-weight:650}
-h2{font-size:17px} h3{font-size:15px}
+h1,h2,h3{margin:0; font-weight:650}
+h1{font-size:20px; letter-spacing:-.2px}
+h2{font-size:16px} h3{font-size:14px}
 a{color:var(--s1)}
+svg.ic{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-width:1.8;stroke-linecap:round;stroke-linejoin:round}
 
-/* ============ Shell ============ */
-.topbar{
-  background:var(--surface); border-bottom:1px solid var(--border);
-  padding:10px 22px; display:flex; align-items:center; gap:18px; flex-wrap:wrap;
-  position:sticky; top:0; z-index:20;
+/* ============ Layout ============ */
+.layout{display:flex; min-height:100vh}
+.sidebar{
+  width:216px; flex:none; background:var(--sidebar); color:var(--sidebar-ink);
+  display:flex; flex-direction:column; padding:18px 12px 14px;
+  position:sticky; top:0; height:100vh;
 }
-.brand{font-weight:700; font-size:16px; letter-spacing:.2px}
-.brand small{font-weight:500; color:var(--ink-2); margin-left:8px}
-.nav{display:flex; gap:2px; flex-wrap:wrap}
-.nav button{
-  background:none; border:0; padding:7px 13px; border-radius:8px; cursor:pointer;
-  color:var(--ink-2); font-weight:550;
+.logo{padding:2px 10px 18px; font-weight:800; font-size:19px; letter-spacing:.4px}
+.logo small{display:block; font-weight:500; font-size:11px; color:var(--sidebar-muted); letter-spacing:.2px; margin-top:1px}
+.snav{display:flex; flex-direction:column; gap:2px}
+.snav button{
+  display:flex; align-items:center; gap:10px; width:100%;
+  background:none; border:0; color:var(--sidebar-muted); padding:9px 10px;
+  border-radius:9px; cursor:pointer; font-weight:550; font-size:13.5px; text-align:left;
 }
-.nav button:hover{background:var(--surface-2)}
-.nav button.active{background:var(--surface-2); color:var(--ink)}
-.spacer{flex:1}
-.userchip{display:flex; align-items:center; gap:10px; color:var(--ink-2); font-size:13px}
-.userchip b{color:var(--ink)}
-.rolepill{font-size:11.5px; padding:2px 8px; border-radius:99px; border:1px solid var(--border); background:var(--surface-2)}
-.linklike{background:none;border:0;cursor:pointer;color:var(--s1);padding:0;font-size:13px}
+.snav button:hover{background:rgba(255,255,255,.06); color:var(--sidebar-ink)}
+.snav button.active{background:var(--sidebar-active); color:#fff}
+.side-bottom{margin-top:auto; display:flex; flex-direction:column; gap:8px}
+.theme-btn{display:flex; align-items:center; gap:10px; background:none; border:0; color:var(--sidebar-muted);
+  padding:8px 10px; border-radius:9px; cursor:pointer; font-size:13px}
+.theme-btn:hover{background:rgba(255,255,255,.06); color:var(--sidebar-ink)}
+.user-mini{border-top:1px solid rgba(255,255,255,.09); padding:12px 10px 0; font-size:13px}
+.user-mini b{display:block; color:var(--sidebar-ink)}
+.user-mini span{color:var(--sidebar-muted); font-size:11.5px}
+.user-mini button{background:none;border:0;cursor:pointer;color:var(--sidebar-muted);padding:0;font-size:12px;text-decoration:underline;margin-top:4px}
+.user-mini button:hover{color:var(--sidebar-ink)}
 
-.wrap{max-width:1240px; margin:0 auto; padding:20px 22px 60px}
-.row{display:flex; gap:16px; flex-wrap:wrap; align-items:flex-start}
-.card{
-  background:var(--surface); border:1px solid var(--border); border-radius:14px;
-  padding:16px 18px; box-shadow:var(--shadow);
-}
+.main{flex:1; min-width:0; padding:22px 26px 80px; max-width:1340px}
+
+/* ============ En-tête de vue ============ */
+.vhead{display:flex; align-items:center; gap:14px; flex-wrap:wrap; margin-bottom:16px}
+.vhead .titles{margin-right:auto}
+.vhead .sub{color:var(--muted); font-size:12.5px; margin-top:2px}
+.weeknav{display:flex; align-items:center; gap:6px}
+.weeknav select{padding:7px 8px; border-radius:9px; border:1px solid var(--baseline); background:var(--surface); font-weight:600}
+.wk-btn{width:30px;height:30px;border-radius:8px;border:1px solid var(--baseline);background:var(--surface);cursor:pointer;
+  display:inline-flex;align-items:center;justify-content:center;color:var(--ink-2)}
+.wk-btn:hover{background:var(--surface-2)}
+.wk-btn[disabled]{opacity:.4;cursor:default}
+
+/* ============ Cartes / grilles ============ */
+.card{background:var(--surface); border:1px solid var(--border); border-radius:var(--r); padding:16px 18px; box-shadow:var(--shadow)}
+.row{display:flex; gap:14px; flex-wrap:wrap; align-items:flex-start}
 .card.grow{flex:1; min-width:320px}
-.section-head{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap; margin:26px 0 12px}
-.section-head h2{margin:0}
-.section-head .sub{color:var(--ink-2); font-size:13px}
-
-/* ============ Controls ============ */
-label.fld{display:block; font-size:12.5px; color:var(--ink-2); margin-bottom:12px}
-label.fld span{display:block; margin-bottom:4px; font-weight:550}
-input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],select,textarea{
-  width:100%; padding:8px 10px; border-radius:9px; border:1px solid var(--baseline);
-  background:var(--surface); outline:none;
-}
-input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0 3px color-mix(in srgb, var(--s1) 18%, transparent)}
-.btn{
-  display:inline-flex; align-items:center; gap:7px;
-  background:var(--s1); border:1px solid transparent; color:#fff; padding:8px 16px;
-  border-radius:9px; cursor:pointer; font-weight:600;
-}
-.btn:hover{filter:brightness(1.06)}
-.btn.secondary{background:var(--surface); color:var(--ink); border-color:var(--baseline)}
-.btn.danger{background:var(--critical)}
-.btn.small{padding:4px 10px; font-size:13px; border-radius:7px}
-.btn[disabled]{opacity:.55; cursor:default}
-.inline-controls{display:flex; gap:12px; align-items:flex-end; flex-wrap:wrap}
-.inline-controls label.fld{margin-bottom:0; min-width:150px}
+.sect{margin-top:20px}
+.sect-head{display:flex; align-items:baseline; gap:12px; flex-wrap:wrap; margin-bottom:10px}
+.sect-head h2{margin:0}
+.sect-head .sub{color:var(--muted); font-size:12.5px}
 
 /* ============ KPI tiles ============ */
-.tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(168px,1fr)); gap:12px}
-.tile{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:12px 14px; box-shadow:var(--shadow)}
-.tile .t-label{font-size:12px; color:var(--ink-2); font-weight:550}
-.tile .t-value{font-size:24px; font-weight:700; margin-top:2px; letter-spacing:-.2px}
-.tile .t-sub{font-size:12px; color:var(--muted); margin-top:2px}
-.tile .t-sub .up{color:var(--good-text); font-weight:600}
-.tile .t-sub .down{color:var(--critical); font-weight:600}
+.tiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(172px,1fr)); gap:12px}
+.tile{background:var(--surface); border:1px solid var(--border); border-radius:12px; padding:13px 15px; box-shadow:var(--shadow)}
+.tile .t-label{font-size:11.5px; color:var(--muted); font-weight:600; text-transform:uppercase; letter-spacing:.4px}
+.tile .t-value{font-size:23px; font-weight:700; margin-top:3px; letter-spacing:-.3px}
+.tile .t-sub{font-size:12px; color:var(--muted); margin-top:3px}
+.tile .t-sub .up{color:var(--good-text); font-weight:650}
+.tile .t-sub .down{color:var(--critical); font-weight:650}
+.tile .bar{height:5px; border-radius:3px; background:var(--surface-2); margin-top:8px; overflow:hidden}
+.tile .bar i{display:block; height:100%; border-radius:3px; background:var(--s1)}
+.tile .bar i.over{background:var(--good)}
 
 /* ============ Tables ============ */
 .tbl-scroll{overflow-x:auto}
-table.tbl{border-collapse:collapse; width:100%; font-size:13.5px}
-.tbl th{
-  text-align:left; color:var(--muted); font-weight:600; font-size:12px;
-  padding:7px 10px; border-bottom:1px solid var(--baseline); white-space:nowrap;
-}
-.tbl td{padding:7px 10px; border-bottom:1px solid var(--grid); white-space:nowrap}
+table.tbl{border-collapse:collapse; width:100%; font-size:13px}
+.tbl th{text-align:left; color:var(--muted); font-weight:600; font-size:11px; text-transform:uppercase; letter-spacing:.3px;
+  padding:7px 9px; border-bottom:1px solid var(--baseline); white-space:nowrap}
+.tbl td{padding:7px 9px; border-bottom:1px solid var(--grid); white-space:nowrap}
 .tbl tr:last-child td{border-bottom:0}
 .tbl td.num,.tbl th.num{text-align:right; font-variant-numeric:tabular-nums}
-.tbl tr.total td{font-weight:700; border-top:1px solid var(--baseline)}
-table.tbl.dense{font-size:12.5px}
-.tbl.dense th{padding:6px 6px; font-size:11px}
-.tbl.dense td{padding:6px 6px}
+.tbl tr.total td{font-weight:700; border-top:1px solid var(--baseline); background:color-mix(in srgb, var(--surface-2) 40%, transparent)}
 .tbl .rowactions{opacity:0; transition:opacity .12s}
 .tbl tr:hover .rowactions{opacity:1}
-.tbl tr:hover td{background:color-mix(in srgb, var(--surface-2) 55%, transparent)}
+.tbl tbody tr:hover td{background:color-mix(in srgb, var(--surface-2) 55%, transparent)}
+.tbl tr.clickable{cursor:pointer}
+table.tbl.dense{font-size:12.5px}
+.tbl.dense th{padding:6px 6px; font-size:10.5px}
+.tbl.dense td{padding:6px 6px}
 
-/* ============ Badges (statut : icône + libellé, jamais couleur seule) ============ */
-.badge{display:inline-flex; align-items:center; gap:6px; font-size:12px; font-weight:650;
+/* ============ Contrôles ============ */
+label.fld{display:block; font-size:12px; color:var(--ink-2); margin-bottom:11px}
+label.fld span{display:block; margin-bottom:4px; font-weight:600}
+input[type=text],input[type=email],input[type=password],input[type=number],input[type=date],input[type=search],select,textarea{
+  width:100%; padding:8px 10px; border-radius:9px; border:1px solid var(--baseline);
+  background:var(--surface); outline:none;
+}
+input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0 3px color-mix(in srgb, var(--s1) 16%, transparent)}
+.btn{display:inline-flex; align-items:center; gap:7px; background:var(--s1); border:1px solid transparent; color:#fff;
+  padding:8px 15px; border-radius:9px; cursor:pointer; font-weight:600; font-size:13.5px}
+.btn:hover{filter:brightness(1.07)}
+.btn.secondary{background:var(--surface); color:var(--ink); border-color:var(--baseline)}
+.btn.secondary:hover{background:var(--surface-2); filter:none}
+.btn.ghost{background:none; color:var(--ink-2); border-color:transparent}
+.btn.ghost:hover{background:var(--surface-2)}
+.btn.danger{background:var(--critical)}
+.btn.small{padding:4px 10px; font-size:12.5px; border-radius:7px}
+.btn[disabled]{opacity:.55; cursor:default}
+.inline-controls{display:flex; gap:10px; align-items:flex-end; flex-wrap:wrap}
+.inline-controls label.fld{margin-bottom:0; min-width:140px}
+.seg{display:inline-flex; background:var(--surface-2); border-radius:9px; padding:3px; gap:2px}
+.seg button{border:0; background:none; padding:5px 12px; border-radius:7px; cursor:pointer; font-size:12.5px; font-weight:600; color:var(--ink-2)}
+.seg button.active{background:var(--surface); color:var(--ink); box-shadow:var(--shadow)}
+.chip{display:inline-flex; align-items:center; gap:6px; padding:3px 10px; border-radius:99px; font-size:12px; font-weight:600;
+  background:var(--surface-2); border:1px solid var(--border); cursor:pointer; color:var(--ink-2)}
+.chip:hover{background:var(--surface-3)}
+.chip.warn{color:var(--critical); border-color:color-mix(in srgb, var(--critical) 35%, transparent)}
+
+/* ============ Badges ============ */
+.badge{display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:700;
   padding:3px 10px; border-radius:99px; border:1px solid var(--border); background:var(--surface-2); white-space:nowrap}
-.badge .dot{width:8px; height:8px; border-radius:50%; flex:none}
+.badge .dot{width:7px; height:7px; border-radius:50%; flex:none}
 .badge.ok .dot{background:var(--good)} .badge.ok{color:var(--good-text)}
 .badge.watch .dot{background:var(--warn)}
 .badge.urgent .dot{background:var(--critical)} .badge.urgent{color:var(--critical)}
-.badge.neutral .dot{background:var(--muted)}
+.cdot{display:inline-block;width:9px;height:9px;border-radius:50%;margin-right:6px;vertical-align:1px}
+.tag{display:inline-block; font-size:10.5px; font-weight:700; letter-spacing:.3px; padding:2px 7px; border-radius:6px;
+  background:var(--surface-2); color:var(--ink-2); border:1px solid var(--border)}
 
-/* ============ Bars (mix produits) ============ */
+/* ============ Mix bars ============ */
 .mix{display:flex; flex-direction:column; gap:8px; margin-top:8px}
-.mix .mrow{display:grid; grid-template-columns:150px 1fr 90px; gap:10px; align-items:center; font-size:13px}
-.mix .mtrack{height:14px; background:var(--surface-2); border-radius:4px; position:relative}
-.mix .mfill{position:absolute; inset:0 auto 0 0; border-radius:4px 4px 4px 4px; min-width:2px}
-.mix .mval{text-align:right; font-variant-numeric:tabular-nums; color:var(--ink)}
+.mix .mrow{display:grid; grid-template-columns:145px 1fr 90px; gap:10px; align-items:center; font-size:13px}
+.mix .mtrack{height:13px; background:var(--surface-2); border-radius:4px; position:relative}
+.mix .mfill{position:absolute; inset:0 auto 0 0; border-radius:4px; min-width:2px}
+.mix .mval{text-align:right; font-variant-numeric:tabular-nums}
 .mix .mlabel{color:var(--ink-2)}
 
-/* ============ Chart ============ */
+/* ============ Graphiques ============ */
 .chart-card svg{display:block; width:100%; height:auto}
 .legend{display:flex; gap:16px; flex-wrap:wrap; margin-bottom:6px; font-size:12.5px; color:var(--ink-2)}
 .legend .li{display:inline-flex; align-items:center; gap:6px}
 .legend .swatch{width:14px; height:3px; border-radius:2px}
-.viz-tooltip{
-  position:fixed; pointer-events:none; z-index:50; background:var(--surface);
-  border:1px solid var(--border); border-radius:9px; box-shadow:var(--shadow);
-  padding:8px 11px; font-size:12.5px; display:none; min-width:150px;
-}
+.viz-tooltip{position:fixed; pointer-events:none; z-index:80; background:var(--surface);
+  border:1px solid var(--border); border-radius:9px; box-shadow:var(--shadow-lg);
+  padding:8px 11px; font-size:12.5px; display:none; min-width:150px}
 .viz-tooltip .tt-title{font-weight:650; margin-bottom:4px}
 .viz-tooltip .tt-row{display:flex; justify-content:space-between; gap:14px; color:var(--ink-2)}
 .viz-tooltip .tt-row b{color:var(--ink); font-variant-numeric:tabular-nums; font-weight:600}
 .viz-tooltip .sw{display:inline-block;width:8px;height:8px;border-radius:2px;margin-right:5px}
+.spark{vertical-align:middle}
 
-/* ============ Login ============ */
-.login-shell{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px}
-.login-card{width:380px; max-width:100%}
-.login-card .brandbig{font-size:22px; font-weight:750; margin-bottom:2px}
-.login-card .sub{color:var(--ink-2); margin-bottom:18px}
-.demo-note{font-size:12.5px; color:var(--ink-2); background:var(--surface-2); border-radius:9px; padding:9px 12px; margin-bottom:14px}
-.error-box{color:var(--critical); font-size:13px; margin:8px 0}
+/* ============ Kanban ============ */
+.kanban{display:grid; grid-auto-flow:column; grid-auto-columns:minmax(215px,1fr); gap:10px; overflow-x:auto; padding-bottom:8px; align-items:start}
+.kcol{background:color-mix(in srgb, var(--surface-2) 60%, transparent); border:1px solid var(--border); border-radius:12px; padding:9px; min-height:120px}
+.kcol.dragover{outline:2px dashed var(--s1); outline-offset:-2px}
+.kcol-head{display:flex; align-items:baseline; gap:7px; padding:2px 5px 8px}
+.kcol-head b{font-size:12.5px}
+.kcol-head .kcount{font-size:11px; color:var(--muted); font-weight:600}
+.kcol-head .ktotal{margin-left:auto; font-size:11.5px; color:var(--ink-2); font-weight:650; font-variant-numeric:tabular-nums}
+.kcol-add{width:100%; border:1px dashed var(--baseline); background:none; color:var(--muted); border-radius:9px;
+  padding:5px; cursor:pointer; font-size:12px; margin-top:6px}
+.kcol-add:hover{background:var(--surface); color:var(--ink-2)}
+.kcard{background:var(--surface); border:1px solid var(--border); border-radius:10px; padding:9px 11px; margin-bottom:7px;
+  box-shadow:var(--shadow); cursor:grab; font-size:12.5px}
+.kcard:active{cursor:grabbing}
+.kcard.dragging{opacity:.45}
+.kcard .kclient{font-weight:650; display:flex; align-items:center; gap:6px; margin-bottom:3px}
+.kcard .kclient .kc-name{overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
+.kcard .kmeta{display:flex; align-items:center; gap:6px; flex-wrap:wrap; color:var(--muted); font-size:11px; margin-top:5px}
+.kcard .kpond{margin-left:auto; font-weight:700; color:var(--ink); font-variant-numeric:tabular-nums; font-size:12.5px}
+.kcard .ksig{color:var(--critical); font-weight:700; font-size:10.5px}
 
-/* ============ Modal ============ */
-.modal-back{position:fixed; inset:0; background:rgba(0,0,0,.35); z-index:40; display:flex; align-items:flex-start; justify-content:center; padding:6vh 16px}
-.modal{background:var(--surface); border:1px solid var(--border); border-radius:14px; box-shadow:var(--shadow); width:640px; max-width:100%; max-height:86vh; overflow:auto; padding:20px 22px}
-.modal h3{margin-bottom:12px}
+/* ============ Modal / overlay ============ */
+.modal-back{position:fixed; inset:0; background:rgba(9,12,16,.45); z-index:60; display:flex; align-items:flex-start; justify-content:center; padding:5vh 16px; backdrop-filter:blur(2px)}
+.modal{background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow-lg);
+  width:640px; max-width:100%; max-height:88vh; overflow:auto; padding:20px 22px}
+.modal h3{margin-bottom:14px; font-size:16px}
 .form-grid{display:grid; grid-template-columns:1fr 1fr; gap:0 16px}
 .form-grid .full{grid-column:1/-1}
 .modal-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:6px}
 
-/* ============ Toast ============ */
-.toast{position:fixed; bottom:22px; left:50%; transform:translateX(-50%); z-index:60;
+/* ============ Mode réunion ============ */
+.meeting{position:fixed; inset:0; z-index:70; background:var(--page); overflow:auto; padding:34px 48px 90px}
+.meeting-top{display:flex; align-items:center; gap:14px; margin-bottom:22px}
+.meeting-top .mt-week{font-size:14px; color:var(--muted); font-weight:600}
+.meeting h1{font-size:26px}
+.meeting-nav{position:fixed; bottom:22px; left:50%; transform:translateX(-50%); display:flex; gap:8px; align-items:center;
+  background:var(--surface); border:1px solid var(--border); border-radius:99px; padding:7px 14px; box-shadow:var(--shadow-lg); z-index:71}
+.meeting-nav .mn-pos{font-size:12.5px; color:var(--muted); font-weight:600; min-width:60px; text-align:center}
+.meeting .bigtiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin:18px 0}
+.meeting .bigtiles .t-value{font-size:34px}
+.meeting-close{margin-left:auto}
+
+/* ============ Divers ============ */
+.login-shell{min-height:100vh; display:flex; align-items:center; justify-content:center; padding:20px}
+.login-card{width:390px; max-width:100%; padding:26px 28px}
+.login-card .brandbig{font-size:24px; font-weight:800}
+.login-card .sub{color:var(--ink-2); margin-bottom:20px}
+.demo-note{font-size:12.5px; color:var(--ink-2); background:var(--surface-2); border-radius:9px; padding:9px 12px; margin-bottom:14px}
+.error-box{color:var(--critical); font-size:13px; margin:8px 0}
+.toast{position:fixed; bottom:22px; left:50%; transform:translateX(-50%); z-index:90;
   background:var(--ink); color:var(--page); padding:9px 18px; border-radius:99px; font-size:13.5px;
   opacity:0; transition:opacity .2s; pointer-events:none}
 .toast.show{opacity:1}
-
 .helpbox{font-size:13px; color:var(--ink-2); background:var(--surface-2); border-radius:10px; padding:10px 14px}
 .challenge{margin:0; padding-left:18px; color:var(--ink-2)}
-.challenge li{margin:4px 0}
-.muted{color:var(--muted)}
-.small{font-size:12.5px}
-.mt0{margin-top:0}
-@media (max-width:720px){
+.challenge li{margin:5px 0}
+.muted{color:var(--muted)} .small{font-size:12.5px} .mt0{margin-top:0}
+.empty{color:var(--muted); font-size:13px; text-align:center; padding:22px}
+.loader{display:flex; align-items:center; justify-content:center; min-height:100vh; color:var(--muted); gap:10px}
+.spinner{width:20px;height:20px;border-radius:50%;border:3px solid var(--grid);border-top-color:var(--s1);animation:spin .8s linear infinite}
+@keyframes spin{to{transform:rotate(360deg)}}
+.matrix td.hit{color:var(--good-text); font-weight:700}
+.matrix td.miss{color:var(--critical); font-weight:700}
+
+@media (max-width:900px){
+  .layout{flex-direction:column}
+  .sidebar{width:100%; height:auto; position:static; flex-direction:row; align-items:center; padding:8px 10px; gap:6px; overflow-x:auto}
+  .logo{padding:0 8px; font-size:16px} .logo small{display:none}
+  .snav{flex-direction:row}
+  .snav button{padding:7px 9px; white-space:nowrap}
+  .snav button .nav-label{display:none}
+  .side-bottom{margin:0 0 0 auto; flex-direction:row; align-items:center}
+  .user-mini{border:0; padding:0} .user-mini span{display:none}
+  .main{padding:14px 14px 60px}
   .form-grid{grid-template-columns:1fr}
-  .mix .mrow{grid-template-columns:110px 1fr 80px}
+  .meeting{padding:20px 16px 90px}
 }
 </style>
 </head>
@@ -189,9 +278,11 @@ table.tbl.dense{font-size:12.5px}
 <div id="tooltip" class="viz-tooltip"></div>
 <div id="toast" class="toast"></div>
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2/dist/umd/supabase.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js"></script>
 <script src="config.js"></script>
 <script src="demo_data.js"></script>
 <script>
+
 "use strict";
 /* ================================================================
    ELIGI — Pilotage commercial hebdomadaire
@@ -576,22 +667,148 @@ function mixBars(el, items){
 }
 
 
+
 /* ================================================================
-   Vues
+   v2 — habillage, composants et vues
    ================================================================ */
-function weekSelector(id, extra=""){
-  const codes = state.semaines.map(s=>s.code).sort(wcmp);
-  return `<label class="fld"><span>Semaine suivie</span>
-    <select id="${id}" ${extra}>${codes.map(c=>`<option value="${c}" ${c===state.week?"selected":""}>${c}</option>`).join("")}</select>
-  </label>`;
+const ICONS = {
+  dash:'<svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  edit:'<svg class="ic" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
+  funnel:'<svg class="ic" viewBox="0 0 24 24"><path d="M3 4h18l-7 8v6l-4 2v-8Z"/></svg>',
+  user:'<svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
+  chart:'<svg class="ic" viewBox="0 0 24 24"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg>',
+  gear:'<svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a7.9 7.9 0 0 0 .1-6l2-1.5-2-3.4-2.4.9a8 8 0 0 0-5.2-3L11.5.6h-4L7.1 3a8 8 0 0 0-5.2 3l-2.4-.9-2 3.4L-.5 10" transform="translate(2.5 1.5) scale(.92)"/></svg>',
+  play:'<svg class="ic" viewBox="0 0 24 24"><rect x="2" y="4" width="20" height="14" rx="2"/><path d="m10 8 5 3-5 3Z"/></svg>',
+  dl:'<svg class="ic" viewBox="0 0 24 24"><path d="M12 3v12"/><path d="m7 11 5 5 5-5"/><path d="M4 21h16"/></svg>',
+  sun:'<svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4.5"/><path d="M12 1.5v3M12 19.5v3M4.6 4.6l2.1 2.1M17.3 17.3l2.1 2.1M1.5 12h3M19.5 12h3M4.6 19.4l2.1-2.1M17.3 6.7l2.1-2.1"/></svg>',
+  left:'<svg class="ic" viewBox="0 0 24 24"><path d="m14 6-6 6 6 6"/></svg>',
+  right:'<svg class="ic" viewBox="0 0 24 24"><path d="m10 6 6 6-6 6"/></svg>',
+  copy:'<svg class="ic" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
+  close:'<svg class="ic" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19"/></svg>',
+};
+
+/* Thème clair / sombre / auto */
+function getTheme(){ try{ return localStorage.getItem("eligi-theme") || "auto"; }catch(e){ return "auto"; } }
+function applyTheme(t){
+  if (t === "auto") document.documentElement.removeAttribute("data-theme");
+  else document.documentElement.setAttribute("data-theme", t);
 }
-function consSelector(id, selectedId, all=false){
-  const opts = activeConseillers().map(c=>`<option value="${c.id}" ${c.id===selectedId?"selected":""}>${esc(c.nom)}</option>`);
-  return `<label class="fld"><span>Conseiller</span>
-    <select id="${id}">${all?'<option value="">Tous</option>':''}${opts.join("")}</select></label>`;
+function cycleTheme(){
+  const next = {auto:"dark", dark:"light", light:"auto"}[getTheme()] || "auto";
+  try{ localStorage.setItem("eligi-theme", next); }catch(e){}
+  applyTheme(next); 
+  toast(next==="auto"? "Thème : automatique" : next==="dark"? "Thème : sombre" : "Thème : clair");
 }
-const tile = (label, value, sub="") => `<div class="tile"><div class="t-label">${label}</div><div class="t-value">${value}</div>${sub?`<div class="t-sub">${sub}</div>`:""}</div>`;
+applyTheme(getTheme());
+
+/* Couleur attitrée de chaque conseiller (ordre stable par id) */
+function consColor(id){
+  const idx = [...state.conseillers].sort((a,b)=>a.id-b.id).findIndex(c=>c.id===id);
+  return MIX_COLORS[(idx>=0?idx:0) % MIX_COLORS.length];
+}
+const initials = nom => String(nom||"?").trim().split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
+
+/* ---------------- Navigation de semaine ---------------- */
+function weekCodes(){ return state.semaines.map(s=>s.code).sort(wcmp); }
+function shiftWeek(delta){
+  const codes = weekCodes();
+  const i = codes.indexOf(state.week);
+  const j = i + delta;
+  if (j >= 0 && j < codes.length){ state.week = codes[j]; render(); }
+}
+function weekNavHTML(){
+  const codes = weekCodes();
+  const i = codes.indexOf(state.week);
+  return `<div class="weeknav">
+    <button class="wk-btn" id="wk-prev" title="Semaine précédente" ${i<=0?"disabled":""}>${ICONS.left}</button>
+    <select id="wk-select">${codes.map(c=>`<option value="${c}" ${c===state.week?"selected":""}>${c}</option>`).join("")}</select>
+    <button class="wk-btn" id="wk-next" title="Semaine suivante" ${i>=codes.length-1?"disabled":""}>${ICONS.right}</button>
+  </div>`;
+}
+function bindWeekNav(){
+  $("#wk-prev")?.addEventListener("click", ()=>shiftWeek(-1));
+  $("#wk-next")?.addEventListener("click", ()=>shiftWeek(1));
+  $("#wk-select")?.addEventListener("change", e=>{ state.week = e.target.value; render(); });
+}
+function vhead(title, sub, controls=""){
+  return `<div class="vhead"><div class="titles"><h1>${title}</h1>${sub?`<div class="sub">${sub}</div>`:""}</div>${controls}</div>`;
+}
+
+/* ---------------- Sparkline ---------------- */
+function sparkline(values, color="var(--s1)", w=92, h=26){
+  const max = Math.max(...values, 1), min = Math.min(...values, 0);
+  const range = (max-min)||1;
+  const x = i => 2 + i*(w-8)/Math.max(1,values.length-1);
+  const y = v => h-3 - ((v-min)/range)*(h-8);
+  const pts = values.map((v,i)=>`${x(i).toFixed(1)},${y(v).toFixed(1)}`).join(" ");
+  const lx = x(values.length-1), ly = y(values[values.length-1]);
+  return `<svg class="spark" width="${w}" height="${h}" viewBox="0 0 ${w} ${h}">
+    <polyline points="${pts}" fill="none" stroke="${color}" stroke-width="1.8" stroke-linejoin="round" stroke-linecap="round"/>
+    <circle cx="${lx}" cy="${ly}" r="2.6" fill="${color}" stroke="var(--surface)" stroke-width="1.5"/></svg>`;
+}
+const tile = (label, value, sub="", bar=null) => `<div class="tile"><div class="t-label">${label}</div><div class="t-value">${value}</div>${sub?`<div class="t-sub">${sub}</div>`:""}${bar!==null?`<div class="bar"><i class="${bar>=1?"over":""}" style="width:${Math.min(100,bar*100)}%"></i></div>`:""}</div>`;
 const badgeHTML = a => `<span class="badge ${a.cls}"><span class="dot"></span>${a.icon} ${a.label}</span>`;
+
+/* ---------------- Export Excel ---------------- */
+function exportCSVFallback(){
+  const sep = ";";
+  const line = arr => arr.map(v => `"${String(v??"").replace(/"/g,'""')}"`).join(sep);
+  const out = [];
+  out.push(line(["Semaine","Conseiller","RDV","Signatures","Collecte SCPI","CA SCPI","Collecte structurés","CA structurés","Collecte audit","CA audit","Collecte assurance/PER","CA autres","Collecte totale","CA total","Commentaire"]));
+  [...state.saisies].sort((a,b)=>wcmp(a.semaine,b.semaine)).forEach(s=>{ const c = computed(s);
+    out.push(line([s.semaine, consName(s.conseiller_id), s.rdv, s.nb_signatures, s.collecte_scpi, c.ca_scpi,
+      s.collecte_structures, s.ca_structures, s.collecte_audit, s.ca_audit, s.collecte_assurance, s.ca_autres,
+      c.collecte_totale, c.ca_total, s.commentaire||""])); });
+  out.push("");
+  out.push(line(["Conseiller","Client","Support","Étape","Collecte potentielle","CA potentiel","Probabilité","Valeur pondérée","Closing","Priorité","Prochaine action","Signature probable"]));
+  state.pipeline.forEach(p=>out.push(line([consName(p.conseiller_id), p.client, p.support, p.etape,
+    p.collecte_potentielle, p.ca_potentiel, p.probabilite, pondere(p), p.closing_prevu||"", p.priorite||"",
+    p.prochaine_action||"", p.signature_probable?"Oui":"Non"])));
+  const blob = new Blob(["\ufeff"+out.join("\r\n")], {type:"text/csv;charset=utf-8"});
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(blob);
+  a.download = `ELIGI_pilotage_${state.week}.csv`;
+  a.click(); URL.revokeObjectURL(a.href);
+  toast("Export CSV téléchargé (module Excel indisponible) ✓");
+}
+function exportXLSX(){
+  if (!window.XLSX){ exportCSVFallback(); return; }
+  const wb = XLSX.utils.book_new();
+  const cons = activeConseillers();
+  // Dashboard (semaine suivie)
+  const dash = cons.map(c => {
+    const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
+    const proj = w.ca_total + p.pond - p.signe;
+    return {"Conseiller":c.nom, "Obj. CA":c.objectif_ca_hebdo, "RDV":w.rdv, "Obj. RDV":c.objectif_rdv_hebdo,
+      "CA total":w.ca_total, "CA SCPI":w.ca_scpi, "CA structurés":w.ca_structures, "CA audit":w.ca_audit,
+      "CA autres":w.ca_autres, "Collecte":w.collecte_totale, "Pipeline pondéré":p.pond, "Pipeline signé":p.signe,
+      "Projection":proj, "Alerte":alerte(proj, c.objectif_ca_hebdo||0).label};
+  });
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(dash), `Dashboard ${state.week.replace("2026-","")}`);
+  // Saisies
+  const sa = [...state.saisies].sort((a,b)=>wcmp(a.semaine,b.semaine)).map(s=>{ const c = computed(s);
+    return {"Semaine":s.semaine, "Conseiller":consName(s.conseiller_id), "RDV":s.rdv, "Signatures":s.nb_signatures,
+      "Collecte SCPI":s.collecte_scpi, "CA SCPI":c.ca_scpi, "Collecte structurés":s.collecte_structures,
+      "CA structurés":s.ca_structures, "Collecte audit":s.collecte_audit, "CA audit":s.ca_audit,
+      "Collecte assurance/PER":s.collecte_assurance, "CA autres":s.ca_autres,
+      "Collecte totale":c.collecte_totale, "CA total":c.ca_total, "Commentaire":s.commentaire||""};});
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(sa), "Saisie_Hebdo");
+  // Pipeline
+  const pi = state.pipeline.map(p=>({"Conseiller":consName(p.conseiller_id), "Client":p.client, "Support":p.support,
+    "Étape":p.etape, "Collecte potentielle":p.collecte_potentielle, "CA potentiel":p.ca_potentiel,
+    "Probabilité":p.probabilite, "Valeur pondérée":pondere(p), "Closing prévu":p.closing_prevu||"",
+    "Priorité":p.priorite||"", "Prochaine action":p.prochaine_action||"", "Signature probable":p.signature_probable?"Oui":"Non"}));
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(pi), "Pipeline");
+  // Progression équipe
+  if (isManager()){
+    const prog = teamSeries(state.week).map(r=>({"Semaine":r.week, "CA hebdo":r.ca, "CA cumulé":r.cumCA,
+      "Objectif CA cumulé":r.cumObjCA, "Taux CA":r.tauxCA, "Collecte hebdo":r.coll, "Collecte cumulée":r.cumColl,
+      "Objectif collecte cumulé":r.cumObjColl, "Taux collecte":r.tauxColl}));
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(prog), "Progression");
+  }
+  XLSX.writeFile(wb, `ELIGI_pilotage_${state.week}.xlsx`);
+  toast("Export Excel téléchargé ✓");
+}
 
 /* ---------------- Dashboard équipe (manager) ---------------- */
 function viewDashboard(root){
@@ -600,7 +817,8 @@ function viewDashboard(root){
   const rows = cons.map(c => {
     const w = weekAgg(c.id, week), p = pipeAgg(c.id);
     const proj = w.ca_total + p.pond - p.signe;
-    return {c, w, p, proj, al: alerte(proj, c.objectif_ca_hebdo||0)};
+    const hist = consSeries(c.id, week).slice(-8).map(r=>r.ca);
+    return {c, w, p, proj, hist, al: alerte(proj, c.objectif_ca_hebdo||0)};
   });
   const sum = k => rows.reduce((a,r)=>a+r.w[k],0);
   const caEq = sum("ca_total"), collEq = sum("collecte_totale"), rdvEq = sum("rdv");
@@ -608,6 +826,7 @@ function viewDashboard(root){
   const projEq = rows.reduce((a,r)=>a+r.proj,0);
   const objCAEq = cons.reduce((a,c)=>a+(c.objectif_ca_hebdo||0),0);
   const objRdvEq = cons.reduce((a,c)=>a+(c.objectif_rdv_hebdo||0),0);
+  const noSaisie = cons.filter(c => !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===week));
   const mix = [
     {label:"CA SCPI", value:sum("ca_scpi")},
     {label:"CA structurés", value:sum("ca_structures")},
@@ -617,35 +836,41 @@ function viewDashboard(root){
   ];
 
   root.innerHTML = `
-  <div class="section-head"><h2>Dashboard équipe</h2>
-    <span class="sub">Semaine actuelle : ${todayWeekCode()}</span><span class="spacer"></span>
-    <div class="inline-controls">${weekSelector("dash-week")}</div>
-  </div>
+  ${vhead("Dashboard équipe", `Semaine actuelle : ${todayWeekCode()}`, `
+    ${weekNavHTML()}
+    <button class="btn secondary" id="dash-meeting">${ICONS.play} Mode réunion</button>
+    <button class="btn secondary" id="dash-export">${ICONS.dl} Exporter</button>`)}
+
   <div class="tiles">
-    ${tile("CA équipe", eur(caEq), `Objectif hebdo : ${eur(objCAEq)} — ${caEq>=objCAEq?`<span class="up">✓ atteint</span>`:fmtPct(objCAEq?caEq/objCAEq:0)}`)}
+    ${tile("CA équipe", eur(caEq), `Objectif : ${eur(objCAEq)} — ${caEq>=objCAEq?`<span class="up">✓ atteint</span>`:`<span>${fmtPct(objCAEq?caEq/objCAEq:0)}</span>`}`, objCAEq?caEq/objCAEq:0)}
     ${tile("Collecte équipe", eur(collEq))}
-    ${tile("RDV équipe", fmtNum.format(rdvEq), `Objectif : ${fmtNum.format(objRdvEq)}`)}
-    ${tile("Pipeline pondéré", eur(pondEq))}
+    ${tile("RDV équipe", `${fmtNum.format(rdvEq)} <span class="small muted">/ ${fmtNum.format(objRdvEq)}</span>`, "", objRdvEq?rdvEq/objRdvEq:0)}
+    ${tile("Pipeline pondéré", eur(pondEq), `${state.pipeline.length} opportunités`)}
     ${tile("Projection équipe", eur(projEq), "CA + pipeline pondéré − signé")}
   </div>
 
-  <div class="section-head"><h2>Conseillers — semaine ${esc(week)}</h2></div>
+  ${noSaisie.length? `<div class="card sect" style="padding:11px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
+    <b class="small">Saisies manquantes ${esc(week)} :</b>
+    ${noSaisie.map(c=>`<span class="chip warn" data-saisie="${c.id}"><span class="cdot" style="background:${consColor(c.id)};margin:0"></span>${esc(c.nom)}</span>`).join("")}
+    <span class="small muted">— clique pour saisir</span></div>` : ""}
+
+  <div class="sect sect-head"><h2>Conseillers — semaine ${esc(week)}</h2></div>
   <div class="card tbl-scroll">
     <table class="tbl dense">
       <thead><tr>
-        <th>Conseiller</th><th class="num">Obj. CA</th><th class="num">RDV</th><th class="num">Obj. RDV</th>
+        <th>Conseiller</th><th>8 dern. sem.</th><th class="num">Obj. CA</th><th class="num">RDV</th>
         <th class="num">CA total</th><th class="num">CA SCPI</th><th class="num">CA struct.</th>
         <th class="num">CA audit</th><th class="num">CA autres</th><th class="num">Collecte</th>
-        <th class="num">Pipe pondéré</th><th class="num">Pipe signé</th><th class="num">Projection</th>
-        <th class="num">CA / RDV</th><th>Alerte</th>
+        <th class="num">Pipe pond.</th><th class="num">Pipe signé</th><th class="num">Projection</th>
+        <th class="num">CA/RDV</th><th>Alerte</th>
       </tr></thead>
       <tbody>
-        ${rows.map(r=>`<tr>
-          <td><button class="linklike" data-fiche="${r.c.id}">${esc(r.c.nom)}</button></td>
+        ${rows.map(r=>`<tr class="clickable" data-fiche="${r.c.id}" title="Ouvrir la fiche">
+          <td><span class="cdot" style="background:${consColor(r.c.id)}"></span><b>${esc(r.c.nom)}</b></td>
+          <td>${sparkline(r.hist, consColor(r.c.id))}</td>
           <td class="num">${eur(r.c.objectif_ca_hebdo)}</td>
-          <td class="num">${fmtNum.format(r.w.rdv)}</td>
-          <td class="num">${fmtNum.format(r.c.objectif_rdv_hebdo)}</td>
-          <td class="num">${eur(r.w.ca_total)}</td>
+          <td class="num">${fmtNum.format(r.w.rdv)} / ${fmtNum.format(r.c.objectif_rdv_hebdo)}</td>
+          <td class="num"><b>${eur(r.w.ca_total)}</b></td>
           <td class="num">${eur(r.w.ca_scpi)}</td>
           <td class="num">${eur(r.w.ca_structures)}</td>
           <td class="num">${eur(r.w.ca_audit)}</td>
@@ -658,8 +883,9 @@ function viewDashboard(root){
           <td>${badgeHTML(r.al)}</td>
         </tr>`).join("")}
         <tr class="total">
-          <td>Équipe</td><td class="num">${eur(objCAEq)}</td><td class="num">${fmtNum.format(rdvEq)}</td>
-          <td class="num">${fmtNum.format(objRdvEq)}</td><td class="num">${eur(caEq)}</td>
+          <td>Équipe</td><td></td><td class="num">${eur(objCAEq)}</td>
+          <td class="num">${fmtNum.format(rdvEq)} / ${fmtNum.format(objRdvEq)}</td>
+          <td class="num">${eur(caEq)}</td>
           <td class="num">${eur(sum("ca_scpi"))}</td><td class="num">${eur(sum("ca_structures"))}</td>
           <td class="num">${eur(sum("ca_audit"))}</td><td class="num">${eur(sum("ca_autres"))}</td>
           <td class="num">${eur(collEq)}</td><td class="num">${eur(pondEq)}</td>
@@ -670,78 +896,128 @@ function viewDashboard(root){
     </table>
   </div>
 
-  <div class="row" style="margin-top:16px">
-    <div class="card grow">
-      <h3 class="mt0">Mix produits — semaine ${esc(week)}</h3>
-      <div id="dash-mix"></div>
-    </div>
+  <div class="row sect">
+    <div class="card grow"><h3 class="mt0">Mix produits — semaine ${esc(week)}</h3><div id="dash-mix"></div></div>
     <div class="card grow">
       <h3 class="mt0">Mode d'emploi réunion</h3>
       <ol class="challenge">
         <li>Choisir la semaine suivie ci-dessus</li>
         <li>Lire chaque ligne : RDV, CA, collecte, pipeline, projection</li>
         <li>Challenge immédiat si alerte = Urgent</li>
-        <li>Descendre ensuite dans le Pipeline pour voir les signatures probables</li>
+        <li>Ouvrir le Pipeline pour les signatures probables</li>
       </ol>
+      <button class="btn small" id="dash-meeting2" style="margin-top:8px">${ICONS.play} Lancer le mode réunion</button>
     </div>
   </div>`;
 
   mixBars($("#dash-mix"), mix);
-  $("#dash-week").addEventListener("change", e=>{ state.week = e.target.value; render(); });
-  root.querySelectorAll("[data-fiche]").forEach(b=>b.addEventListener("click", ()=>{
-    state.ficheConseillerId = +b.dataset.fiche; go("fiche");
-  }));
+  bindWeekNav();
+  $("#dash-export").addEventListener("click", exportXLSX);
+  const openMeeting = ()=>meetingMode();
+  $("#dash-meeting").addEventListener("click", openMeeting);
+  $("#dash-meeting2").addEventListener("click", openMeeting);
+  root.querySelectorAll("[data-fiche]").forEach(b=>b.addEventListener("click", ()=>{ state.ficheConseillerId = +b.dataset.fiche; go("fiche"); }));
+  root.querySelectorAll("[data-saisie]").forEach(b=>b.addEventListener("click", ()=>{ state.saisieConseillerId = +b.dataset.saisie; go("saisie"); }));
 }
 
-/* ---------------- Progression annuelle (manager) ---------------- */
-function viewProgression(root){
-  const serie = teamSeries(state.week);
-  const last = serie[serie.length-1] || {cumCA:0,cumObjCA:0,cumColl:0,cumObjColl:0,tauxCA:0,tauxColl:0};
-  root.innerHTML = `
-  <div class="section-head"><h2>Progression annuelle de l'équipe</h2>
-    <span class="sub">cumul depuis ${esc(state.semaines[0]?.code||"")} jusqu'à la semaine suivie</span>
-    <span class="spacer"></span><div class="inline-controls">${weekSelector("prog-week")}</div>
-  </div>
-  <div class="tiles">
-    ${tile("CA cumulé", eur(last.cumCA), `Objectif : ${eur(last.cumObjCA)}`)}
-    ${tile("Taux d'atteinte CA", fmtPct(last.tauxCA), last.tauxCA>=1?`<span class="up">✓ au-dessus de l'objectif</span>`:`<span class="down">sous l'objectif</span>`)}
-    ${tile("Collecte cumulée", eur(last.cumColl), `Objectif : ${eur(last.cumObjColl)}`)}
-    ${tile("Taux d'atteinte collecte", fmtPct(last.tauxColl), last.tauxColl>=1?`<span class="up">✓ au-dessus de l'objectif</span>`:`<span class="down">sous l'objectif</span>`)}
-  </div>
-  <div class="row" style="margin-top:16px">
-    <div class="card grow chart-card"><h3 class="mt0">CA cumulé vs objectif</h3><div id="chart-ca"></div></div>
-    <div class="card grow chart-card"><h3 class="mt0">Collecte cumulée vs objectif</h3><div id="chart-coll"></div></div>
-  </div>
-  <div class="section-head"><h2>Détail par semaine</h2>
-    <button class="btn secondary small" id="prog-toggle">Afficher le tableau</button></div>
-  <div class="card tbl-scroll" id="prog-table" style="display:none">
-    <table class="tbl">
-      <thead><tr><th>Semaine</th><th class="num">CA hebdo</th><th class="num">CA cumulé</th><th class="num">Obj. cumulé</th><th class="num">Taux</th>
-      <th class="num">Collecte hebdo</th><th class="num">Collecte cumulée</th><th class="num">Obj. cumulé</th><th class="num">Taux</th></tr></thead>
-      <tbody>${serie.map(r=>`<tr><td>${esc(r.week)}</td>
-        <td class="num">${eur(r.ca)}</td><td class="num">${eur(r.cumCA)}</td><td class="num">${eur(r.cumObjCA)}</td><td class="num">${fmtPct(r.tauxCA)}</td>
-        <td class="num">${eur(r.coll)}</td><td class="num">${eur(r.cumColl)}</td><td class="num">${eur(r.cumObjColl)}</td><td class="num">${fmtPct(r.tauxColl)}</td>
-      </tr>`).join("")}</tbody>
-    </table>
-  </div>`;
+/* ---------------- Mode réunion ---------------- */
+function meetingMode(){
+  const cons = activeConseillers();
+  let slide = 0;
+  const total = cons.length + 2;
+  const back = document.createElement("div");
+  back.className = "meeting";
 
-  const labels = serie.map(r=>r.week);
-  lineChart($("#chart-ca"), {labels, series:[
-    {name:"Réalisé", color:"var(--s1)", values:serie.map(r=>r.cumCA)},
-    {name:"Objectif", color:"var(--s2)", values:serie.map(r=>r.cumObjCA), dashed:true},
-  ]});
-  lineChart($("#chart-coll"), {labels, series:[
-    {name:"Réalisé", color:"var(--s1)", values:serie.map(r=>r.cumColl)},
-    {name:"Objectif", color:"var(--s2)", values:serie.map(r=>r.cumObjColl), dashed:true},
-  ]});
-  $("#prog-week").addEventListener("change", e=>{ state.week = e.target.value; render(); });
-  $("#prog-toggle").addEventListener("click", ()=>{
-    const t = $("#prog-table"); const vis = t.style.display !== "none";
-    t.style.display = vis? "none":""; $("#prog-toggle").textContent = vis? "Afficher le tableau" : "Masquer le tableau";
-  });
+  function slideTeam(){
+    const rows = cons.map(c => { const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
+      const proj = w.ca_total + p.pond - p.signe;
+      return {c, w, p, proj, al: alerte(proj, c.objectif_ca_hebdo||0)}; });
+    const caEq = rows.reduce((a,r)=>a+r.w.ca_total,0), collEq = rows.reduce((a,r)=>a+r.w.collecte_totale,0);
+    const projEq = rows.reduce((a,r)=>a+r.proj,0), objEq = cons.reduce((a,c)=>a+(c.objectif_ca_hebdo||0),0);
+    return `<h1>Point équipe</h1>
+    <div class="bigtiles tiles">
+      ${tile("CA équipe", eur(caEq), `Objectif ${eur(objEq)}`, objEq?caEq/objEq:0)}
+      ${tile("Collecte", eur(collEq))}
+      ${tile("Projection", eur(projEq))}
+      ${tile("RDV", fmtNum.format(rows.reduce((a,r)=>a+(r.w.rdv||0),0)))}
+    </div>
+    <div class="card tbl-scroll"><table class="tbl">
+      <thead><tr><th>Conseiller</th><th class="num">CA</th><th class="num">Collecte</th><th class="num">Pipeline</th><th class="num">Projection</th><th>Alerte</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><td><span class="cdot" style="background:${consColor(r.c.id)}"></span><b>${esc(r.c.nom)}</b></td>
+        <td class="num">${eur(r.w.ca_total)}</td><td class="num">${eur(r.w.collecte_totale)}</td>
+        <td class="num">${eur(r.p.pond)}</td><td class="num"><b>${eur(r.proj)}</b></td><td>${badgeHTML(r.al)}</td></tr>`).join("")}</tbody>
+    </table></div>`;
+  }
+  function slideCons(c){
+    const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
+    const proj = w.ca_total + p.pond - p.signe;
+    const al = alerte(proj, c.objectif_ca_hebdo||0);
+    const cu = cumul(c.id, state.week);
+    const top = state.pipeline.filter(x=>x.conseiller_id===c.id && (x.etape||"").toLowerCase()!=="signé")
+      .sort((a,b)=>pondere(b)-pondere(a)).slice(0,5);
+    return `<h1><span class="cdot" style="background:${consColor(c.id)};width:14px;height:14px"></span> ${esc(c.nom)} &nbsp;${badgeHTML(al)}</h1>
+    <div class="bigtiles tiles">
+      ${tile("CA semaine", eur(w.ca_total), `Objectif ${eur(c.objectif_ca_hebdo)}`, c.objectif_ca_hebdo? w.ca_total/c.objectif_ca_hebdo:0)}
+      ${tile("RDV", `${fmtNum.format(w.rdv)} <span class="small muted">/ ${fmtNum.format(c.objectif_rdv_hebdo)}</span>`)}
+      ${tile("Collecte", eur(w.collecte_totale))}
+      ${tile("Projection", eur(proj))}
+      ${tile("CA cumulé", eur(cu.ca), `${cu.objCA?fmtPct(cu.ca/cu.objCA):"—"} de l'objectif`)}
+    </div>
+    <div class="row">
+      <div class="card grow"><h3 class="mt0">Top pipeline en cours</h3>
+        ${top.length? `<table class="tbl"><tbody>${top.map(x=>`<tr>
+          <td><b>${esc(x.client)}</b></td><td>${esc(x.support)}</td><td>${esc(x.etape)}</td>
+          <td class="num">${fmtPct(x.probabilite||0)}</td><td class="num"><b>${eur(pondere(x))}</b></td>
+          <td>${x.signature_probable?'<span class="ksig">SIGNATURE ?</span>':""}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">Aucune opportunité en cours</div>`}
+      </div>
+      <div class="card" style="width:340px;max-width:100%"><h3 class="mt0">Points à challenger</h3>
+        <ol class="challenge"><li>Quels dossiers doivent signer cette semaine ?</li>
+        <li>Quel blocage empêche la signature ?</li><li>Quelle action concrète d'ici la prochaine réunion ?</li></ol></div>
+    </div>`;
+  }
+  function slideSignatures(){
+    const sig = state.pipeline.filter(p=>p.signature_probable);
+    const top = state.pipeline.filter(p=>(p.etape||"").toLowerCase()!=="signé").sort((a,b)=>pondere(b)-pondere(a)).slice(0,8);
+    return `<h1>Signatures & priorités</h1>
+    <div class="row" style="margin-top:16px">
+      <div class="card grow"><h3 class="mt0">Signatures probables cette semaine</h3>
+        ${sig.length? `<table class="tbl"><tbody>${sig.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
+          <td><b>${esc(x.client)}</b></td><td>${esc(x.support)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>` : `<div class="empty">Aucune signature marquée « probable » — à challenger !</div>`}
+      </div>
+      <div class="card grow"><h3 class="mt0">Plus grosses opportunités en cours</h3>
+        <table class="tbl"><tbody>${top.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
+          <td><b>${esc(x.client)}</b></td><td>${esc(x.etape)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>
+      </div>
+    </div>`;
+  }
+  function renderSlide(){
+    const inner = slide===0? slideTeam() : slide<=cons.length? slideCons(cons[slide-1]) : slideSignatures();
+    back.innerHTML = `<div class="meeting-top">
+        <span class="mt-week">Réunion hebdo — ${esc(state.week)}</span>
+        <button class="btn secondary meeting-close" id="mt-close">${ICONS.close} Quitter</button>
+      </div>
+      ${inner}
+      <div class="meeting-nav">
+        <button class="wk-btn" id="mt-prev" ${slide===0?"disabled":""}>${ICONS.left}</button>
+        <span class="mn-pos">${slide+1} / ${total}</span>
+        <button class="wk-btn" id="mt-next" ${slide===total-1?"disabled":""}>${ICONS.right}</button>
+      </div>`;
+    back.querySelector("#mt-close").addEventListener("click", closeMeeting);
+    back.querySelector("#mt-prev").addEventListener("click", ()=>{ if(slide>0){slide--; renderSlide();} });
+    back.querySelector("#mt-next").addEventListener("click", ()=>{ if(slide<total-1){slide++; renderSlide();} });
+  }
+  function onKey(e){
+    if (e.key==="Escape") closeMeeting();
+    if (e.key==="ArrowRight" && slide<total-1){ slide++; renderSlide(); }
+    if (e.key==="ArrowLeft" && slide>0){ slide--; renderSlide(); }
+  }
+  function closeMeeting(){ document.removeEventListener("keydown", onKey); back.remove(); }
+  document.addEventListener("keydown", onKey);
+  document.body.appendChild(back);
+  renderSlide();
 }
 
-/* ---------------- Saisie hebdo ---------------- */
+/* ---------------- Saisie hebdo (accélérée) ---------------- */
 function viewSaisie(root){
   const editable = activeConseillers();
   if (!state.saisieConseillerId || !editable.some(c=>c.id===state.saisieConseillerId))
@@ -749,42 +1025,51 @@ function viewSaisie(root){
   const consId = state.saisieConseillerId;
   const ex = state.saisies.find(s=>s.conseiller_id===consId && s.semaine===state.week);
   const v = ex ? computed(ex) : computed({});
-
-  const numFld = (id,label,val,step="1") =>
-    `<label class="fld"><span>${label}</span><input type="number" id="${id}" value="${val??0}" min="0" step="${step}"></label>`;
-
+  const prev = (()=>{ const codes = weekCodes(); const i = codes.indexOf(state.week);
+    return i>0 ? state.saisies.find(s=>s.conseiller_id===consId && s.semaine===codes[i-1]) : null; })();
+  const missing = weeksUpTo(todayWeekCode()).filter(w => !state.saisies.some(s=>s.conseiller_id===consId && s.semaine===w));
   const myHist = state.saisies.filter(s=>s.conseiller_id===consId).map(computed).sort((a,b)=>wcmp(b.semaine,a.semaine));
 
+  const numFld = (id,label,val) =>
+    `<label class="fld"><span>${label}</span><input type="number" id="${id}" value="${val??0}" min="0" step="any"></label>`;
+
   root.innerHTML = `
-  <div class="section-head"><h2>Saisie hebdomadaire</h2>
-    <span class="sub">1 ligne = 1 conseiller × 1 semaine — uniquement le réalisé</span></div>
+  ${vhead("Saisie hebdomadaire", "1 ligne = 1 conseiller × 1 semaine — uniquement le réalisé", weekNavHTML())}
+  ${missing.length? `<div class="card" style="padding:11px 16px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px">
+    <b class="small">Semaines sans saisie${isManager()? ` (${esc(consName(consId))})`:""} :</b>
+    ${missing.slice(-8).map(w=>`<span class="chip warn" data-goweek="${w}">${w.replace("2026-","")}</span>`).join("")}
+    <span class="small muted">— clique pour compléter</span></div>`:""}
   <div class="row">
-    <div class="card" style="width:660px;max-width:100%">
+    <div class="card" style="width:640px;max-width:100%">
       <div class="inline-controls" style="margin-bottom:14px">
-        ${isManager()? consSelector("sa-cons", consId) : `<label class="fld"><span>Conseiller</span><input type="text" value="${esc(consName(consId))}" disabled></label>`}
-        ${weekSelector("sa-week")}
+        ${isManager()? `<label class="fld"><span>Conseiller</span><select id="sa-cons">
+          ${editable.map(c=>`<option value="${c.id}" ${c.id===consId?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`
+          : `<label class="fld"><span>Conseiller</span><input type="text" value="${esc(consName(consId))}" disabled></label>`}
+        <span style="flex:1"></span>
+        ${prev? `<button class="btn secondary small" id="sa-copy" title="Recopier les montants de la semaine précédente">${ICONS.copy} Recopier S−1</button>`:""}
       </div>
-      <div class="form-grid">
+      <div class="form-grid" id="sa-form">
         ${numFld("sa-rdv","RDV réalisés", v.rdv)}
         ${numFld("sa-sig","Nb signatures", v.nb_signatures)}
-        ${numFld("sa-cscpi","Collecte SCPI (€)", v.collecte_scpi, "any")}
-        <label class="fld"><span>CA SCPI (auto : 5 % de la collecte)</span><input type="text" id="sa-cascpi" value="${eur2(v.ca_scpi)}" disabled></label>
-        ${numFld("sa-cstru","Collecte structurés (€)", v.collecte_structures, "any")}
-        ${numFld("sa-castru","CA structurés (€)", v.ca_structures, "any")}
-        ${numFld("sa-caud","Collecte audit / hono (€)", v.collecte_audit, "any")}
-        ${numFld("sa-caaud","CA audit / hono (€)", v.ca_audit, "any")}
-        ${numFld("sa-cass","Collecte assurance PER / autre (€)", v.collecte_assurance, "any")}
-        ${numFld("sa-caautres","CA collecte et autres (€)", v.ca_autres, "any")}
+        ${numFld("sa-cscpi","Collecte SCPI (€)", v.collecte_scpi)}
+        <label class="fld"><span>CA SCPI (auto : 5 %)</span><input type="text" id="sa-cascpi" value="${eur2(v.ca_scpi)}" disabled></label>
+        ${numFld("sa-cstru","Collecte structurés (€)", v.collecte_structures)}
+        ${numFld("sa-castru","CA structurés (€)", v.ca_structures)}
+        ${numFld("sa-caud","Collecte audit / hono (€)", v.collecte_audit)}
+        ${numFld("sa-caaud","CA audit / hono (€)", v.ca_audit)}
+        ${numFld("sa-cass","Collecte assurance PER / autre (€)", v.collecte_assurance)}
+        ${numFld("sa-caautres","CA collecte et autres (€)", v.ca_autres)}
         <label class="fld full"><span>Commentaire</span><textarea id="sa-comm" rows="2">${esc(v.commentaire||"")}</textarea></label>
       </div>
       <div class="row" style="align-items:center;justify-content:space-between">
         <div class="small muted" id="sa-totaux"></div>
-        <button class="btn" id="sa-save">${ex? "Mettre à jour la semaine" : "Enregistrer la semaine"}</button>
+        <button class="btn" id="sa-save">${ex? "Mettre à jour" : "Enregistrer"} ${esc(state.week)}</button>
       </div>
+      <div class="small muted" style="margin-top:8px">Astuce : Entrée dans un champ = enregistrer.</div>
     </div>
     <div class="card grow">
       <h3 class="mt0">Historique — ${esc(consName(consId))}</h3>
-      <div class="tbl-scroll"><table class="tbl">
+      <div class="tbl-scroll" style="max-height:430px;overflow-y:auto"><table class="tbl">
         <thead><tr><th>Semaine</th><th class="num">RDV</th><th class="num">CA total</th><th class="num">Collecte</th><th class="num">CA/RDV</th><th></th></tr></thead>
         <tbody>${myHist.map(s=>`<tr>
           <td>${esc(s.semaine)}</td><td class="num">${fmtNum.format(s.rdv||0)}</td>
@@ -792,7 +1077,7 @@ function viewSaisie(root){
           <td class="num">${eur(s.rdv? s.ca_total/s.rdv:0)}</td>
           <td class="rowactions"><button class="btn secondary small" data-edit="${esc(s.semaine)}">Ouvrir</button>
               <button class="btn danger small" data-del="${s.id}">✕</button></td>
-        </tr>`).join("") || `<tr><td colspan="6" class="muted">Aucune saisie</td></tr>`}</tbody>
+        </tr>`).join("") || `<tr><td colspan="6" class="empty">Aucune saisie</td></tr>`}</tbody>
       </table></div>
     </div>
   </div>`;
@@ -806,9 +1091,7 @@ function viewSaisie(root){
   };
   upd();
   ["sa-cscpi","sa-castru","sa-caaud","sa-caautres","sa-cass"].forEach(id=>$("#"+id).addEventListener("input", upd));
-  if (isManager()) $("#sa-cons").addEventListener("change", e=>{ state.saisieConseillerId = +e.target.value; render(); });
-  $("#sa-week").addEventListener("change", e=>{ state.week = e.target.value; render(); });
-  $("#sa-save").addEventListener("click", async ()=>{
+  const save = async ()=>{
     try{
       await state.db.upsertSaisie({
         semaine: state.week, conseiller_id: consId,
@@ -819,9 +1102,23 @@ function viewSaisie(root){
         collecte_assurance:+$("#sa-cass").value||0, ca_autres:+$("#sa-caautres").value||0,
         commentaire:$("#sa-comm").value.trim(),
       });
-      await state.db.loadAll(); toast("Semaine enregistrée ✓"); render();
+      await state.db.loadAll(); toast(`Semaine ${state.week} enregistrée ✓`); render();
     }catch(err){ toast("Erreur : " + (err.message||err)); }
+  };
+  $("#sa-save").addEventListener("click", save);
+  $("#sa-form").querySelectorAll("input[type=number]").forEach(i=>i.addEventListener("keydown", e=>{ if(e.key==="Enter") save(); }));
+  if (isManager()) $("#sa-cons").addEventListener("change", e=>{ state.saisieConseillerId = +e.target.value; render(); });
+  bindWeekNav();
+  if (prev) $("#sa-copy")?.addEventListener("click", ()=>{
+    const p = computed(prev);
+    $("#sa-rdv").value = p.rdv||0; $("#sa-sig").value = p.nb_signatures||0;
+    $("#sa-cscpi").value = p.collecte_scpi||0; $("#sa-cstru").value = p.collecte_structures||0;
+    $("#sa-castru").value = p.ca_structures||0; $("#sa-caud").value = p.collecte_audit||0;
+    $("#sa-caaud").value = p.ca_audit||0; $("#sa-cass").value = p.collecte_assurance||0;
+    $("#sa-caautres").value = p.ca_autres||0;
+    upd(); toast("Montants recopiés depuis " + prev.semaine + " — pense à ajuster");
   });
+  root.querySelectorAll("[data-goweek]").forEach(b=>b.addEventListener("click", ()=>{ state.week = b.dataset.goweek; render(); }));
   root.querySelectorAll("[data-edit]").forEach(b=>b.addEventListener("click", ()=>{ state.week = b.dataset.edit; render(); }));
   root.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click", async ()=>{
     if (!confirm("Supprimer cette saisie ?")) return;
@@ -830,65 +1127,136 @@ function viewSaisie(root){
   }));
 }
 
-/* ---------------- Pipeline ---------------- */
+/* ---------------- Pipeline : kanban + tableau ---------------- */
 function viewPipeline(root){
+  if (state._pipeView === undefined) state._pipeView = "kanban";
+  const q = (state._pipeSearch||"").toLowerCase();
   const fEtape = state._pipeEtape || "";
   const fCons = isManager()? (state._pipeCons ?? "") : String(state.profile.conseiller_id);
-  let rows = state.pipeline.filter(p => (!fEtape || p.etape===fEtape) && (!fCons || p.conseiller_id===+fCons));
-  rows = [...rows].sort((a,b)=> pondere(b)-pondere(a));
+  let rows = state.pipeline.filter(p =>
+    (!fCons || p.conseiller_id===+fCons) &&
+    (!q || (p.client||"").toLowerCase().includes(q) || (p.prochaine_action||"").toLowerCase().includes(q)));
+  const tableRows = [...rows].filter(p=>!fEtape || p.etape===fEtape).sort((a,b)=> pondere(b)-pondere(a));
   const pond = rows.reduce((a,p)=>a+pondere(p),0);
   const signe = rows.filter(p=>(p.etape||"").toLowerCase()==="signé").reduce((a,p)=>a+pondere(p),0);
 
   root.innerHTML = `
-  <div class="section-head"><h2>Pipeline opportunités</h2>
-    <span class="sub">1 ligne = 1 opportunité — valeur pondérée = CA potentiel × probabilité</span>
-    <span class="spacer"></span>
-    <button class="btn" id="pi-add">+ Nouvelle opportunité</button></div>
-  <div class="inline-controls" style="margin-bottom:12px">
-    ${isManager()? consSelector("pi-cons", fCons? +fCons : null, true) : ""}
-    <label class="fld"><span>Étape</span><select id="pi-etape"><option value="">Toutes</option>
-      ${ETAPES.map(e=>`<option ${e===fEtape?"selected":""}>${e}</option>`).join("")}</select></label>
-  </div>
-  <div class="tiles" style="margin-bottom:12px">
-    ${tile("Opportunités", rows.length)}
-    ${tile("Pipeline pondéré", eur(pond))}
-    ${tile("Dont signé", eur(signe))}
-    ${tile("Signatures probables cette semaine", rows.filter(p=>p.signature_probable).length)}
-  </div>
-  <div class="card tbl-scroll">
-    <table class="tbl">
-      <thead><tr><th>Conseiller</th><th>Client</th><th>Support</th><th>Étape</th>
-      <th class="num">Collecte pot.</th><th class="num">CA pot.</th><th class="num">Proba.</th><th class="num">Valeur pondérée</th>
-      <th>Closing</th><th>Priorité</th><th>Prochaine action</th><th>Sign. probable</th><th></th></tr></thead>
-      <tbody>${rows.map(p=>`<tr>
-        <td>${esc(consName(p.conseiller_id))}</td><td>${esc(p.client)}</td><td>${esc(p.support)}</td>
-        <td>${(p.etape||"").toLowerCase()==="signé" ? `<span class="badge ok"><span class="dot"></span>✓ Signé</span>` : esc(p.etape)}</td>
-        <td class="num">${eur(p.collecte_potentielle)}</td><td class="num">${eur(p.ca_potentiel)}</td>
-        <td class="num">${fmtPct(p.probabilite||0)}</td><td class="num"><b>${eur(pondere(p))}</b></td>
-        <td>${p.closing_prevu? new Date(p.closing_prevu).toLocaleDateString("fr-FR") : "—"}</td>
-        <td>${esc(p.priorite||"—")}</td><td style="white-space:normal;min-width:160px">${esc(p.prochaine_action||"")}</td>
-        <td>${p.signature_probable? `<span class="badge watch"><span class="dot"></span>! Oui</span>`:"—"}</td>
-        <td class="rowactions"><button class="btn secondary small" data-edit="${p.id}">Modifier</button>
-            <button class="btn danger small" data-del="${p.id}">✕</button></td>
-      </tr>`).join("") || `<tr><td colspan="13" class="muted">Aucune opportunité</td></tr>`}</tbody>
-    </table>
-  </div>`;
+  ${vhead("Pipeline opportunités", "valeur pondérée = CA potentiel × probabilité", `
+    <div class="seg" id="pi-seg">
+      <button data-v="kanban" class="${state._pipeView==="kanban"?"active":""}">Kanban</button>
+      <button data-v="table" class="${state._pipeView==="table"?"active":""}">Tableau</button>
+    </div>
+    <button class="btn" id="pi-add">+ Opportunité</button>`)}
 
-  if (isManager()) $("#pi-cons").addEventListener("change", e=>{ state._pipeCons = e.target.value; render(); });
-  $("#pi-etape").addEventListener("change", e=>{ state._pipeEtape = e.target.value; render(); });
+  <div class="inline-controls" style="margin-bottom:12px">
+    <label class="fld" style="min-width:220px"><span>Recherche client</span>
+      <input type="search" id="pi-search" placeholder="ex : Nectoux…" value="${esc(state._pipeSearch||"")}"></label>
+    ${isManager()? `<label class="fld"><span>Conseiller</span><select id="pi-cons"><option value="">Tous</option>
+      ${activeConseillers().map(c=>`<option value="${c.id}" ${String(c.id)===String(fCons)?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`:""}
+    ${state._pipeView==="table"? `<label class="fld"><span>Étape</span><select id="pi-etape"><option value="">Toutes</option>
+      ${ETAPES.map(e=>`<option ${e===fEtape?"selected":""}>${e}</option>`).join("")}</select></label>`:""}
+    <span style="flex:1"></span>
+    <div class="small muted" style="padding-bottom:8px">
+      <b>${rows.length}</b> opportunités · pondéré <b>${eur(pond)}</b> · dont signé <b>${eur(signe)}</b></div>
+  </div>
+  <div id="pi-body"></div>`;
+
+  const body = $("#pi-body");
+  if (state._pipeView === "kanban") renderKanban(body, rows);
+  else renderPipeTable(body, tableRows);
+
+  $("#pi-seg").querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{ state._pipeView = b.dataset.v; render(); }));
   $("#pi-add").addEventListener("click", ()=>pipeModal(null));
-  root.querySelectorAll("[data-edit]").forEach(b=>b.addEventListener("click", ()=>pipeModal(state.pipeline.find(p=>p.id===+b.dataset.edit))));
-  root.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click", async ()=>{
+  $("#pi-search").addEventListener("input", e=>{
+    state._pipeSearch = e.target.value;
+    const q2 = e.target.value.toLowerCase();
+    let r2 = state.pipeline.filter(p => (!fCons || p.conseiller_id===+fCons) &&
+      (!q2 || (p.client||"").toLowerCase().includes(q2) || (p.prochaine_action||"").toLowerCase().includes(q2)));
+    if (state._pipeView === "kanban") renderKanban(body, r2);
+    else renderPipeTable(body, r2.filter(p=>!state._pipeEtape || p.etape===state._pipeEtape).sort((a,b)=>pondere(b)-pondere(a)));
+  });
+  if (isManager()) $("#pi-cons")?.addEventListener("change", e=>{ state._pipeCons = e.target.value; render(); });
+  $("#pi-etape")?.addEventListener("change", e=>{ state._pipeEtape = e.target.value; render(); });
+}
+
+function kcardHTML(p){
+  return `<div class="kcard" draggable="true" data-kid="${p.id}" title="Glisser pour changer d'étape — cliquer pour modifier">
+    <div class="kclient"><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span>
+      <span class="kc-name">${esc(p.client||"(sans nom)")}</span>
+      <span class="kpond">${eur(pondere(p))}</span></div>
+    <div class="kmeta"><span class="tag">${esc(p.support)}</span><span>${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</span>
+      ${p.signature_probable? `<span class="ksig">SIGNATURE ?</span>`:""}</div>
+    ${p.prochaine_action? `<div class="kmeta" style="margin-top:4px">→ ${esc(p.prochaine_action)}</div>`:""}
+  </div>`;
+}
+function renderKanban(body, rows){
+  body.innerHTML = `<div class="kanban">${ETAPES.map(et=>{
+    const items = rows.filter(p=>p.etape===et).sort((a,b)=>pondere(b)-pondere(a));
+    const tot = items.reduce((a,p)=>a+pondere(p),0);
+    return `<div class="kcol" data-etape="${esc(et)}">
+      <div class="kcol-head"><b>${esc(et)}</b><span class="kcount">${items.length}</span><span class="ktotal">${eur(tot)}</span></div>
+      <div class="kcol-cards">${items.map(kcardHTML).join("")}</div>
+      <button class="kcol-add" data-addcol="${esc(et)}">+ ajouter ici</button>
+    </div>`;}).join("")}</div>`;
+
+  body.querySelectorAll(".kcard").forEach(card=>{
+    card.addEventListener("click", ()=>pipeModal(state.pipeline.find(p=>p.id===+card.dataset.kid)));
+    card.addEventListener("dragstart", e=>{
+      e.dataTransfer.setData("text/plain", card.dataset.kid);
+      e.dataTransfer.effectAllowed = "move";
+      card.classList.add("dragging");
+    });
+    card.addEventListener("dragend", ()=>card.classList.remove("dragging"));
+  });
+  body.querySelectorAll(".kcol").forEach(col=>{
+    col.addEventListener("dragover", e=>{ e.preventDefault(); e.dataTransfer.dropEffect="move"; col.classList.add("dragover"); });
+    col.addEventListener("dragleave", ()=>col.classList.remove("dragover"));
+    col.addEventListener("drop", async e=>{
+      e.preventDefault(); col.classList.remove("dragover");
+      const id = +e.dataTransfer.getData("text/plain");
+      const p = state.pipeline.find(x=>x.id===id);
+      const newEtape = col.dataset.etape;
+      if (!p || p.etape === newEtape) return;
+      try{
+        const upd = {...p, etape:newEtape};
+        if (newEtape === "Signé" && !(+p.probabilite === 1) && confirm("Passer la probabilité à 100 % puisque c'est signé ?")) upd.probabilite = 1;
+        await state.db.savePipeline(upd);
+        await state.db.loadAll(); toast(`${p.client||"Opportunité"} → ${newEtape} ✓`); render();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+  });
+  body.querySelectorAll("[data-addcol]").forEach(b=>b.addEventListener("click", ()=>pipeModal(null, b.dataset.addcol)));
+}
+function renderPipeTable(body, rows){
+  body.innerHTML = `<div class="card tbl-scroll"><table class="tbl dense">
+    <thead><tr><th>Conseiller</th><th>Client</th><th>Support</th><th>Étape</th>
+    <th class="num">Collecte pot.</th><th class="num">CA pot.</th><th class="num">Proba.</th><th class="num">Pondéré</th>
+    <th>Closing</th><th>Priorité</th><th>Prochaine action</th><th>Sign.</th><th></th></tr></thead>
+    <tbody>${rows.map(p=>`<tr>
+      <td><span class="cdot" style="background:${consColor(p.conseiller_id)}"></span>${esc(consName(p.conseiller_id))}</td>
+      <td><b>${esc(p.client)}</b></td><td>${esc(p.support)}</td>
+      <td>${(p.etape||"").toLowerCase()==="signé" ? `<span class="badge ok"><span class="dot"></span>✓ Signé</span>` : esc(p.etape)}</td>
+      <td class="num">${eur(p.collecte_potentielle)}</td><td class="num">${eur(p.ca_potentiel)}</td>
+      <td class="num">${fmtPct(p.probabilite||0)}</td><td class="num"><b>${eur(pondere(p))}</b></td>
+      <td>${p.closing_prevu? new Date(p.closing_prevu).toLocaleDateString("fr-FR") : "—"}</td>
+      <td>${esc(p.priorite||"—")}</td><td style="white-space:normal;min-width:150px">${esc(p.prochaine_action||"")}</td>
+      <td>${p.signature_probable? `<span class="badge watch"><span class="dot"></span>! Oui</span>`:"—"}</td>
+      <td class="rowactions"><button class="btn secondary small" data-edit="${p.id}">Modifier</button>
+          <button class="btn danger small" data-del="${p.id}">✕</button></td>
+    </tr>`).join("") || `<tr><td colspan="13" class="empty">Aucune opportunité</td></tr>`}</tbody>
+  </table></div>`;
+  body.querySelectorAll("[data-edit]").forEach(b=>b.addEventListener("click", ()=>pipeModal(state.pipeline.find(p=>p.id===+b.dataset.edit))));
+  body.querySelectorAll("[data-del]").forEach(b=>b.addEventListener("click", async ()=>{
     if (!confirm("Supprimer cette opportunité ?")) return;
     try{ await state.db.deletePipeline(+b.dataset.del); await state.db.loadAll(); toast("Opportunité supprimée"); render(); }
     catch(err){ toast("Erreur : " + (err.message||err)); }
   }));
 }
 
-function pipeModal(p){
+function pipeModal(p, etapeInit){
   const isNew = !p;
   p = p || {conseiller_id: isManager()? activeConseillers()[0]?.id : state.profile.conseiller_id,
-            client:"", support:"SCPI", etape:"Prise de contact", collecte_potentielle:0, ca_potentiel:0,
+            client:"", support:"SCPI", etape:etapeInit||"Prise de contact", collecte_potentielle:0, ca_potentiel:0,
             probabilite:0.5, closing_prevu:null, priorite:"Moyenne", prochaine_action:"", signature_probable:false};
   const back = document.createElement("div");
   back.className = "modal-back";
@@ -911,6 +1279,7 @@ function pipeModal(p){
       <label class="fld full"><span><input type="checkbox" id="pm-sig" ${p.signature_probable?"checked":""} style="width:auto;margin-right:8px">Signature probable cette semaine</span></label>
     </div>
     <div class="modal-actions">
+      ${!isNew? `<button class="btn danger" id="pm-del" style="margin-right:auto">Supprimer</button>`:""}
       <button class="btn secondary" id="pm-cancel">Annuler</button>
       <button class="btn" id="pm-save">Enregistrer</button>
     </div>
@@ -921,6 +1290,11 @@ function pipeModal(p){
   back.querySelector("#pm-proba").addEventListener("change", updPond);
   back.querySelector("#pm-cancel").addEventListener("click", ()=>back.remove());
   back.addEventListener("click", e=>{ if(e.target===back) back.remove(); });
+  back.querySelector("#pm-del")?.addEventListener("click", async ()=>{
+    if (!confirm("Supprimer cette opportunité ?")) return;
+    try{ await state.db.deletePipeline(p.id); back.remove(); await state.db.loadAll(); toast("Opportunité supprimée"); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
   back.querySelector("#pm-save").addEventListener("click", async ()=>{
     try{
       await state.db.savePipeline({
@@ -941,7 +1315,6 @@ function pipeModal(p){
     }catch(err){ toast("Erreur : " + (err.message||err)); }
   });
 }
-
 
 /* ---------------- Fiche conseiller ---------------- */
 function viewFiche(root){
@@ -965,48 +1338,42 @@ function viewFiche(root){
   ];
 
   root.innerHTML = `
-  <div class="section-head"><h2>${isManager()? "Fiche conseiller" : "Ma semaine"} — ${esc(c.nom)}</h2>
-    <span class="spacer"></span>
-    <div class="inline-controls">
-      ${isManager()? consSelector("fi-cons", consId) : ""}
-      ${weekSelector("fi-week")}
-    </div>
-  </div>
+  ${vhead(`<span class="cdot" style="background:${consColor(consId)};width:12px;height:12px"></span> ${isManager()? "Fiche — " : "Ma semaine — "}${esc(c.nom)} &nbsp;${badgeHTML(al)}`,
+    "", `${isManager()? `<label class="fld" style="margin:0;min-width:140px"><select id="fi-cons">
+      ${list.map(x=>`<option value="${x.id}" ${x.id===consId?"selected":""}>${esc(x.nom)}</option>`).join("")}</select></label>`:""}
+    ${weekNavHTML()}
+    <button class="btn secondary" id="fi-export">${ICONS.dl} Exporter</button>`)}
+
   <div class="tiles">
-    ${tile("RDV", `${fmtNum.format(w.rdv)} <span class="small muted">/ ${fmtNum.format(c.objectif_rdv_hebdo||0)}</span>`)}
-    ${tile("CA total", eur2(w.ca_total), `Objectif : ${eur(c.objectif_ca_hebdo)}`)}
+    ${tile("RDV", `${fmtNum.format(w.rdv)} <span class="small muted">/ ${fmtNum.format(c.objectif_rdv_hebdo||0)}</span>`, "", c.objectif_rdv_hebdo? w.rdv/c.objectif_rdv_hebdo:0)}
+    ${tile("CA total", eur2(w.ca_total), `Objectif : ${eur(c.objectif_ca_hebdo)}`, c.objectif_ca_hebdo? w.ca_total/c.objectif_ca_hebdo:0)}
     ${tile("Collecte", eur(w.collecte_totale))}
-    ${tile("Pipeline pondéré", eur(p.pond))}
-    ${tile("Projection", eur(proj), badgeHTML(al))}
+    ${tile("Pipeline pondéré", eur(p.pond), `${p.count} opportunités`)}
+    ${tile("Projection", eur(proj), "CA + pondéré − signé")}
     ${tile("CA / RDV", eur(w.rdv? w.ca_total/w.rdv : 0))}
     ${tile("Signatures probables", p.sigProb, "dans le pipeline")}
   </div>
 
-  <div class="row" style="margin-top:16px">
-    <div class="card grow">
-      <h3 class="mt0">Répartition CA par support — ${esc(state.week)}</h3>
-      <div id="fi-mix"></div>
-    </div>
-    <div class="card grow">
-      <h3 class="mt0">Points à challenger</h3>
+  <div class="row sect">
+    <div class="card grow"><h3 class="mt0">Répartition CA par support — ${esc(state.week)}</h3><div id="fi-mix"></div></div>
+    <div class="card grow"><h3 class="mt0">Points à challenger</h3>
       <ol class="challenge">
         <li>Quels dossiers doivent signer cette semaine ?</li>
         <li>Quel blocage empêche la signature ?</li>
         <li>Quelle action concrète d'ici la prochaine réunion ?</li>
-      </ol>
-    </div>
+      </ol></div>
   </div>
 
-  <div class="section-head"><h2>Progression cumulée</h2>
+  <div class="sect sect-head"><h2>Progression cumulée</h2>
     <span class="sub">depuis ${esc(state.semaines[0]?.code||"")} (${cu.nSemaines} semaines)</span></div>
   <div class="tiles">
     ${tile("RDV cumulés", fmtNum.format(cu.rdv))}
-    ${tile("CA cumulé", eur2(cu.ca), `Objectif : ${eur(cu.objCA)} — ${cu.objCA? fmtPct(cu.ca/cu.objCA):"—"}`)}
-    ${tile("Collecte cumulée", eur(cu.collecte), `Objectif : ${eur(cu.objCollecte)} — ${cu.objCollecte? fmtPct(cu.collecte/cu.objCollecte):"—"}`)}
-    ${tile("Projection à date", eur(cu.ca + p.pond - p.signe), "CA cumulé + pipeline pondéré − signé")}
+    ${tile("CA cumulé", eur2(cu.ca), `Objectif : ${eur(cu.objCA)} — ${cu.objCA? fmtPct(cu.ca/cu.objCA):"—"}`, cu.objCA? cu.ca/cu.objCA:0)}
+    ${tile("Collecte cumulée", eur(cu.collecte), `Objectif : ${eur(cu.objCollecte)} — ${cu.objCollecte? fmtPct(cu.collecte/cu.objCollecte):"—"}`, cu.objCollecte? cu.collecte/cu.objCollecte:0)}
+    ${tile("Projection à date", eur(cu.ca + p.pond - p.signe), "CA cumulé + pondéré − signé")}
   </div>
 
-  <div class="row" style="margin-top:16px">
+  <div class="row sect">
     <div class="card grow chart-card"><h3 class="mt0">CA cumulé vs objectif</h3><div id="fi-chart"></div></div>
     <div class="card grow">
       <h3 class="mt0">Historique hebdomadaire</h3>
@@ -1025,14 +1392,62 @@ function viewFiche(root){
     {name:"Objectif", color:"var(--s2)", values:serie.map(r=>r.cumObj), dashed:true},
   ]});
   if (isManager()) $("#fi-cons").addEventListener("change", e=>{ state.ficheConseillerId = +e.target.value; render(); });
-  $("#fi-week").addEventListener("change", e=>{ state.week = e.target.value; render(); });
+  bindWeekNav();
+  $("#fi-export").addEventListener("click", exportXLSX);
+}
+
+/* ---------------- Progression annuelle (manager) ---------------- */
+function viewProgression(root){
+  const serie = teamSeries(state.week);
+  const last = serie[serie.length-1] || {cumCA:0,cumObjCA:0,cumColl:0,cumObjColl:0,tauxCA:0,tauxColl:0};
+  root.innerHTML = `
+  ${vhead("Progression annuelle de l'équipe", `cumul depuis ${esc(state.semaines[0]?.code||"")}`, `${weekNavHTML()}
+    <button class="btn secondary" id="prog-export">${ICONS.dl} Exporter</button>`)}
+  <div class="tiles">
+    ${tile("CA cumulé", eur(last.cumCA), `Objectif : ${eur(last.cumObjCA)}`, last.tauxCA)}
+    ${tile("Taux d'atteinte CA", fmtPct(last.tauxCA), last.tauxCA>=1?`<span class="up">✓ au-dessus de l'objectif</span>`:`<span class="down">sous l'objectif</span>`)}
+    ${tile("Collecte cumulée", eur(last.cumColl), `Objectif : ${eur(last.cumObjColl)}`, last.tauxColl)}
+    ${tile("Taux d'atteinte collecte", fmtPct(last.tauxColl), last.tauxColl>=1?`<span class="up">✓ au-dessus de l'objectif</span>`:`<span class="down">sous l'objectif</span>`)}
+  </div>
+  <div class="row sect">
+    <div class="card grow chart-card"><h3 class="mt0">CA cumulé vs objectif</h3><div id="chart-ca"></div></div>
+    <div class="card grow chart-card"><h3 class="mt0">Collecte cumulée vs objectif</h3><div id="chart-coll"></div></div>
+  </div>
+  <div class="sect sect-head"><h2>Détail par semaine</h2>
+    <button class="btn secondary small" id="prog-toggle">Afficher le tableau</button></div>
+  <div class="card tbl-scroll" id="prog-table" style="display:none">
+    <table class="tbl">
+      <thead><tr><th>Semaine</th><th class="num">CA hebdo</th><th class="num">CA cumulé</th><th class="num">Obj. cumulé</th><th class="num">Taux</th>
+      <th class="num">Collecte hebdo</th><th class="num">Collecte cumulée</th><th class="num">Obj. cumulé</th><th class="num">Taux</th></tr></thead>
+      <tbody>${serie.map(r=>`<tr><td>${esc(r.week)}</td>
+        <td class="num">${eur(r.ca)}</td><td class="num">${eur(r.cumCA)}</td><td class="num">${eur(r.cumObjCA)}</td><td class="num">${fmtPct(r.tauxCA)}</td>
+        <td class="num">${eur(r.coll)}</td><td class="num">${eur(r.cumColl)}</td><td class="num">${eur(r.cumObjColl)}</td><td class="num">${fmtPct(r.tauxColl)}</td>
+      </tr>`).join("")}</tbody>
+    </table>
+  </div>`;
+
+  const labels = serie.map(r=>r.week);
+  lineChart($("#chart-ca"), {labels, series:[
+    {name:"Réalisé", color:"var(--s1)", values:serie.map(r=>r.cumCA)},
+    {name:"Objectif", color:"var(--s2)", values:serie.map(r=>r.cumObjCA), dashed:true},
+  ]});
+  lineChart($("#chart-coll"), {labels, series:[
+    {name:"Réalisé", color:"var(--s1)", values:serie.map(r=>r.cumColl)},
+    {name:"Objectif", color:"var(--s2)", values:serie.map(r=>r.cumObjColl), dashed:true},
+  ]});
+  bindWeekNav();
+  $("#prog-export").addEventListener("click", exportXLSX);
+  $("#prog-toggle").addEventListener("click", ()=>{
+    const t = $("#prog-table"); const vis = t.style.display !== "none";
+    t.style.display = vis? "none":""; $("#prog-toggle").textContent = vis? "Afficher le tableau" : "Masquer le tableau";
+  });
 }
 
 /* ---------------- Paramétrage (manager) ---------------- */
 function viewParam(root){
   const lastSem = [...state.semaines].sort((a,b)=>wcmp(a.code,b.code)).slice(-1)[0];
   root.innerHTML = `
-  <div class="section-head"><h2>Paramétrage</h2></div>
+  ${vhead("Paramétrage","objectifs, calendrier et accès")}
   <div class="row">
     <div class="card grow">
       <h3 class="mt0">Conseillers et objectifs hebdomadaires</h3>
@@ -1040,7 +1455,7 @@ function viewParam(root){
         <thead><tr><th>Conseiller</th><th class="num">Obj. CA (€)</th><th class="num">Obj. collecte (€)</th><th class="num">Obj. RDV</th><th>Actif</th><th></th></tr></thead>
         <tbody>
         ${state.conseillers.map(c=>`<tr data-cid="${c.id}">
-          <td><input type="text" class="pc-nom" value="${esc(c.nom)}" style="width:130px"></td>
+          <td><span class="cdot" style="background:${consColor(c.id)}"></span><input type="text" class="pc-nom" value="${esc(c.nom)}" style="width:120px"></td>
           <td class="num"><input type="number" class="pc-ca" value="${c.objectif_ca_hebdo||0}" style="width:100px"></td>
           <td class="num"><input type="number" class="pc-coll" value="${c.objectif_collecte_hebdo||0}" style="width:110px"></td>
           <td class="num"><input type="number" class="pc-rdv" value="${c.objectif_rdv_hebdo||0}" style="width:70px"></td>
@@ -1050,22 +1465,21 @@ function viewParam(root){
         </tbody>
       </table></div>
       <div style="margin-top:12px"><button class="btn secondary small" id="pc-add">+ Ajouter un conseiller</button></div>
-      <p class="small muted">Un conseiller désactivé n'apparaît plus dans le dashboard ni dans les formulaires, mais son historique est conservé.</p>
+      <p class="small muted">Un conseiller désactivé n'apparaît plus dans les écrans, son historique est conservé.</p>
     </div>
-    <div class="card" style="width:360px;max-width:100%">
+    <div class="card" style="width:340px;max-width:100%">
       <h3 class="mt0">Calendrier des semaines</h3>
-      <p class="small">${state.semaines.length} semaines paramétrées, de <b>${esc(state.semaines[0]?.code||"—")}</b> à <b>${esc(lastSem?.code||"—")}</b>.</p>
+      <p class="small">${state.semaines.length} semaines, de <b>${esc(state.semaines[0]?.code||"—")}</b> à <b>${esc(lastSem?.code||"—")}</b>.</p>
       <button class="btn secondary small" id="ps-add">+ Ajouter 12 semaines</button>
     </div>
   </div>
 
-  <div class="section-head"><h2>Comptes et accès</h2></div>
+  <div class="sect sect-head"><h2>Comptes et accès</h2></div>
   <div class="card">
     <div class="helpbox" style="margin-bottom:12px">
-      <b>Comment ça marche :</b> chaque collaborateur se connecte avec un email + mot de passe.
-      Le compte de connexion se crée dans <b>Supabase &gt; Authentication &gt; Users &gt; Add user</b> (voir le guide).
-      Le tableau ci-dessous associe chaque email à un rôle (manager ou conseiller) et à sa fiche conseiller —
-      c'est lui qui décide de ce que la personne peut voir.
+      Chaque collaborateur se connecte avec un email + mot de passe. Le compte se crée dans
+      <b>Supabase → Authentication → Users → Add user</b>. Le tableau ci-dessous relie chaque email à un rôle
+      et à sa fiche conseiller — c'est lui qui décide de ce que la personne voit.
     </div>
     <div class="tbl-scroll"><table class="tbl">
       <thead><tr><th>Email de connexion</th><th>Rôle</th><th>Conseiller associé</th><th></th></tr></thead>
@@ -1148,12 +1562,12 @@ function viewParam(root){
    Navigation + rendu
    ================================================================ */
 const VIEWS = {
-  dashboard:{label:"Dashboard", fn:viewDashboard, manager:true},
-  saisie:{label:"Saisie hebdo", fn:viewSaisie},
-  pipeline:{label:"Pipeline", fn:viewPipeline},
-  fiche:{label:"Fiches", fn:viewFiche},
-  progression:{label:"Progression", fn:viewProgression, manager:true},
-  param:{label:"Paramétrage", fn:viewParam, manager:true},
+  dashboard:{label:"Dashboard", icon:ICONS.dash, fn:viewDashboard, manager:true},
+  saisie:{label:"Saisie hebdo", icon:ICONS.edit, fn:viewSaisie},
+  pipeline:{label:"Pipeline", icon:ICONS.funnel, fn:viewPipeline},
+  fiche:{label:"Fiches", icon:ICONS.user, fn:viewFiche},
+  progression:{label:"Progression", icon:ICONS.chart, fn:viewProgression, manager:true},
+  param:{label:"Paramétrage", icon:ICONS.gear, fn:viewParam, manager:true},
 };
 function allowedViews(){
   return Object.entries(VIEWS).filter(([k,v]) => isManager() || !v.manager)
@@ -1169,24 +1583,29 @@ function render(){
   if (!views.some(([k])=>k===state.view)) state.view = views[0][0];
 
   app.innerHTML = `
-    <div class="topbar">
-      <span class="brand">ELIGI<small>Pilotage commercial</small></span>
-      <nav class="nav">${views.map(([k,v])=>`<button data-nav="${k}" class="${k===state.view?"active":""}">${v.label}</button>`).join("")}</nav>
-      <span class="spacer"></span>
-      <span class="userchip">
-        <b>${esc(myConseiller()?.nom || state.profile.email)}</b>
-        <span class="rolepill">${state.profile.role==="manager"?"Manager":"Conseiller"}</span>
-        <button class="linklike" id="logout">Déconnexion</button>
-      </span>
-    </div>
-    <div class="wrap" id="view"></div>`;
+  <div class="layout">
+    <aside class="sidebar">
+      <div class="logo">ELIGI<small>Pilotage commercial</small></div>
+      <nav class="snav">${views.map(([k,v])=>`<button data-nav="${k}" class="${k===state.view?"active":""}">${v.icon}<span class="nav-label">${v.label}</span></button>`).join("")}</nav>
+      <div class="side-bottom">
+        <button class="theme-btn" id="theme-toggle" title="Changer de thème">${ICONS.sun}<span class="nav-label">Thème</span></button>
+        <div class="user-mini">
+          <b>${esc(myConseiller()?.nom || state.profile.email)}</b>
+          <span>${state.profile.role==="manager"?"Manager":"Conseiller"}</span><br>
+          <button id="logout">Déconnexion</button>
+        </div>
+      </div>
+    </aside>
+    <main class="main" id="view"></main>
+  </div>`;
   app.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click", ()=>go(b.dataset.nav)));
   $("#logout").addEventListener("click", logout);
+  $("#theme-toggle").addEventListener("click", cycleTheme);
   VIEWS[state.view].fn($("#view"));
 }
 
 /* ================================================================
-   Authentification
+   Authentification + démarrage
    ================================================================ */
 function renderLogin(app){
   const demo = !!CFG.DEMO;
@@ -1194,8 +1613,7 @@ function renderLogin(app){
   <div class="login-shell"><div class="card login-card">
     <div class="brandbig">ELIGI</div>
     <div class="sub">Pilotage commercial hebdomadaire</div>
-    ${demo? `<div class="demo-note"><b>Mode démo</b> — l'application tourne avec les données reprises de
-      l'Excel, sans base de données. Choisis un profil pour explorer :</div>
+    ${demo? `<div class="demo-note"><b>Mode démo</b> — données d'exemple, sans base. Choisis un profil :</div>
       <div style="display:flex;flex-direction:column;gap:8px" id="demo-btns"></div>`
     : `<label class="fld"><span>Email</span><input type="email" id="lg-email" autocomplete="username"></label>
       <label class="fld"><span>Mot de passe</span><input type="password" id="lg-pass" autocomplete="current-password"></label>
@@ -1227,7 +1645,6 @@ function renderLogin(app){
         const {error} = await state.authClient.auth.signInWithPassword({
           email:$("#lg-email").value.trim(), password:$("#lg-pass").value});
         if (error) throw error;
-        // onAuthStateChange prend le relais
       }catch(err){
         $("#lg-err").textContent = /credential/i.test(err.message||"")? "Email ou mot de passe incorrect." : "Erreur : "+(err.message||err);
         btn.disabled = false;
@@ -1240,6 +1657,7 @@ function renderLogin(app){
 
 async function onSignedIn(session){
   try{
+    $("#app").innerHTML = `<div class="loader"><span class="spinner"></span>Chargement des données…</div>`;
     const email = session.user.email;
     const {data, error} = await state.authClient.from("profiles").select("*");
     if (error) throw error;
@@ -1247,8 +1665,8 @@ async function onSignedIn(session){
     if (!prof){
       $("#app").innerHTML = `<div class="login-shell"><div class="card login-card">
         <h3>Compte non configuré</h3>
-        <p class="small">Le compte <b>${esc(email)}</b> existe mais n'est associé à aucun profil
-        dans l'application. Demande au manager de t'ajouter dans Paramétrage &gt; Comptes et accès.</p>
+        <p class="small">Le compte <b>${esc(email)}</b> n'est associé à aucun profil.
+        Demande au manager de t'ajouter dans Paramétrage → Comptes et accès.</p>
         <button class="btn secondary" id="back">Retour</button></div></div>`;
       $("#back").addEventListener("click", logout);
       return;
@@ -1269,12 +1687,11 @@ async function logout(){
   if (!CFG.DEMO && state.authClient) await state.authClient.auth.signOut();
   state.profile = null; state.week = null; state.view = null;
   state.conseillers=[]; state.saisies=[]; state.pipeline=[]; state.profiles=[];
+  state._pipeView = undefined; state._pipeCons = undefined; state._pipeEtape = ""; state._pipeSearch = "";
+  state.ficheConseillerId = null; state.saisieConseillerId = null;
   render();
 }
 
-/* ================================================================
-   Démarrage
-   ================================================================ */
 (function boot(){
   if (CFG.DEMO){
     state.db = new DemoDB();
@@ -1284,9 +1701,8 @@ async function logout(){
   if (!window.supabase || !CFG.SUPABASE_URL || CFG.SUPABASE_URL.includes("TON-PROJET")){
     $("#app").innerHTML = `<div class="login-shell"><div class="card login-card">
       <h3>Configuration requise</h3>
-      <p class="small">Ouvre le fichier <b>config.js</b> et renseigne SUPABASE_URL et
-      SUPABASE_ANON_KEY (voir le guide d'installation), ou remets DEMO à true pour tester sans base.</p>
-    </div></div>`;
+      <p class="small">Renseigne SUPABASE_URL et SUPABASE_ANON_KEY dans <b>config.js</b>
+      (voir le guide), ou remets DEMO à true pour tester sans base.</p></div></div>`;
     return;
   }
   const client = window.supabase.createClient(CFG.SUPABASE_URL, CFG.SUPABASE_ANON_KEY);
