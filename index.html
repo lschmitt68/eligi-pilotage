@@ -4,6 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>ELIGI — Pilotage commercial</title>
+<link rel="icon" type="image/png" href="favicon.png">
 <style>
 /* ============ Tokens (palette validée, clair + sombre) ============ */
 :root{
@@ -265,7 +266,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .cli-detail td{background:color-mix(in srgb, var(--surface-2) 45%, transparent)}
 .reminder{border-left:4px solid var(--warn); display:flex; align-items:center; gap:12px; padding:11px 16px; margin-bottom:14px; flex-wrap:wrap}
 .ksleep{color:var(--muted); font-weight:700; font-size:10.5px}
+.print-head{display:none}
 @media print{
+  .print-head{display:flex; align-items:center; gap:14px; margin-bottom:14px; border-bottom:1px solid #ccc; padding-bottom:10px}
+  .print-head img{width:110px}
   .sidebar,.weeknav,.btn,.toast,.viz-tooltip{display:none !important}
   .main{padding:0; max-width:none}
   body{background:#fff}
@@ -358,7 +362,7 @@ const pondere = p => (p.ca_potentiel||0) * (p.probabilite||0);
 /* ---------------- État global ---------------- */
 const state = {
   profile:null,       // {email, role, conseiller_id}
-  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[],
+  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[], clientsInfos:[],
   week:null,          // semaine suivie (équivalent Dashboard!B3)
   view:null,
   ficheConseillerId:null,
@@ -538,7 +542,7 @@ function stripComputedPipe(p){
 class SupaDB {
   constructor(client){ this.c = client; }
   async loadAll(){
-    const [co, se, sa, pi, pr, ab, os, ac, va, pe] = await Promise.all([
+    const [co, se, sa, pi, pr, ab, os, ac, va, pe, ci] = await Promise.all([
       this.c.from("conseillers").select("*").order("id"),
       this.c.from("semaines").select("*").order("lundi"),
       this.c.from("saisies").select("*"),
@@ -549,12 +553,20 @@ class SupaDB {
       this.c.from("actions").select("*").order("id"),
       this.c.from("semaines_validees").select("*"),
       this.c.from("pipeline_events").select("*").order("id"),
+      this.c.from("clients_infos").select("*"),
     ]);
-    for (const r of [co,se,sa,pi,pr,ab,os,ac,va,pe]) if (r.error) throw r.error;
+    for (const r of [co,se,sa,pi,pr,ab,os,ac,va,pe,ci]) if (r.error) throw r.error;
     state.conseillers = co.data; state.semaines = se.data;
     state.saisies = sa.data; state.pipeline = pi.data; state.profiles = pr.data;
     state.absences = ab.data; state.objSemaine = os.data;
     state.actions = ac.data; state.validations = va.data; state.pipeEvents = pe.data;
+    state.clientsInfos = ci.data;
+  }
+  async saveClientInfo(info){
+    const {error} = await this.c.from("clients_infos").upsert(
+      {client_key:info.client_key, statut:info.statut, origine:info.origine, notes:info.notes, maj_le:new Date().toISOString()},
+      {onConflict:"client_key"});
+    if (error) throw error;
   }
   async saveAction(a){
     const row = {conseiller_id:a.conseiller_id, texte:a.texte, echeance:a.echeance||null, semaine:a.semaine||null, fait:!!a.fait};
@@ -659,6 +671,7 @@ class DemoDB {
     this.objSemaine = []; this.actions = []; this.validations = [];
     this.pipeEvents = this.pipeline.map(p=>({id:this._id++, pipeline_id:p.id, conseiller_id:p.conseiller_id,
       client:p.client, de_etape:null, vers_etape:p.etape, quand:p.updated_at}));
+    this.clientsInfos = [];
     this.absences = (D.absences||[]).map(a=>({id:this._id++, conseiller_id:byName[a.conseiller], semaine:wkey(a.semaine)}));
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
@@ -679,6 +692,13 @@ class DemoDB {
     state.actions = this.actions.filter(a=>this._mine(a.conseiller_id)).map(a=>({...a}));
     state.validations = this.validations.map(v=>({...v}));
     state.pipeEvents = this.pipeEvents.filter(e=>this._mine(e.conseiller_id)).map(e=>({...e}));
+    state.clientsInfos = this.clientsInfos.map(c=>({...c}));
+  }
+  async saveClientInfo(info){
+    const i = this.clientsInfos.findIndex(c=>c.client_key===info.client_key);
+    const row = {client_key:info.client_key, statut:info.statut, origine:info.origine, notes:info.notes, maj_le:new Date().toISOString()};
+    if (i>=0) Object.assign(this.clientsInfos[i], row);
+    else this.clientsInfos.push({id:this._id++, ...row});
   }
   async saveAction(a){
     if (!this._mine(a.conseiller_id)) throw new Error("Accès refusé");
@@ -1835,6 +1855,8 @@ function viewProgression(root){
 
 /* ---------------- Clients (regroupement du pipeline) ---------------- */
 function viewClients(root){
+  const STATUTS = ["Prospect","Client","Inactif"];
+  const ORIGINES = ["","Recommandation","Famille / proche","Partenaire","Salon / événement","Site web","Autre"];
   const q = (state._cliSearch||"").toLowerCase();
   const groups = {};
   for (const p of state.pipeline){
@@ -1849,21 +1871,27 @@ function viewClients(root){
     g.coll = g.rows.reduce((a,p)=>a+(+p.collecte_potentielle||0),0);
     g.relance = aRelancer(g.rows).length;
     g.cons = [...new Set(g.rows.map(p=>p.conseiller_id))];
+    g.info = state.clientsInfos.find(ci=>ci.client_key===g.key) || {statut:"Prospect", origine:"", notes:""};
+    g.dernier = g.rows.reduce((a,p)=>Math.max(a, new Date(p.updated_at||p.created_at||0).getTime()), 0);
   }
   list.sort((a,b)=>b.pond-a.pond);
+  const statutBadge = s => s==="Client"? `<span class="badge ok"><span class="dot"></span>Client</span>`
+    : s==="Inactif"? `<span class="badge neutral"><span class="dot"></span>Inactif</span>`
+    : `<span class="badge"><span class="dot" style="background:var(--s1)"></span>Prospect</span>`;
 
   root.innerHTML = `
-  ${vhead("Clients", `${list.length} client(s) — regroupés depuis le pipeline`)}
+  ${vhead("Clients", `${list.length} client(s) — fiche partagée par le cabinet`)}
   <div class="inline-controls" style="margin-bottom:12px">
     <label class="fld" style="min-width:240px"><span>Recherche</span>
       <input type="search" id="cli-search" placeholder="nom du client…" value="${esc(state._cliSearch||"")}"></label>
   </div>
   <div class="card tbl-scroll"><table class="tbl">
-    <thead><tr><th>Client</th><th>Conseiller(s)</th><th class="num">Dossiers</th>
-    <th class="num">Collecte potentielle</th><th class="num">Pondéré total</th><th class="num">Dont signé</th><th>À relancer</th></tr></thead>
+    <thead><tr><th>Client</th><th>Statut</th><th>Conseiller(s)</th><th class="num">Dossiers</th>
+    <th class="num">Collecte pot.</th><th class="num">Pondéré</th><th class="num">Dont signé</th><th>À relancer</th></tr></thead>
     <tbody>${list.map((g,i)=>`
-      <tr class="clickable cli-row" data-i="${i}" title="Voir les dossiers">
+      <tr class="clickable cli-row" data-key="${esc(g.key)}" title="Ouvrir la fiche client">
         <td><b>${esc(g.name)}</b></td>
+        <td>${statutBadge(g.info.statut)}</td>
         <td>${g.cons.map(id=>`<span class="cdot" style="background:${consColor(id)}" title="${esc(consName(id))}"></span>`).join("")}</td>
         <td class="num">${g.rows.length}</td>
         <td class="num">${eur(g.coll)}</td>
@@ -1871,29 +1899,56 @@ function viewClients(root){
         <td class="num">${eur(g.signe)}</td>
         <td>${g.relance? `<span class="badge watch"><span class="dot"></span>! ${g.relance}</span>`:"—"}</td>
       </tr>
-      <tr class="cli-detail" data-for="${i}" style="display:none"><td colspan="7">
-        <table class="tbl dense" style="margin:4px 0">
-          <tbody>${g.rows.sort((a,b)=>pondere(b)-pondere(a)).map(p=>`<tr class="clickable cli-op" data-id="${p.id}">
-            <td><span class="cdot" style="background:${consColor(p.conseiller_id)}"></span>${esc(consName(p.conseiller_id))}</td>
-            <td>${esc(p.support)}</td>
-            <td>${(p.etape||"").toLowerCase()==="signé"? `<span class="badge ok"><span class="dot"></span>✓ Signé</span>` : esc(p.etape)}</td>
-            <td class="num">${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</td>
-            <td class="num"><b>${eur(pondere(p))}</b></td>
-            <td>${isOverdue(p)? "⏰ closing dépassé" : isStale(p)? `💤 ${staleDays(p)} j`:""}</td>
-            <td>${esc(p.prochaine_action||"")}</td>
-          </tr>`).join("")}</tbody>
-        </table>
-      </td></tr>`).join("") || `<tr><td colspan="7" class="empty">Aucun client</td></tr>`}</tbody>
+      <tr class="cli-detail" data-for="${esc(g.key)}" style="display:${state._cliOpen===g.key? "":"none"}"><td colspan="8">
+        <div class="row" style="margin:8px 0 10px">
+          <div class="card" style="flex:1;min-width:300px">
+            <h3 class="mt0">Fiche client — ${esc(g.name)}</h3>
+            <div class="inline-controls">
+              <label class="fld"><span>Statut</span><select class="ci-statut">${STATUTS.map(s=>`<option ${s===g.info.statut?"selected":""}>${s}</option>`).join("")}</select></label>
+              <label class="fld"><span>Origine du contact</span><select class="ci-origine">${ORIGINES.map(o=>`<option value="${o}" ${o===g.info.origine?"selected":""}>${o||"—"}</option>`).join("")}</select></label>
+              <span class="small muted" style="padding-bottom:9px">Dernier mouvement : ${g.dernier? new Date(g.dernier).toLocaleDateString("fr-FR"):"—"}${g.info.maj_le? ` · fiche mise à jour le ${new Date(g.info.maj_le).toLocaleDateString("fr-FR")}`:""}</span>
+            </div>
+            <label class="fld"><span>Notes du cabinet (visibles par toute l'équipe)</span>
+              <textarea class="ci-notes" rows="3" placeholder="contexte, famille, préférences, points d'attention…">${esc(g.info.notes||"")}</textarea></label>
+            <button class="btn small ci-save" data-key="${esc(g.key)}">Enregistrer la fiche</button>
+          </div>
+          <div class="card grow tbl-scroll">
+            <h3 class="mt0">Dossiers</h3>
+            <table class="tbl dense"><tbody>${g.rows.sort((a,b)=>pondere(b)-pondere(a)).map(p=>`<tr class="clickable cli-op" data-id="${p.id}">
+              <td><span class="cdot" style="background:${consColor(p.conseiller_id)}"></span>${esc(consName(p.conseiller_id))}</td>
+              <td>${esc(p.support)}</td>
+              <td>${(p.etape||"").toLowerCase()==="signé"? `<span class="badge ok"><span class="dot"></span>✓ Signé</span>` : esc(p.etape)}</td>
+              <td class="num">${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</td>
+              <td class="num"><b>${eur(pondere(p))}</b></td>
+              <td>${isOverdue(p)? "⏰ closing dépassé" : isStale(p)? `💤 ${staleDays(p)} j`:""}</td>
+              <td>${esc(p.prochaine_action||"")}</td>
+            </tr>`).join("")}</tbody></table>
+          </div>
+        </div>
+      </td></tr>`).join("") || `<tr><td colspan="8" class="empty">Aucun client</td></tr>`}</tbody>
   </table></div>`;
 
   $("#cli-search").addEventListener("input", e=>{ state._cliSearch = e.target.value; viewClients(root); });
   root.querySelectorAll(".cli-row").forEach(r=>r.addEventListener("click", ()=>{
-    const det = root.querySelector(`.cli-detail[data-for="${r.dataset.i}"]`);
-    det.style.display = det.style.display==="none"? "" : "none";
+    state._cliOpen = state._cliOpen === r.dataset.key ? null : r.dataset.key;
+    viewClients(root);
   }));
   root.querySelectorAll(".cli-op").forEach(r=>r.addEventListener("click", e=>{
     e.stopPropagation();
     pipeModal(state.pipeline.find(p=>p.id===+r.dataset.id));
+  }));
+  root.querySelectorAll(".ci-save").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    const det = b.closest(".cli-detail");
+    try{
+      await state.db.saveClientInfo({
+        client_key: b.dataset.key,
+        statut: det.querySelector(".ci-statut").value,
+        origine: det.querySelector(".ci-origine").value,
+        notes: det.querySelector(".ci-notes").value.trim(),
+      });
+      await state.db.loadAll(); toast("Fiche client enregistrée ✓"); viewClients(root);
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
 }
 
@@ -1921,6 +1976,8 @@ function viewRapport(root){
   const comments = state.saisies.filter(s=>s.semaine===week && (s.commentaire||"").trim());
 
   root.innerHTML = `
+  <div class="print-head"><img src="logo-teal.png" alt="Eligi">
+    <div><b>Rapport commercial hebdomadaire</b><br><span class="small muted">Édité le ${new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span></div></div>
   ${vhead("Rapport hebdomadaire", `semaine ${esc(week)}${lundi? ` — du ${fdate(lundi)} au ${fdate(dimanche)}`:""}${isLocked(week)? " · ✔ validée en réunion":""}`, `
     ${weekNavHTML()}
     ${isLocked(week)? `<button class="btn secondary" id="rp-unlock">🔓 Rouvrir</button>`
@@ -2190,7 +2247,7 @@ function render(){
   app.innerHTML = `
   <div class="layout">
     <aside class="sidebar">
-      <div class="logo">ELIGI<small>Pilotage commercial</small></div>
+      <div class="logo"><img src="logo-blanc.png" alt="Eligi" style="width:96px;display:block;margin-bottom:4px" onerror="this.remove()"><small>Pilotage commercial</small></div>
       <nav class="snav">${views.map(([k,v])=>`<button data-nav="${k}" class="${k===state.view?"active":""}">${v.icon}<span class="nav-label">${v.label}</span></button>`).join("")}</nav>
       <div class="side-bottom">
         <button class="theme-btn" id="theme-toggle" title="Changer de thème">${ICONS.sun}<span class="nav-label">Thème</span></button>
@@ -2219,7 +2276,7 @@ function renderLogin(app){
   const demo = !!CFG.DEMO;
   app.innerHTML = `
   <div class="login-shell"><div class="card login-card">
-    <div class="brandbig">ELIGI</div>
+    <img src="logo-teal.png" alt="Eligi" style="width:150px;display:block;margin-bottom:6px" onerror="this.outerHTML='<div class=brandbig>ELIGI</div>'">
     <div class="sub">Pilotage commercial hebdomadaire</div>
     ${demo? `<div class="demo-note"><b>Mode démo</b> — données d'exemple, sans base. Choisis un profil :</div>
       <div style="display:flex;flex-direction:column;gap:8px" id="demo-btns"></div>`
@@ -2277,7 +2334,7 @@ function renderLogin(app){
 /* Formulaire « nouveau mot de passe » après clic sur le lien reçu par email */
 function renderPasswordReset(){
   $("#app").innerHTML = `<div class="login-shell"><div class="card login-card">
-    <div class="brandbig">ELIGI</div>
+    <img src="logo-teal.png" alt="Eligi" style="width:150px;display:block;margin-bottom:6px" onerror="this.outerHTML='<div class=brandbig>ELIGI</div>'">
     <div class="sub">Choisis ton nouveau mot de passe</div>
     <label class="fld"><span>Nouveau mot de passe (8 caractères min.)</span><input type="password" id="np-1" autocomplete="new-password"></label>
     <label class="fld"><span>Confirme-le</span><input type="password" id="np-2" autocomplete="new-password"></label>
