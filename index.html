@@ -256,6 +256,13 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .loader{display:flex; align-items:center; justify-content:center; min-height:100vh; color:var(--muted); gap:10px}
 .spinner{width:20px;height:20px;border-radius:50%;border:3px solid var(--grid);border-top-color:var(--s1);animation:spin .8s linear infinite}
 @keyframes spin{to{transform:rotate(360deg)}}
+.action-item{display:flex; align-items:center; gap:9px; padding:6px 2px; border-bottom:1px solid var(--grid); font-size:13px}
+.action-item:last-child{border-bottom:0}
+.action-item input[type=checkbox]{width:auto; flex:none}
+.action-item.done .ac-text{text-decoration:line-through; color:var(--muted)}
+.action-item .ac-due{margin-left:auto; font-size:11.5px; color:var(--muted); white-space:nowrap}
+.action-item .ac-due.overdue{color:var(--critical); font-weight:700}
+.cli-detail td{background:color-mix(in srgb, var(--surface-2) 45%, transparent)}
 .reminder{border-left:4px solid var(--warn); display:flex; align-items:center; gap:12px; padding:11px 16px; margin-bottom:14px; flex-wrap:wrap}
 .ksleep{color:var(--muted); font-weight:700; font-size:10.5px}
 @media print{
@@ -351,7 +358,7 @@ const pondere = p => (p.ca_potentiel||0) * (p.probabilite||0);
 /* ---------------- État global ---------------- */
 const state = {
   profile:null,       // {email, role, conseiller_id}
-  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[],
+  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[],
   week:null,          // semaine suivie (équivalent Dashboard!B3)
   view:null,
   ficheConseillerId:null,
@@ -422,6 +429,42 @@ function staleDays(p){ const t = p.updated_at || p.created_at; return t? Math.fl
 function isStale(p){ return (p.etape||"").toLowerCase()!=="signé" && staleDays(p) >= STALE_JOURS; }
 function isOverdue(p){ return (p.etape||"").toLowerCase()!=="signé" && p.closing_prevu && String(p.closing_prevu).slice(0,10) < new Date().toISOString().slice(0,10); }
 function aRelancer(rows){ return rows.filter(p=>isStale(p) || isOverdue(p)); }
+/* Semaine validée en réunion = saisies verrouillées (sauf manager) */
+function isLocked(week){ return state.validations.some(v=>v.semaine===week); }
+/* Atterrissage annuel : cumul réalisé + tendance sur les semaines restantes + pipeline en cours */
+function atterrissage(consId){
+  const year = yearOf(state.week);
+  const all = state.semaines.map(s=>s.code).sort(wcmp).filter(w=>yearOf(w)===year);
+  const cur = todayWeekCode();
+  const doneWeeks = all.filter(w=>wcmp(w,cur)<=0);
+  const lastDone = doneWeeks[doneWeeks.length-1] || all[0];
+  const cu = cumul(consId, lastDone);
+  const effDone = Math.max(1, cu.nSemaines - cu.nConges);
+  const restEff = all.filter(w=>wcmp(w,cur)>0 && !isConge(consId,w)).length;
+  const tendance = cu.ca + (cu.ca/effDone)*restEff;
+  const p = pipeAgg(consId);
+  const avecPipe = tendance + Math.max(0, p.pond - p.signe);
+  let objAnnuel = 0; for (const w of all) objAnnuel += objFor(consId, w).ca;
+  return {tendance, avecPipe, objAnnuel, taux: objAnnuel? avecPipe/objAnnuel : 0};
+}
+function teamAtterrissage(){
+  return activeConseillers().reduce((a,c)=>{ const x = atterrissage(c.id); a.v += x.avecPipe; a.o += x.objAnnuel; return a; }, {v:0, o:0});
+}
+/* Signature : reporter une opportunité signée dans la saisie hebdo */
+function applySignatureToSaisie(op, week, ca, coll){
+  const ex = state.saisies.find(s=>s.conseiller_id===op.conseiller_id && s.semaine===week);
+  const base = ex? {...ex} : {semaine:week, conseiller_id:op.conseiller_id, rdv:0, nb_signatures:0,
+    collecte_scpi:0, collecte_structures:0, ca_structures:0, collecte_audit:0, ca_audit:0,
+    collecte_assurance:0, ca_autres:0, commentaire:""};
+  base.semaine = week;
+  base.nb_signatures = (+base.nb_signatures||0) + 1;
+  const s = op.support;
+  if (s === "SCPI"){ base.collecte_scpi = (+base.collecte_scpi||0) + coll; }
+  else if (s === "Produit structuré"){ base.ca_structures = (+base.ca_structures||0) + ca; base.collecte_structures = (+base.collecte_structures||0) + coll; }
+  else if (s === "Audit / honoraires"){ base.ca_audit = (+base.ca_audit||0) + ca; base.collecte_audit = (+base.collecte_audit||0) + coll; }
+  else { base.collecte_assurance = (+base.collecte_assurance||0) + coll; base.ca_autres = (+base.ca_autres||0) + ca; }
+  return state.db.upsertSaisie(base);
+}
 function alerteFor(consId, week, proj, objectif){
   return isConge(consId, week) ? BADGE_CONGE : alerte(proj, objectif);
 }
@@ -495,7 +538,7 @@ function stripComputedPipe(p){
 class SupaDB {
   constructor(client){ this.c = client; }
   async loadAll(){
-    const [co, se, sa, pi, pr, ab, os] = await Promise.all([
+    const [co, se, sa, pi, pr, ab, os, ac, va] = await Promise.all([
       this.c.from("conseillers").select("*").order("id"),
       this.c.from("semaines").select("*").order("lundi"),
       this.c.from("saisies").select("*"),
@@ -503,11 +546,31 @@ class SupaDB {
       this.c.from("profiles").select("*"),
       this.c.from("absences").select("*"),
       this.c.from("objectifs_semaine").select("*"),
+      this.c.from("actions").select("*").order("id"),
+      this.c.from("semaines_validees").select("*"),
     ]);
-    for (const r of [co,se,sa,pi,pr,ab,os]) if (r.error) throw r.error;
+    for (const r of [co,se,sa,pi,pr,ab,os,ac,va]) if (r.error) throw r.error;
     state.conseillers = co.data; state.semaines = se.data;
     state.saisies = sa.data; state.pipeline = pi.data; state.profiles = pr.data;
     state.absences = ab.data; state.objSemaine = os.data;
+    state.actions = ac.data; state.validations = va.data;
+  }
+  async saveAction(a){
+    const row = {conseiller_id:a.conseiller_id, texte:a.texte, echeance:a.echeance||null, semaine:a.semaine||null, fait:!!a.fait};
+    if (a.id){ const {error} = await this.c.from("actions").update(row).eq("id", a.id); if (error) throw error; }
+    else { const {error} = await this.c.from("actions").insert(row); if (error) throw error; }
+  }
+  async deleteAction(id){
+    const {error} = await this.c.from("actions").delete().eq("id", id);
+    if (error) throw error;
+  }
+  async validerSemaine(week){
+    const {error} = await this.c.from("semaines_validees").insert({semaine:week});
+    if (error) throw error;
+  }
+  async rouvrirSemaine(week){
+    const {error} = await this.c.from("semaines_validees").delete().eq("semaine", week);
+    if (error) throw error;
   }
   async upsertSaisie(s){
     const {error} = await this.c.from("saisies")
@@ -592,7 +655,7 @@ class DemoDB {
       ca_potentiel:p.ca_potentiel, probabilite:p.probabilite, closing_prevu:p.closing_prevu,
       priorite:p.priorite, prochaine_action:p.prochaine_action, signature_probable:p.signature_probable,
       updated_at: new Date(Date.now() - (p.etape==="Découverte"? 20:3)*86400000).toISOString()}));
-    this.objSemaine = [];
+    this.objSemaine = []; this.actions = []; this.validations = [];
     this.absences = (D.absences||[]).map(a=>({id:this._id++, conseiller_id:byName[a.conseiller], semaine:wkey(a.semaine)}));
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
@@ -610,6 +673,26 @@ class DemoDB {
     state.profiles = isManager()? [...this.profiles] : this.profiles.filter(p=>p.email===state.profile.email);
     state.absences = this.absences.filter(a=>this._mine(a.conseiller_id)).map(a=>({...a}));
     state.objSemaine = this.objSemaine.filter(o=>this._mine(o.conseiller_id)).map(o=>({...o}));
+    state.actions = this.actions.filter(a=>this._mine(a.conseiller_id)).map(a=>({...a}));
+    state.validations = this.validations.map(v=>({...v}));
+  }
+  async saveAction(a){
+    if (!this._mine(a.conseiller_id)) throw new Error("Accès refusé");
+    if (a.id){ Object.assign(this.actions.find(x=>x.id===a.id), a); }
+    else this.actions.push({id:this._id++, fait:false, ...a});
+  }
+  async deleteAction(id){
+    const i = this.actions.findIndex(x=>x.id===id);
+    if (i>=0) this.actions.splice(i,1);
+  }
+  async validerSemaine(week){
+    if (!isManager()) throw new Error("Réservé au manager");
+    if (!this.validations.some(v=>v.semaine===week)) this.validations.push({semaine:week, valide_le:new Date().toISOString()});
+  }
+  async rouvrirSemaine(week){
+    if (!isManager()) throw new Error("Réservé au manager");
+    const i = this.validations.findIndex(v=>v.semaine===week);
+    if (i>=0) this.validations.splice(i,1);
   }
   async saveObjSemaines(rows){
     if (!isManager()) throw new Error("Réservé au manager");
@@ -631,6 +714,7 @@ class DemoDB {
   }
   async upsertSaisie(s){
     if (!this._mine(s.conseiller_id)) throw new Error("Accès refusé");
+    if (!isManager() && this.validations.some(v=>v.semaine===s.semaine)) throw new Error("Semaine validée en réunion : saisie verrouillée");
     const ex = this.saisies.find(x=>x.semaine===s.semaine && x.conseiller_id===s.conseiller_id);
     if (ex) Object.assign(ex, stripComputedSaisie(s));
     else this.saisies.push({id:this._id++, ...stripComputedSaisie(s)});
@@ -771,6 +855,7 @@ const ICONS = {
   copy:'<svg class="ic" viewBox="0 0 24 24"><rect x="8" y="8" width="13" height="13" rx="2"/><path d="M16 8V5a2 2 0 0 0-2-2H5a2 2 0 0 0-2 2v9a2 2 0 0 0 2 2h3"/></svg>',
   close:'<svg class="ic" viewBox="0 0 24 24"><path d="M5 5l14 14M19 5 5 19"/></svg>',
   doc:'<svg class="ic" viewBox="0 0 24 24"><path d="M6 2h9l5 5v15H6Z"/><path d="M14 2v6h6"/><path d="M9 13h7M9 17h7"/></svg>',
+  people:'<svg class="ic" viewBox="0 0 24 24"><circle cx="9" cy="8" r="3.5"/><path d="M2.5 20c1.2-3.2 3.6-5 6.5-5s5.3 1.8 6.5 5"/><circle cx="17.5" cy="9" r="2.6"/><path d="M16.5 15.2c2.4.3 4.2 1.9 5 4.8"/></svg>',
 };
 
 /* Thème clair / sombre / auto */
@@ -856,6 +941,90 @@ function sparkline(values, color="var(--s1)", w=92, h=26){
 }
 const tile = (label, value, sub="", bar=null) => `<div class="tile"><div class="t-label">${label}</div><div class="t-value">${value}</div>${sub?`<div class="t-sub">${sub}</div>`:""}${bar!==null?`<div class="bar"><i class="${bar>=1?"over":""}" style="width:${Math.min(100,bar*100)}%"></i></div>`:""}</div>`;
 const badgeHTML = a => `<span class="badge ${a.cls}"><span class="dot"></span>${a.icon} ${a.label}</span>`;
+
+/* ---------------- Actions de réunion (composant) ---------------- */
+function actionsCardHTML(consId, title="Actions"){
+  const today = new Date().toISOString().slice(0,10);
+  const list = state.actions.filter(a=>!consId || a.conseiller_id===consId)
+    .sort((a,b)=> (a.fait?1:0)-(b.fait?1:0) || String(a.echeance||"9999").localeCompare(String(b.echeance||"9999")));
+  const enRetard = list.filter(a=>!a.fait && a.echeance && a.echeance < today).length;
+  return `<div class="card grow ac-card" data-cons="${consId||""}">
+    <h3 class="mt0">📋 ${title}${enRetard? ` <span class="badge urgent" style="vertical-align:2px"><span class="dot"></span>${enRetard} en retard</span>`:""}</h3>
+    <div>${list.map(a=>`<div class="action-item ${a.fait?"done":""}">
+      <input type="checkbox" class="ac-done" data-id="${a.id}" ${a.fait?"checked":""}>
+      ${!consId? `<span class="cdot" style="background:${consColor(a.conseiller_id)}" title="${esc(consName(a.conseiller_id))}"></span>`:""}
+      <span class="ac-text">${esc(a.texte)}${!consId? ` <span class="muted small">(${esc(consName(a.conseiller_id))})</span>`:""}</span>
+      <span class="ac-due ${!a.fait && a.echeance && a.echeance<today? "overdue":""}">${a.echeance? new Date(a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</span>
+      ${isManager()? `<button class="btn danger small ac-del" data-id="${a.id}" style="padding:1px 7px">✕</button>`:""}
+    </div>`).join("") || `<div class="empty">Aucune action en cours</div>`}</div>
+    <div class="inline-controls" style="margin-top:10px">
+      ${!consId? `<label class="fld" style="min-width:110px"><select class="ac-cons">${activeConseillers().map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join("")}</select></label>`:""}
+      <label class="fld" style="flex:1;min-width:160px"><input type="text" class="ac-text-new" placeholder="Nouvelle action…"></label>
+      <label class="fld" style="min-width:130px"><input type="date" class="ac-due-new"></label>
+      <button class="btn small ac-add">Ajouter</button>
+    </div>
+  </div>`;
+}
+function bindActionsCards(scope, refresh){
+  const done = refresh || render;
+  scope.querySelectorAll(".ac-card").forEach(card=>{
+    const consAttr = card.dataset.cons;
+    card.querySelectorAll(".ac-done").forEach(cb=>cb.addEventListener("change", async ()=>{
+      const a = state.actions.find(x=>x.id===+cb.dataset.id);
+      try{ await state.db.saveAction({...a, fait:cb.checked}); await state.db.loadAll(); done(); }
+      catch(err){ toast("Erreur : "+(err.message||err)); }
+    }));
+    card.querySelectorAll(".ac-del").forEach(b=>b.addEventListener("click", async ()=>{
+      try{ await state.db.deleteAction(+b.dataset.id); await state.db.loadAll(); done(); }
+      catch(err){ toast("Erreur : "+(err.message||err)); }
+    }));
+    card.querySelector(".ac-add")?.addEventListener("click", async ()=>{
+      const texte = card.querySelector(".ac-text-new").value.trim();
+      if (!texte){ toast("Écris l'action d'abord"); return; }
+      const consId = consAttr? +consAttr : +card.querySelector(".ac-cons").value;
+      try{
+        await state.db.saveAction({conseiller_id:consId, texte, echeance:card.querySelector(".ac-due-new").value||null, semaine:state.week, fait:false});
+        await state.db.loadAll(); toast("Action ajoutée ✓"); done();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+  });
+}
+
+/* ---------------- Signature → saisie (modale) ---------------- */
+function signatureModal(op){
+  const codes = weekCodes();
+  const defWeek = codes.includes(todayWeekCode())? todayWeekCode() : state.week;
+  const isScpi = op.support === "SCPI";
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal" style="width:520px">
+    <h3>🎉 ${esc(op.client||"Opportunité")} — signé !</h3>
+    <p class="small muted" style="margin:0 0 12px">Reporter cette signature dans la saisie hebdo de <b>${esc(consName(op.conseiller_id))}</b> ? (support : ${esc(op.support)})</p>
+    <div class="form-grid">
+      <label class="fld"><span>Semaine</span><select id="sg-week">${codes.map(w=>`<option ${w===defWeek?"selected":""}>${w}</option>`).join("")}</select></label>
+      <label class="fld"><span>Collecte (€)</span><input type="number" id="sg-coll" value="${op.collecte_potentielle||0}" min="0" step="any"></label>
+      ${isScpi? `<label class="fld full"><span>CA SCPI</span><input type="text" value="calculé automatiquement : 5 % de la collecte" disabled></label>`
+        : `<label class="fld"><span>CA (€)</span><input type="number" id="sg-ca" value="${op.ca_potentiel||0}" min="0" step="any"></label>`}
+    </div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="sg-skip">Plus tard</button>
+      <button class="btn" id="sg-ok">Ajouter à la saisie</button>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  back.querySelector("#sg-skip").addEventListener("click", ()=>back.remove());
+  back.addEventListener("click", e=>{ if(e.target===back) back.remove(); });
+  back.querySelector("#sg-ok").addEventListener("click", async ()=>{
+    try{
+      const week = back.querySelector("#sg-week").value;
+      const coll = +back.querySelector("#sg-coll").value||0;
+      const ca = isScpi? 0 : (+back.querySelector("#sg-ca").value||0);
+      await applySignatureToSaisie(op, week, ca, coll);
+      back.remove(); await state.db.loadAll();
+      toast(`Signature reportée dans la saisie ${week} ✓`); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+}
 
 /* ---------------- Export Excel ---------------- */
 function exportCSVFallback(){
@@ -958,6 +1127,8 @@ function viewDashboard(root){
     ${tile("RDV équipe", `${fmtNum.format(rdvEq)} <span class="small muted">/ ${fmtNum.format(objRdvEq)}</span>`, "", objRdvEq?rdvEq/objRdvEq:0)}
     ${tile("Pipeline pondéré", eur(pondEq), `${state.pipeline.length} opportunités${aRelancer(state.pipeline).length? ` · <span class="down">${aRelancer(state.pipeline).length} à relancer</span>`:""}`)}
     ${tile("Projection équipe", eur(projEq), "CA + pipeline pondéré − signé")}
+    ${(()=>{ const att = teamAtterrissage();
+      return tile(`Atterrissage ${yearOf(week)}`, eur(att.v), `Objectif annuel : ${eur(att.o)} — ${att.o? fmtPct(att.v/att.o):"—"}`, att.o? att.v/att.o:0); })()}
   </div>
 
   ${(noSaisie.length || enConges.length)? `<div class="card sect" style="padding:11px 16px; display:flex; align-items:center; gap:10px; flex-wrap:wrap">
@@ -1088,6 +1259,7 @@ function meetingMode(){
       <div class="card" style="width:340px;max-width:100%"><h3 class="mt0">Points à challenger</h3>
         <ol class="challenge"><li>Quels dossiers doivent signer cette semaine ?</li>
         <li>Quel blocage empêche la signature ?</li><li>Quelle action concrète d'ici la prochaine réunion ?</li></ol></div>
+      ${actionsCardHTML(c.id, `Actions — ${esc(c.nom)}`)}
     </div>`;
   }
   function slideSignatures(){
@@ -1124,6 +1296,7 @@ function meetingMode(){
         <button class="wk-btn" id="mt-next" ${slide===total-1?"disabled":""}>${ICONS.right}</button>
       </div>`;
     back.querySelector("#mt-close").addEventListener("click", closeMeeting);
+    bindActionsCards(back, renderSlide);
     back.querySelector("#mt-prev").addEventListener("click", ()=>{ if(slide>0){slide--; renderSlide();} });
     back.querySelector("#mt-next").addEventListener("click", ()=>{ if(slide<total-1){slide++; renderSlide();} });
   }
@@ -1150,6 +1323,7 @@ function viewSaisie(root){
     return i>0 ? state.saisies.find(s=>s.conseiller_id===consId && s.semaine===codes[i-1]) : null; })();
   const missing = weeksUpTo(todayWeekCode()).filter(w => !isConge(consId, w) && !state.saisies.some(s=>s.conseiller_id===consId && s.semaine===w));
   const conge = isConge(consId, state.week);
+  const locked = isLocked(state.week);
   const myHist = state.saisies.filter(s=>s.conseiller_id===consId).map(computed).sort((a,b)=>wcmp(b.semaine,a.semaine));
 
   const numFld = (id,label,val) =>
@@ -1173,6 +1347,8 @@ function viewSaisie(root){
       </div>
       ${conge? `<div class="helpbox" style="margin-bottom:12px">✈ <b>${esc(consName(consId))} est en congés la semaine ${esc(state.week)}.</b>
         Aucune saisie attendue : pas d'alerte, et l'objectif de la semaine est neutralisé dans les cumuls.</div>`:""}
+      ${locked? `<div class="helpbox" style="margin-bottom:12px">🔒 <b>Semaine ${esc(state.week)} validée en réunion.</b>
+        ${isManager()? "Tu peux encore la modifier (manager) ou la rouvrir depuis le Rapport hebdo." : "La saisie est verrouillée — contacte le manager si une correction est nécessaire."}</div>`:""}
       <div class="form-grid" id="sa-form">
         ${numFld("sa-rdv","RDV réalisés", v.rdv)}
         ${numFld("sa-sig","Nb signatures", v.nb_signatures)}
@@ -1231,6 +1407,11 @@ function viewSaisie(root){
     }catch(err){ toast("Erreur : " + (err.message||err)); }
   };
   $("#sa-save").addEventListener("click", save);
+  if (locked && !isManager()){
+    root.querySelectorAll("#sa-form input, #sa-form textarea").forEach(i=>i.disabled=true);
+    $("#sa-save").disabled = true; $("#sa-conge").disabled = true;
+    const cp = $("#sa-copy"); if (cp) cp.disabled = true;
+  }
   $("#sa-conge").addEventListener("click", async ()=>{
     try{
       await state.db.toggleAbsence(consId, state.week);
@@ -1357,9 +1538,11 @@ function renderKanban(body, rows){
       if (!p || p.etape === newEtape) return;
       try{
         const upd = {...p, etape:newEtape};
-        if (newEtape === "Signé" && !(+p.probabilite === 1) && confirm("Passer la probabilité à 100 % puisque c'est signé ?")) upd.probabilite = 1;
+        const devientSigne = newEtape === "Signé" && (p.etape||"").toLowerCase() !== "signé";
+        if (devientSigne) upd.probabilite = 1;
         await state.db.savePipeline(upd);
         await state.db.loadAll(); toast(`${p.client||"Opportunité"} → ${newEtape} ✓`); render();
+        if (devientSigne) signatureModal(upd);
       }catch(err){ toast("Erreur : "+(err.message||err)); }
     });
   });
@@ -1435,6 +1618,8 @@ function pipeModal(p, etapeInit){
   });
   back.querySelector("#pm-save").addEventListener("click", async ()=>{
     try{
+      const etaitSigne = (p.etape||"").toLowerCase() === "signé";
+      const nouvelleEtape = back.querySelector("#pm-etape").value;
       await state.db.savePipeline({
         id: p.id,
         conseiller_id: isManager()? +back.querySelector("#pm-cons").value : p.conseiller_id,
@@ -1449,7 +1634,15 @@ function pipeModal(p, etapeInit){
         prochaine_action: back.querySelector("#pm-action").value.trim(),
         signature_probable: back.querySelector("#pm-sig").checked,
       });
+      const opData = {
+        conseiller_id: isManager()? +back.querySelector("#pm-cons")?.value || p.conseiller_id : p.conseiller_id,
+        client: back.querySelector("#pm-client").value.trim(),
+        support: back.querySelector("#pm-support").value,
+        ca_potentiel: +back.querySelector("#pm-ca").value||0,
+        collecte_potentielle: +back.querySelector("#pm-coll").value||0,
+      };
       back.remove(); await state.db.loadAll(); toast("Opportunité enregistrée ✓"); render();
+      if (!etaitSigne && nouvelleEtape === "Signé") signatureModal(opData);
     }catch(err){ toast("Erreur : " + (err.message||err)); }
   });
 }
@@ -1501,6 +1694,7 @@ function viewFiche(root){
         <li>Quel blocage empêche la signature ?</li>
         <li>Quelle action concrète d'ici la prochaine réunion ?</li>
       </ol></div>
+    ${actionsCardHTML(consId, isManager()? `Actions — ${esc(c.nom)}` : "Mes actions")}
   </div>
 
   <div class="sect sect-head"><h2>Progression cumulée</h2>
@@ -1510,6 +1704,8 @@ function viewFiche(root){
     ${tile("CA cumulé", eur2(cu.ca), `Objectif : ${eur(cu.objCA)} — ${cu.objCA? fmtPct(cu.ca/cu.objCA):"—"}`, cu.objCA? cu.ca/cu.objCA:0)}
     ${tile("Collecte cumulée", eur(cu.collecte), `Objectif : ${eur(cu.objCollecte)} — ${cu.objCollecte? fmtPct(cu.collecte/cu.objCollecte):"—"}`, cu.objCollecte? cu.collecte/cu.objCollecte:0)}
     ${tile("Projection à date", eur(cu.ca + p.pond - p.signe), "CA cumulé + pondéré − signé")}
+    ${(()=>{ const att = atterrissage(consId);
+      return tile(`Atterrissage ${yearOf(state.week)}`, eur(att.avecPipe), `Objectif annuel : ${eur(att.objAnnuel)} — ${att.objAnnuel? fmtPct(att.taux):"—"}`, att.taux); })()}
   </div>
 
   <div class="row sect">
@@ -1533,6 +1729,7 @@ function viewFiche(root){
   if (isManager()) $("#fi-cons").addEventListener("change", e=>{ state.ficheConseillerId = +e.target.value; render(); });
   bindWeekNav();
   $("#fi-export").addEventListener("click", exportXLSX);
+  bindActionsCards(root);
 }
 
 /* ---------------- Progression annuelle (manager) ---------------- */
@@ -1582,6 +1779,70 @@ function viewProgression(root){
   });
 }
 
+/* ---------------- Clients (regroupement du pipeline) ---------------- */
+function viewClients(root){
+  const q = (state._cliSearch||"").toLowerCase();
+  const groups = {};
+  for (const p of state.pipeline){
+    const key = (p.client||"(sans nom)").trim().toLowerCase();
+    (groups[key] = groups[key] || {key, name:(p.client||"(sans nom)").trim(), rows:[]}).rows.push(p);
+  }
+  let list = Object.values(groups);
+  if (q) list = list.filter(g=>g.name.toLowerCase().includes(q));
+  for (const g of list){
+    g.pond = g.rows.reduce((a,p)=>a+pondere(p),0);
+    g.signe = g.rows.filter(p=>(p.etape||"").toLowerCase()==="signé").reduce((a,p)=>a+pondere(p),0);
+    g.coll = g.rows.reduce((a,p)=>a+(+p.collecte_potentielle||0),0);
+    g.relance = aRelancer(g.rows).length;
+    g.cons = [...new Set(g.rows.map(p=>p.conseiller_id))];
+  }
+  list.sort((a,b)=>b.pond-a.pond);
+
+  root.innerHTML = `
+  ${vhead("Clients", `${list.length} client(s) — regroupés depuis le pipeline`)}
+  <div class="inline-controls" style="margin-bottom:12px">
+    <label class="fld" style="min-width:240px"><span>Recherche</span>
+      <input type="search" id="cli-search" placeholder="nom du client…" value="${esc(state._cliSearch||"")}"></label>
+  </div>
+  <div class="card tbl-scroll"><table class="tbl">
+    <thead><tr><th>Client</th><th>Conseiller(s)</th><th class="num">Dossiers</th>
+    <th class="num">Collecte potentielle</th><th class="num">Pondéré total</th><th class="num">Dont signé</th><th>À relancer</th></tr></thead>
+    <tbody>${list.map((g,i)=>`
+      <tr class="clickable cli-row" data-i="${i}" title="Voir les dossiers">
+        <td><b>${esc(g.name)}</b></td>
+        <td>${g.cons.map(id=>`<span class="cdot" style="background:${consColor(id)}" title="${esc(consName(id))}"></span>`).join("")}</td>
+        <td class="num">${g.rows.length}</td>
+        <td class="num">${eur(g.coll)}</td>
+        <td class="num"><b>${eur(g.pond)}</b></td>
+        <td class="num">${eur(g.signe)}</td>
+        <td>${g.relance? `<span class="badge watch"><span class="dot"></span>! ${g.relance}</span>`:"—"}</td>
+      </tr>
+      <tr class="cli-detail" data-for="${i}" style="display:none"><td colspan="7">
+        <table class="tbl dense" style="margin:4px 0">
+          <tbody>${g.rows.sort((a,b)=>pondere(b)-pondere(a)).map(p=>`<tr class="clickable cli-op" data-id="${p.id}">
+            <td><span class="cdot" style="background:${consColor(p.conseiller_id)}"></span>${esc(consName(p.conseiller_id))}</td>
+            <td>${esc(p.support)}</td>
+            <td>${(p.etape||"").toLowerCase()==="signé"? `<span class="badge ok"><span class="dot"></span>✓ Signé</span>` : esc(p.etape)}</td>
+            <td class="num">${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</td>
+            <td class="num"><b>${eur(pondere(p))}</b></td>
+            <td>${isOverdue(p)? "⏰ closing dépassé" : isStale(p)? `💤 ${staleDays(p)} j`:""}</td>
+            <td>${esc(p.prochaine_action||"")}</td>
+          </tr>`).join("")}</tbody>
+        </table>
+      </td></tr>`).join("") || `<tr><td colspan="7" class="empty">Aucun client</td></tr>`}</tbody>
+  </table></div>`;
+
+  $("#cli-search").addEventListener("input", e=>{ state._cliSearch = e.target.value; viewClients(root); });
+  root.querySelectorAll(".cli-row").forEach(r=>r.addEventListener("click", ()=>{
+    const det = root.querySelector(`.cli-detail[data-for="${r.dataset.i}"]`);
+    det.style.display = det.style.display==="none"? "" : "none";
+  }));
+  root.querySelectorAll(".cli-op").forEach(r=>r.addEventListener("click", e=>{
+    e.stopPropagation();
+    pipeModal(state.pipeline.find(p=>p.id===+r.dataset.id));
+  }));
+}
+
 /* ---------------- Rapport hebdo (manager) ---------------- */
 function viewRapport(root){
   const week = state.week;
@@ -1606,8 +1867,10 @@ function viewRapport(root){
   const comments = state.saisies.filter(s=>s.semaine===week && (s.commentaire||"").trim());
 
   root.innerHTML = `
-  ${vhead("Rapport hebdomadaire", `semaine ${esc(week)}${lundi? ` — du ${fdate(lundi)} au ${fdate(dimanche)}`:""}`, `
+  ${vhead("Rapport hebdomadaire", `semaine ${esc(week)}${lundi? ` — du ${fdate(lundi)} au ${fdate(dimanche)}`:""}${isLocked(week)? " · ✔ validée en réunion":""}`, `
     ${weekNavHTML()}
+    ${isLocked(week)? `<button class="btn secondary" id="rp-unlock">🔓 Rouvrir</button>`
+      : `<button class="btn" id="rp-lock">✔ Valider la semaine</button>`}
     <button class="btn secondary" id="rp-print">${ICONS.doc} Imprimer / PDF</button>
     <button class="btn secondary" id="rp-export">${ICONS.dl} Exporter</button>`)}
 
@@ -1617,6 +1880,8 @@ function viewRapport(root){
     ${tile("RDV", fmtNum.format(rdvEq))}
     ${tile("Projection", eur(projEq))}
     ${tile("Cumul annuel", fmtPct(last.tauxCA), `${eur(last.cumCA)} / ${eur(last.cumObjCA)}`, last.tauxCA)}
+    ${(()=>{ const att = teamAtterrissage();
+      return tile(`Atterrissage ${yearOf(week)}`, eur(att.v), `${att.o? fmtPct(att.v/att.o):"—"} de l'objectif annuel`, att.o? att.v/att.o:0); })()}
   </div>
 
   <div class="sect sect-head"><h2>Par conseiller</h2></div>
@@ -1648,6 +1913,10 @@ function viewRapport(root){
   </div>
 
   <div class="row sect">
+    ${actionsCardHTML(null, "Actions de réunion — toute l'équipe")}
+  </div>
+
+  <div class="row sect">
     <div class="card grow">
       <h3 class="mt0">💬 Commentaires de la semaine</h3>
       ${comments.length? comments.map(s=>`<p class="small" style="margin:6px 0"><span class="cdot" style="background:${consColor(s.conseiller_id)}"></span><b>${esc(consName(s.conseiller_id))}</b> — ${esc(s.commentaire)}</p>`).join("")
@@ -1660,6 +1929,8 @@ function viewRapport(root){
         <li>Conseillers en alerte : ${rows.filter(r=>r.al.cls==="urgent").map(r=>esc(r.c.nom)).join(", ") || "aucun ✓"}</li>
         <li>Signatures à concrétiser : ${sig.length}</li>
         <li>Opportunités à relancer : ${relance.length}</li>
+        <li>Actions en cours : ${state.actions.filter(a=>!a.fait).length}${(()=>{ const t=new Date().toISOString().slice(0,10); const r=state.actions.filter(a=>!a.fait&&a.echeance&&a.echeance<t).length; return r? ` (dont ${r} en retard)`:""; })()}</li>
+        <li>En fin de réunion : « Valider la semaine » pour figer les chiffres</li>
       </ol>
     </div>
   </div>`;
@@ -1667,6 +1938,15 @@ function viewRapport(root){
   bindWeekNav();
   $("#rp-print").addEventListener("click", ()=>window.print());
   $("#rp-export").addEventListener("click", exportXLSX);
+  bindActionsCards(root);
+  $("#rp-lock")?.addEventListener("click", async ()=>{
+    try{ await state.db.validerSemaine(week); await state.db.loadAll(); toast(`Semaine ${week} validée — saisies verrouillées 🔒`); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+  $("#rp-unlock")?.addEventListener("click", async ()=>{
+    try{ await state.db.rouvrirSemaine(week); await state.db.loadAll(); toast(`Semaine ${week} rouverte`); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
 }
 
 /* ---------------- Paramétrage (manager) ---------------- */
@@ -1834,6 +2114,7 @@ const VIEWS = {
   dashboard:{label:"Dashboard", icon:ICONS.dash, fn:viewDashboard, manager:true},
   saisie:{label:"Saisie hebdo", icon:ICONS.edit, fn:viewSaisie},
   pipeline:{label:"Pipeline", icon:ICONS.funnel, fn:viewPipeline},
+  clients:{label:"Clients", icon:ICONS.people, fn:viewClients},
   fiche:{label:"Fiches", icon:ICONS.user, fn:viewFiche},
   rapport:{label:"Rapport hebdo", icon:ICONS.doc, fn:viewRapport, manager:true},
   progression:{label:"Progression", icon:ICONS.chart, fn:viewProgression, manager:true},
