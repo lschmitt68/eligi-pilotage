@@ -261,6 +261,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .action-item:last-child{border-bottom:0}
 .action-item input[type=checkbox]{width:auto; flex:none}
 .action-item.done .ac-text{text-decoration:line-through; color:var(--muted)}
+
+/* ============ Suivi client (timeline CRM) ============ */
+.tl{max-height:280px; overflow:auto; margin-top:10px}
+.tl-item{display:flex; gap:9px; align-items:flex-start; padding:7px 2px; border-bottom:1px solid var(--grid); font-size:13px}
+.tl-item:last-child{border-bottom:0}
+.tl-ico{flex:none; width:22px; text-align:center}
+.tl-body{flex:1; min-width:0}
+.tl-meta{color:var(--muted); font-size:11.5px; margin-top:1px}
+.tl-item.done .tl-body > span:first-child{text-decoration:line-through; color:var(--muted)}
+.dup-warn{grid-column:1/-1; background:color-mix(in srgb, var(--warn) 12%, var(--surface)); border:1px solid var(--warn);
+  border-radius:8px; padding:7px 11px; font-size:12.5px}
 .action-item .ac-due{margin-left:auto; font-size:11.5px; color:var(--muted); white-space:nowrap}
 .action-item .ac-due.overdue{color:var(--critical); font-weight:700}
 .cli-detail td{background:color-mix(in srgb, var(--surface-2) 45%, transparent)}
@@ -362,7 +373,7 @@ const pondere = p => (p.ca_potentiel||0) * (p.probabilite||0);
 /* ---------------- État global ---------------- */
 const state = {
   profile:null,       // {email, role, conseiller_id}
-  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[], clientsInfos:[],
+  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[], clientsInfos:[], interactions:[],
   week:null,          // semaine suivie (équivalent Dashboard!B3)
   view:null,
   ficheConseillerId:null,
@@ -542,7 +553,7 @@ function stripComputedPipe(p){
 class SupaDB {
   constructor(client){ this.c = client; }
   async loadAll(){
-    const [co, se, sa, pi, pr, ab, os, ac, va, pe, ci] = await Promise.all([
+    const [co, se, sa, pi, pr, ab, os, ac, va, pe, ci, it] = await Promise.all([
       this.c.from("conseillers").select("*").order("id"),
       this.c.from("semaines").select("*").order("lundi"),
       this.c.from("saisies").select("*"),
@@ -554,13 +565,43 @@ class SupaDB {
       this.c.from("semaines_validees").select("*"),
       this.c.from("pipeline_events").select("*").order("id"),
       this.c.from("clients_infos").select("*"),
+      this.c.from("interactions").select("*").order("quand", {ascending:false}),
     ]);
-    for (const r of [co,se,sa,pi,pr,ab,os,ac,va,pe,ci]) if (r.error) throw r.error;
+    for (const r of [co,se,sa,pi,pr,ab,os,ac,va,pe,ci,it]) if (r.error) throw r.error;
     state.conseillers = co.data; state.semaines = se.data;
     state.saisies = sa.data; state.pipeline = pi.data; state.profiles = pr.data;
     state.absences = ab.data; state.objSemaine = os.data;
     state.actions = ac.data; state.validations = va.data; state.pipeEvents = pe.data;
-    state.clientsInfos = ci.data;
+    state.clientsInfos = ci.data; state.interactions = it.data;
+  }
+  async addInteraction(i){
+    const {error} = await this.c.from("interactions").insert(
+      {client_key:i.client_key, conseiller_id:i.conseiller_id||null, type:i.type, note:i.note});
+    if (error) throw error;
+  }
+  async deleteInteraction(id){
+    const {error} = await this.c.from("interactions").delete().eq("id", id);
+    if (error) throw error;
+  }
+  async renameClient(oldKey, newName){
+    const newKey = normName(newName);
+    const ids = state.pipeline.filter(p=>normName(p.client)===oldKey).map(p=>p.id);
+    if (ids.length){
+      const {error} = await this.c.from("pipeline").update({client:newName.trim()}).in("id", ids);
+      if (error) throw error;
+    }
+    for (const t of ["clients_infos","interactions"]){
+      const {data} = await this.c.from(t).select("id, client_key").eq("client_key", oldKey);
+      for (const row of (data||[])){
+        if (t==="clients_infos" && state.clientsInfos.some(x=>x.client_key===newKey && x.client_key!==oldKey)){
+          await this.c.from(t).delete().eq("id", row.id);   // fiche cible existe déjà : on fusionne dessus
+        } else {
+          await this.c.from(t).update({client_key:newKey}).eq("id", row.id);
+        }
+      }
+    }
+    const {error: e2} = await this.c.from("actions").update({client_key:newKey}).eq("client_key", oldKey);
+    if (e2) throw e2;
   }
   async saveClientInfo(info){
     const {error} = await this.c.from("clients_infos").upsert(
@@ -569,7 +610,7 @@ class SupaDB {
     if (error) throw error;
   }
   async saveAction(a){
-    const row = {conseiller_id:a.conseiller_id, texte:a.texte, echeance:a.echeance||null, semaine:a.semaine||null, fait:!!a.fait};
+    const row = {conseiller_id:a.conseiller_id, texte:a.texte, echeance:a.echeance||null, semaine:a.semaine||null, fait:!!a.fait, client_key:a.client_key||null};
     if (a.id){ const {error} = await this.c.from("actions").update(row).eq("id", a.id); if (error) throw error; }
     else { const {error} = await this.c.from("actions").insert(row); if (error) throw error; }
   }
@@ -671,7 +712,7 @@ class DemoDB {
     this.objSemaine = []; this.actions = []; this.validations = [];
     this.pipeEvents = this.pipeline.map(p=>({id:this._id++, pipeline_id:p.id, conseiller_id:p.conseiller_id,
       client:p.client, de_etape:null, vers_etape:p.etape, quand:p.updated_at}));
-    this.clientsInfos = [];
+    this.clientsInfos = []; this.interactions = [];
     this.absences = (D.absences||[]).map(a=>({id:this._id++, conseiller_id:byName[a.conseiller], semaine:wkey(a.semaine)}));
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
@@ -693,6 +734,22 @@ class DemoDB {
     state.validations = this.validations.map(v=>({...v}));
     state.pipeEvents = this.pipeEvents.filter(e=>this._mine(e.conseiller_id)).map(e=>({...e}));
     state.clientsInfos = this.clientsInfos.map(c=>({...c}));
+    state.interactions = this.interactions.map(i=>({...i}));
+  }
+  async addInteraction(i){
+    this.interactions.unshift({id:this._id++, quand:new Date().toISOString(), ...i});
+  }
+  async deleteInteraction(id){
+    const i = this.interactions.findIndex(x=>x.id===id);
+    if (i>=0) this.interactions.splice(i,1);
+  }
+  async renameClient(oldKey, newName){
+    const newKey = normName(newName);
+    for (const p of this.pipeline) if (normName(p.client)===oldKey) p.client = newName.trim();
+    for (const e of this.pipeEvents) if (normName(e.client)===oldKey) e.client = newName.trim();
+    for (const t of [this.clientsInfos, this.interactions])
+      for (const r of t) if (r.client_key===oldKey) r.client_key = newKey;
+    for (const a of this.actions) if (a.client_key===oldKey) a.client_key = newKey;
   }
   async saveClientInfo(info){
     const i = this.clientsInfos.findIndex(c=>c.client_key===info.client_key);
@@ -910,6 +967,10 @@ applyTheme(getTheme());
 function consColor(id){
   const idx = [...state.conseillers].sort((a,b)=>a.id-b.id).findIndex(c=>c.id===id);
   return MIX_COLORS[(idx>=0?idx:0) % MIX_COLORS.length];
+}
+/* Normalisation des noms de clients (anti-doublons) : minuscules, sans accents, espaces réduits */
+function normName(s){
+  return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim().replace(/\s+/g," ");
 }
 const initials = nom => String(nom||"?").trim().split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
 
@@ -1637,7 +1698,8 @@ function pipeModal(p, etapeInit){
       ${isManager()? `<label class="fld"><span>Conseiller</span><select id="pm-cons">
         ${activeConseillers().map(c=>`<option value="${c.id}" ${c.id===p.conseiller_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`
         : `<label class="fld"><span>Conseiller</span><input type="text" value="${esc(consName(p.conseiller_id))}" disabled></label>`}
-      <label class="fld"><span>Client</span><input type="text" id="pm-client" value="${esc(p.client)}"></label>
+      <label class="fld"><span>Client</span><input type="text" id="pm-client" value="${esc(p.client)}" list="pm-clients-list" autocomplete="off">
+        <datalist id="pm-clients-list">${[...new Map(state.pipeline.map(x=>[normName(x.client), (x.client||"").trim()])).values()].filter(Boolean).sort((a,b)=>a.localeCompare(b,"fr")).map(nm=>`<option value="${esc(nm)}">`).join("")}</datalist></label>
       <label class="fld"><span>Support</span><select id="pm-support">${SUPPORTS.map(s=>`<option ${s===p.support?"selected":""}>${s}</option>`).join("")}</select></label>
       <label class="fld"><span>Étape</span><select id="pm-etape">${ETAPES.map(e=>`<option ${e===p.etape?"selected":""}>${e}</option>`).join("")}</select></label>
       <label class="fld"><span>Collecte potentielle (€)</span><input type="number" id="pm-coll" value="${p.collecte_potentielle||0}" min="0" step="any"></label>
@@ -1648,6 +1710,7 @@ function pipeModal(p, etapeInit){
       <label class="fld"><span>Priorité</span><select id="pm-prio"><option value="">—</option>${PRIORITES.map(x=>`<option ${x===p.priorite?"selected":""}>${x}</option>`).join("")}</select></label>
       <label class="fld full"><span>Prochaine action</span><input type="text" id="pm-action" value="${esc(p.prochaine_action)}"></label>
       <label class="fld full"><span><input type="checkbox" id="pm-sig" ${p.signature_probable?"checked":""} style="width:auto;margin-right:8px">Signature probable cette semaine</span></label>
+      <div class="dup-warn" id="pm-dup" style="display:none"></div>
     </div>
     <div class="modal-actions">
       ${!isNew? `<button class="btn danger" id="pm-del" style="margin-right:auto">Supprimer</button>`:""}
@@ -1657,6 +1720,19 @@ function pipeModal(p, etapeInit){
   </div>`;
   document.body.appendChild(back);
   const updPond = ()=>{ back.querySelector("#pm-pond").value = eur((+back.querySelector("#pm-ca").value||0)*(+back.querySelector("#pm-proba").value||0)); };
+  const origKey = isNew? null : normName(p.client);
+  const updDup = ()=>{
+    const box = back.querySelector("#pm-dup");
+    const k = normName(back.querySelector("#pm-client").value);
+    if (!k){ box.style.display = "none"; return; }
+    const rows = state.pipeline.filter(x=>normName(x.client)===k && x.id!==p.id);
+    if (!rows.length || k===origKey){ box.style.display = "none"; return; }
+    const noms = [...new Set(rows.map(x=>consName(x.conseiller_id)))].join(", ");
+    box.innerHTML = `⚠️ <b>${esc(rows[0].client.trim())}</b> existe déjà dans le pipeline : ${rows.length} dossier(s) (${esc(noms)}). Vérifie que ce n'est pas un doublon — sinon ce dossier sera rattaché à la même fiche client.`;
+    box.style.display = "";
+  };
+  back.querySelector("#pm-client").addEventListener("input", updDup);
+  updDup();
   back.querySelector("#pm-ca").addEventListener("input", updPond);
   back.querySelector("#pm-proba").addEventListener("change", updPond);
   back.querySelector("#pm-cancel").addEventListener("click", ()=>back.remove());
@@ -1854,13 +1930,26 @@ function viewProgression(root){
 }
 
 /* ---------------- Clients (regroupement du pipeline) ---------------- */
+function suiviClient(g){
+  const ev = [];
+  for (const i of state.interactions.filter(x=>x.client_key===g.key))
+    ev.push({kind:"ix", t:new Date(i.quand||0).getTime(), i});
+  for (const e of state.pipeEvents.filter(x=>normName(x.client)===g.key))
+    ev.push({kind:"ev", t:new Date(e.quand||0).getTime(), e});
+  for (const a of state.actions.filter(x=>x.client_key===g.key))
+    ev.push({kind:"ac", t:a.echeance? new Date(a.echeance+"T12:00:00").getTime() : Infinity, a});
+  ev.sort((x,y)=>y.t-x.t);
+  return ev;
+}
 function viewClients(root){
   const STATUTS = ["Prospect","Client","Inactif"];
   const ORIGINES = ["","Recommandation","Famille / proche","Partenaire","Salon / événement","Site web","Autre"];
+  const IX_TYPES = [["Note","📝"],["Appel","📞"],["RDV","🤝"],["Email","✉️"],["Tâche","☑️"]];
+  const IX_ICO = Object.fromEntries(IX_TYPES);
   const q = (state._cliSearch||"").toLowerCase();
   const groups = {};
   for (const p of state.pipeline){
-    const key = (p.client||"(sans nom)").trim().toLowerCase();
+    const key = normName(p.client||"(sans nom)");
     (groups[key] = groups[key] || {key, name:(p.client||"(sans nom)").trim(), rows:[]}).rows.push(p);
   }
   let list = Object.values(groups);
@@ -1873,6 +1962,10 @@ function viewClients(root){
     g.cons = [...new Set(g.rows.map(p=>p.conseiller_id))];
     g.info = state.clientsInfos.find(ci=>ci.client_key===g.key) || {statut:"Prospect", origine:"", notes:""};
     g.dernier = g.rows.reduce((a,p)=>Math.max(a, new Date(p.updated_at||p.created_at||0).getTime()), 0);
+    g.suivi = suiviClient(g);
+    const lastIx = state.interactions.filter(i=>i.client_key===g.key)
+      .reduce((a,i)=>Math.max(a, new Date(i.quand||0).getTime()), 0);
+    if (lastIx > g.dernier) g.dernier = lastIx;
   }
   list.sort((a,b)=>b.pond-a.pond);
   const statutBadge = s => s==="Client"? `<span class="badge ok"><span class="dot"></span>Client</span>`
@@ -1924,6 +2017,32 @@ function viewClients(root){
               <td>${esc(p.prochaine_action||"")}</td>
             </tr>`).join("")}</tbody></table>
           </div>
+          <div class="card" style="flex:1.1;min-width:340px">
+            <h3 class="mt0">🗂 Suivi client
+              ${isManager()? `<button class="btn secondary small ci-rename" data-key="${esc(g.key)}" style="float:right">Renommer / fusionner</button>`:""}</h3>
+            <div class="inline-controls">
+              <label class="fld" style="min-width:92px"><select class="ix-type">${IX_TYPES.map(([t,ico])=>`<option value="${t}">${ico} ${t}</option>`).join("")}</select></label>
+              <label class="fld" style="flex:1;min-width:150px"><input type="text" class="ix-note" placeholder="Compte rendu, remarque, tâche…"></label>
+              <label class="fld ix-due-w" style="min-width:120px;display:none"><input type="date" class="ix-due" title="Échéance de la tâche"></label>
+              ${isManager()? `<label class="fld ix-cons-w" style="min-width:100px;display:none"><select class="ix-cons">${activeConseillers().map(c=>`<option value="${c.id}" ${c.id===g.cons[0]?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`:""}
+              <button class="btn small ix-add" data-key="${esc(g.key)}">Ajouter</button>
+            </div>
+            <div class="tl">${g.suivi.map(ev=> ev.kind==="ix" ? `
+              <div class="tl-item"><span class="tl-ico">${IX_ICO[ev.i.type]||"📝"}</span>
+                <div class="tl-body"><span>${esc(ev.i.note)}</span>
+                  <div class="tl-meta">${esc(ev.i.type)} · ${ev.i.conseiller_id? esc(consName(ev.i.conseiller_id)) : "Manager"} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
+                ${(isManager()||ev.i.conseiller_id===state.profile.conseiller_id)? `<button class="btn danger small ix-del" data-id="${ev.i.id}" style="padding:1px 7px">✕</button>`:""}
+              </div>` : ev.kind==="ac" ? `
+              <div class="tl-item ${ev.a.fait?"done":""}"><span class="tl-ico">☑️</span>
+                <div class="tl-body"><span>${esc(ev.a.texte)}</span>
+                  <div class="tl-meta">Tâche · ${esc(consName(ev.a.conseiller_id))}${ev.a.echeance? ` · pour le ${new Date(ev.a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}`:""}${!ev.a.fait && ev.a.echeance && ev.a.echeance < new Date().toISOString().slice(0,10)? ` · <b style="color:var(--bad)">en retard</b>`:""}</div></div>
+                <input type="checkbox" class="ix-ac-done" data-id="${ev.a.id}" ${ev.a.fait?"checked":""} style="width:auto;flex:none" title="Fait">
+              </div>` : `
+              <div class="tl-item"><span class="tl-ico">${ev.e.de_etape? "🧭":"✨"}</span>
+                <div class="tl-body"><span>${ev.e.de_etape? `${esc(ev.e.de_etape)} → <b>${esc(ev.e.vers_etape)}</b>` : `Nouveau dossier — <b>${esc(ev.e.vers_etape)}</b>`}</span>
+                  <div class="tl-meta">Pipeline · ${esc(consName(ev.e.conseiller_id))} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
+              </div>`).join("") || `<div class="empty">Aucun événement pour l'instant — ajoute un appel, un RDV ou une note ci-dessus</div>`}</div>
+          </div>
         </div>
       </td></tr>`).join("") || `<tr><td colspan="8" class="empty">Aucun client</td></tr>`}</tbody>
   </table></div>`;
@@ -1933,9 +2052,65 @@ function viewClients(root){
     state._cliOpen = state._cliOpen === r.dataset.key ? null : r.dataset.key;
     viewClients(root);
   }));
+  root.querySelectorAll(".cli-detail").forEach(d=>d.addEventListener("click", e=>e.stopPropagation()));
   root.querySelectorAll(".cli-op").forEach(r=>r.addEventListener("click", e=>{
     e.stopPropagation();
     pipeModal(state.pipeline.find(p=>p.id===+r.dataset.id));
+  }));
+  root.querySelectorAll(".ix-type").forEach(sel=>sel.addEventListener("change", e=>{
+    e.stopPropagation();
+    const det = sel.closest(".cli-detail");
+    const isTask = sel.value==="Tâche";
+    det.querySelector(".ix-due-w").style.display = isTask? "":"none";
+    const cw = det.querySelector(".ix-cons-w"); if (cw) cw.style.display = isTask? "":"none";
+  }));
+  root.querySelectorAll(".ix-add").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    const det = b.closest(".cli-detail");
+    const type = det.querySelector(".ix-type").value;
+    const note = det.querySelector(".ix-note").value.trim();
+    if (!note){ toast("Écris d'abord le contenu"); return; }
+    try{
+      if (type==="Tâche"){
+        const consSel = det.querySelector(".ix-cons");
+        const consId = consSel? +consSel.value : state.profile.conseiller_id;
+        if (!consId){ toast("Aucun conseiller associé"); return; }
+        await state.db.saveAction({conseiller_id:consId, texte:note, echeance:det.querySelector(".ix-due").value||null,
+          semaine:state.week, fait:false, client_key:b.dataset.key});
+      } else {
+        await state.db.addInteraction({client_key:b.dataset.key, conseiller_id:state.profile.conseiller_id||null, type, note});
+      }
+      await state.db.loadAll(); toast(type==="Tâche"? "Tâche ajoutée ✓":"Suivi ajouté ✓"); viewClients(root);
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  root.querySelectorAll(".ix-del").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    if (!confirm("Supprimer cette entrée de suivi ?")) return;
+    try{ await state.db.deleteInteraction(+b.dataset.id); await state.db.loadAll(); viewClients(root); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  root.querySelectorAll(".ix-ac-done").forEach(cb=>cb.addEventListener("change", async e=>{
+    e.stopPropagation();
+    const a = state.actions.find(x=>x.id===+cb.dataset.id);
+    try{ await state.db.saveAction({...a, fait:cb.checked}); await state.db.loadAll(); viewClients(root); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  root.querySelectorAll(".ci-rename").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    const g = list.find(x=>x.key===b.dataset.key); if (!g) return;
+    const nv = prompt("Nouveau nom du client (pour corriger une orthographe ou fusionner deux fiches) :", g.name);
+    if (nv===null) return;
+    const nom = nv.trim();
+    if (!nom || nom===g.name) return;
+    const cible = list.find(x=>x.key===normName(nom) && x.key!==g.key);
+    if (cible && !confirm(`Un client « ${cible.name} » existe déjà : les dossiers et le suivi de « ${g.name} » seront fusionnés dans sa fiche. Continuer ?`)) return;
+    try{
+      await state.db.renameClient(g.key, nom);
+      await state.db.loadAll();
+      state._cliOpen = normName(nom);
+      toast(cible? "Clients fusionnés ✓" : "Client renommé ✓");
+      viewClients(root);
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
   root.querySelectorAll(".ci-save").forEach(b=>b.addEventListener("click", async e=>{
     e.stopPropagation();
