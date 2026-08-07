@@ -3807,6 +3807,15 @@ function missionModeles(){
   const cab = state.paramsCabinet || {};
   return Array.isArray(cab.missionModeles) && cab.missionModeles.length? cab.missionModeles : missionModelesDefaults();
 }
+async function ajouterCAAuditSemaine(consId, week, montant){
+  const ex = state.saisies.find(s=>s.conseiller_id===consId && s.semaine===week);
+  const base = ex? {...ex} : {semaine:week, conseiller_id:consId, rdv:0, nb_signatures:0,
+    collecte_scpi:0, collecte_structures:0, ca_structures:0, collecte_audit:0, ca_audit:0,
+    collecte_assurance:0, ca_autres:0, commentaire:""};
+  base.semaine = week;
+  base.ca_audit = (+base.ca_audit||0) + montant;
+  await state.db.upsertSaisie(base);
+}
 const miOuverte = m => m.statut !== "Close";
 function miEcheanceDepassee(m){
   return miOuverte(m) && m.echeance && String(m.echeance).slice(0,10) <= new Date().toISOString().slice(0,10);
@@ -4071,8 +4080,22 @@ function missionModal(m, opts={}){
         if (m.statut==="Livrée" && !m.livree_le) m.livree_le = new Date().toISOString().slice(0,10);
         if (m.statut==="Close"){ m.close_le = m.close_le || new Date().toISOString().slice(0,10); m.echeance = null; }
         delete m.hono_enc_tmp;
+        const factAvant = isNew? 0 : (+(state.missions.find(x=>x.id===m.id)?.hono_facture)||0);
+        const deltaFact = (+m.hono_facture||0) - factAvant;
         await state.db.saveMission(m);
-        back.remove(); await state.db.loadAll(); toast("Mission enregistrée ✓"); render();
+        back.remove(); await state.db.loadAll();
+        const peutSaisir = isManager() || m.conseiller_id === state.profile.conseiller_id;
+        if (deltaFact > 0 && peutSaisir){
+          const wk = weekCodes().includes(todayWeekCode())? todayWeekCode() : state.week;
+          if (confirm(`Facturé +${eur(deltaFact)} sur cette mission.\n\nAjouter ce montant au CA audit / honoraires de la semaine ${wk} (${consName(m.conseiller_id)}) ?\n\n« Annuler » si ce montant est déjà compté ailleurs (ex : signature pipeline déjà reportée dans la saisie).`)){
+            try{
+              await ajouterCAAuditSemaine(m.conseiller_id, wk, deltaFact);
+              await state.db.loadAll();
+              toast(`+${eur(deltaFact)} ajoutés au CA de la semaine ${wk} ✓`);
+            }catch(err){ toast("CA non ajouté : "+(err.message||err)); }
+          }
+        }
+        toast("Mission enregistrée ✓"); render();
       }catch(err){ toast("Erreur : "+(err.message||err)); }
     });
   };
