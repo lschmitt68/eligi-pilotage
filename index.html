@@ -828,6 +828,8 @@ class SupaDB {
     await this.c.from("clients_infos").update({nom:newName.trim()}).eq("client_key", newKey);
     const {error: e3} = await this.c.from("propositions").update({client_key:newKey}).eq("client_key", oldKey);
     if (e3) throw e3;
+    const {error: e4} = await this.c.from("missions").update({client_key:newKey}).eq("client_key", oldKey);
+    if (e4) throw e4;
   }
   async saveClientInfo(info){
     const row = {client_key:info.client_key, statut:info.statut, origine:info.origine, notes:info.notes, maj_le:new Date().toISOString()};
@@ -1026,6 +1028,7 @@ class DemoDB {
     for (const ci of this.clientsInfos) if (ci.client_key===newKey) ci.nom = newName.trim();
     for (const a of this.actions) if (a.client_key===oldKey) a.client_key = newKey;
     for (const pr of this.propositions) if (pr.client_key===oldKey) pr.client_key = newKey;
+    for (const mi of this.missions) if (mi.client_key===oldKey) mi.client_key = newKey;
   }
   async saveClientInfo(info){
     const i = this.clientsInfos.findIndex(c=>c.client_key===info.client_key);
@@ -2742,7 +2745,7 @@ function viewClients(root){
                 <button class="btn secondary small ci-brief" data-key="${esc(g.key)}">📋 Brief RDV</button>
                 <button class="btn small ci-propo" data-key="${esc(g.key)}">＋ Proposition</button>
                 ${isManager()? `<button class="btn secondary small ci-rename" data-key="${esc(g.key)}">Renommer / fusionner</button>`:""}
-                ${isManager() && !g.rows.length? `<button class="btn danger small ci-delfiche" data-key="${esc(g.key)}">Supprimer</button>`:""}
+                ${isManager() && !g.rows.length && !state.missions.some(mm=>mm.client_key===g.key)? `<button class="btn danger small ci-delfiche" data-key="${esc(g.key)}">Supprimer</button>`:""}
               </span></h3>
             ${(state.propositions.filter(pr=>pr.client_key===g.key).length? `
             <div class="tbl-scroll" style="margin-bottom:8px"><table class="tbl dense">
