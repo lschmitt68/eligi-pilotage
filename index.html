@@ -2150,6 +2150,10 @@ function pipeModal(p, etapeInit){
   back.addEventListener("click", e=>{ if(e.target===back) back.remove(); });
   back.querySelector("#pm-del")?.addEventListener("click", ()=>{ back.remove(); loseModal(p); });
   back.querySelector("#pm-save").addEventListener("click", async ()=>{
+    const nomCli = back.querySelector("#pm-client").value.trim();
+    const keyCli = normName(nomCli);
+    const connu = state.pipeline.some(x=>normName(x.client)===keyCli) || state.clientsInfos.some(c=>c.client_key===keyCli);
+    if (nomCli && !connu && !nomPrenomOk(nomCli)){ toast(MSG_NOM_PRENOM); return; }
     try{
       const etaitSigne = (p.etape||"").toLowerCase() === "signé";
       const nouvelleEtape = back.querySelector("#pm-etape").value;
@@ -2571,6 +2575,11 @@ function suiviClient(g){
   ev.sort((x,y)=>y.t-x.t);
   return ev;
 }
+/* Création de fiche : nom ET prénom obligatoires (au moins deux mots de 2 lettres) */
+function nomPrenomOk(nom){
+  return String(nom||"").trim().split(/\s+/).filter(w=>w.length>=2).length >= 2;
+}
+const MSG_NOM_PRENOM = "Indique le nom ET le prénom du client (ex : DURAND Marie) — indispensable pour éviter les doublons.";
 /* Revue annuelle client (v13) : due si statut Client et dernière revue > 12 mois (ou jamais faite) */
 function revueEchue(info){
   if (!info || info.statut !== "Client") return false;
@@ -2625,6 +2634,7 @@ function clientModal(afterSave){
     const nom = nomEl.value.trim();
     if (!nom){ toast("Indique le nom du client"); return; }
     const key = normName(nom);
+    if (!existing.has(key) && !nomPrenomOk(nom)){ toast(MSG_NOM_PRENOM); return; }
     try{
       if (existing.has(key)){
         back.remove(); state._cliOpen = key; state._cliSearch = ""; afterSave(key); toast("Fiche existante ouverte");
@@ -2671,7 +2681,7 @@ function viewClients(root){
       .reduce((a,i)=>Math.max(a, new Date(i.quand||0).getTime()), 0);
     if (lastIx > g.dernier) g.dernier = lastIx;
   }
-  list.sort((a,b)=>b.pond-a.pond);
+  list.sort((a,b)=>a.name.localeCompare(b.name, "fr", {sensitivity:"base"}));
   const statutBadge = s => s==="Client"? `<span class="badge ok"><span class="dot"></span>Client</span>`
     : s==="Inactif"? `<span class="badge neutral"><span class="dot"></span>Inactif</span>`
     : `<span class="badge"><span class="dot" style="background:var(--s1)"></span>Prospect</span>`;
@@ -2868,6 +2878,7 @@ function viewClients(root){
     if (nv===null) return;
     const nom = nv.trim();
     if (!nom || nom===g.name) return;
+    if (!nomPrenomOk(nom) && !list.some(x=>x.key===normName(nom))){ toast(MSG_NOM_PRENOM); return; }
     const cible = list.find(x=>x.key===normName(nom) && x.key!==g.key);
     if (cible && !confirm(`Un client « ${cible.name} » existe déjà : les dossiers et le suivi de « ${g.name} » seront fusionnés dans sa fiche. Continuer ?`)) return;
     try{
@@ -4052,6 +4063,7 @@ function missionModal(m, opts={}){
         back.querySelector("#mi-ech").focus(); return;
       }
       const key = normName(nomClient);
+      if (!clientsMap.has(key) && !nomPrenomOk(nomClient)){ toast(MSG_NOM_PRENOM); return; }
       try{
         if (!clientsMap.has(key))
           await state.db.saveClientInfo({client_key:key, nom:nomClient, statut:"Client", origine:"", notes:""});
