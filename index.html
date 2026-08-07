@@ -279,6 +279,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .fun-n{width:34px; flex:none; text-align:right; font-weight:700; font-variant-numeric:tabular-nums}
 .fun-conv{width:52px; flex:none; text-align:right; font-size:12px; color:var(--ink-2); font-variant-numeric:tabular-nums}
 
+/* Missions (v15) */
+.mi-et{display:flex; align-items:center; gap:8px; padding:4px 2px; font-size:13px; border-bottom:1px dashed var(--border)}
+.mi-et .mi-done{text-decoration:line-through; color:var(--muted)}
+.mi-et .mi-etdel{margin-left:auto; border:0; background:none; color:var(--muted); cursor:pointer; font-size:11px; padding:2px 5px; border-radius:5px}
+.mi-et .mi-etdel:hover{color:var(--critical); background:var(--surface-2)}
+
 /* ============ Assistant proposition (v9) ============ */
 .wiz-back{align-items:stretch; justify-content:stretch; padding:0}
 .wiz{display:flex; flex-direction:column; width:100%; height:100%; background:var(--page)}
@@ -460,7 +466,7 @@ const pondere = p => (p.ca_potentiel||0) * (p.probabilite||0);
 /* ---------------- État global ---------------- */
 const state = {
   profile:null,       // {email, role, conseiller_id}
-  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[], clientsInfos:[], interactions:[], propositions:[], paramsCabinet:{}, connexions:[],
+  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[], clientsInfos:[], interactions:[], propositions:[], paramsCabinet:{}, connexions:[], missions:[],
   week:null,          // semaine suivie (équivalent Dashboard!B3)
   view:null,
   ficheConseillerId:null,
@@ -752,6 +758,25 @@ class SupaDB {
     state.propositions = pp.data; state.paramsCabinet = (pc.data?.[0]?.data) || {};
     const cx = await this.c.from("connexions").select("*").order("id", {ascending:false}).limit(400);
     state.connexions = cx.error? [] : (cx.data||[]);   // tolérant : le journal ne bloque jamais l'appli
+    const mi = await this.c.from("missions").select("*").order("id", {ascending:false});
+    state.missions = mi.error? [] : (mi.data||[]);     // tolérant tant que la migration v15 n'est pas passée
+  }
+  async saveMission(m){
+    const row = {client_key:m.client_key, titre:m.titre||"", type:m.type||"", statut:m.statut||"À démarrer",
+      conseiller_id:m.conseiller_id||null, description:m.description||"",
+      hono_devis:+m.hono_devis||0, hono_facture:+m.hono_facture||0, hono_encaisse:+m.hono_encaisse||0,
+      echeance:m.echeance||null, echeance_note:m.echeance_note||"",
+      etapes:m.etapes||[], journal:m.journal||[], livree_le:m.livree_le||null, close_le:m.close_le||null};
+    if (m.id){
+      const {error} = await this.c.from("missions").update(row).eq("id", m.id);
+      if (error) throw error; return m.id;
+    }
+    const {data, error} = await this.c.from("missions").insert(row).select().single();
+    if (error) throw error; return data.id;
+  }
+  async deleteMission(id){
+    const {error} = await this.c.from("missions").delete().eq("id", id);
+    if (error) throw error;
   }
   async logConnexion(prof){
     const {error} = await this.c.from("connexions").insert(
@@ -930,7 +955,7 @@ class DemoDB {
     this.objSemaine = []; this.actions = []; this.validations = [];
     this.pipeEvents = this.pipeline.map(p=>({id:this._id++, pipeline_id:p.id, conseiller_id:p.conseiller_id,
       client:p.client, de_etape:null, vers_etape:p.etape, quand:p.updated_at}));
-    this.clientsInfos = []; this.interactions = []; this.propositions = []; this.paramsCabinet = {}; this.connexions = [];
+    this.clientsInfos = []; this.interactions = []; this.propositions = []; this.paramsCabinet = {}; this.connexions = []; this.missions = [];
     this.absences = (D.absences||[]).map(a=>({id:this._id++, conseiller_id:byName[a.conseiller], semaine:wkey(a.semaine)}));
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
@@ -956,6 +981,18 @@ class DemoDB {
     state.propositions = (this.propositions||[]).filter(p=>this._mine(p.conseiller_id)).map(p=>({...p}));
     state.paramsCabinet = this.paramsCabinet || {};
     state.connexions = (this.connexions||[]).filter(cx=>isManager() || cx.email===state.profile?.email).map(c=>({...c}));
+    state.missions = (this.missions||[]).map(m=>({...m, etapes:(m.etapes||[]).map(e=>({...e})), journal:(m.journal||[]).map(j=>({...j}))}));
+  }
+  async saveMission(m){
+    const row = {...m, updated_at:new Date().toISOString()};
+    if (m.id){ Object.assign(this.missions.find(x=>x.id===m.id), row); return m.id; }
+    const id = this._id++;
+    this.missions.unshift({created_at:new Date().toISOString(), ...row, id});
+    return id;
+  }
+  async deleteMission(id){
+    const i = this.missions.findIndex(x=>x.id===id);
+    if (i>=0) this.missions.splice(i,1);
   }
   async logConnexion(prof){
     this.connexions.unshift({id:this._id++, email:prof.email, role:prof.role||"", conseiller_id:prof.conseiller_id||null, quand:new Date().toISOString()});
@@ -1192,6 +1229,7 @@ const ICONS = {
   dash:'<svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
   edit:'<svg class="ic" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   funnel:'<svg class="ic" viewBox="0 0 24 24"><path d="M3 4h18l-7 8v6l-4 2v-8Z"/></svg>',
+  kit:'<svg class="ic" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/></svg>',
   user:'<svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="8" r="4"/><path d="M4 21c1.5-4 4.5-6 8-6s6.5 2 8 6"/></svg>',
   chart:'<svg class="ic" viewBox="0 0 24 24"><path d="M4 20V10"/><path d="M10 20V4"/><path d="M16 20v-7"/><path d="M22 20H2"/></svg>',
   gear:'<svg class="ic" viewBox="0 0 24 24"><circle cx="12" cy="12" r="3"/><path d="M19.4 15a7.9 7.9 0 0 0 .1-6l2-1.5-2-3.4-2.4.9a8 8 0 0 0-5.2-3L11.5.6h-4L7.1 3a8 8 0 0 0-5.2 3l-2.4-.9-2 3.4L-.5 10" transform="translate(2.5 1.5) scale(.92)"/></svg>',
@@ -2364,6 +2402,9 @@ function viewJour(root){
     .sort((a,b)=>String(a.closing_prevu).localeCompare(String(b.closing_prevu)));
   const sig = openPipe.filter(p=>p.signature_probable).sort((a,b)=>pondere(b)-pondere(a));
   const tRetard = state.actions.filter(a=>mine(a) && !a.fait && a.echeance && a.echeance < today).length;
+  const missTard = state.missions.filter(m=>(mgr || m.conseiller_id===meId) && miEcheanceDepassee(m))
+    .sort((a,b)=>String(a.echeance).localeCompare(String(b.echeance)));
+  const missSans = state.missions.filter(m=>(mgr || m.conseiller_id===meId) && miSansEcheance(m));
   const revues = state.clientsInfos.filter(ci=>revueEchue(ci))
     .filter(ci=>{ if (mgr) return true; const cc = clientConseillers(ci.client_key); return !cc.length || cc.includes(meId); })
     .map(ci=>({key:ci.client_key, name:(ci.nom||ci.client_key), last:ci.derniere_revue||null}))
@@ -2389,6 +2430,8 @@ function viewJour(root){
     ${tile("Closings sous 14 jours", closings.length)}
     ${tile("Signatures probables", sig.length, eur(sig.reduce((a,p)=>a+pondere(p),0)) + " pondérés")}
     ${tile("Revues annuelles", revues.length, revues.length? "clients à revoir (conformité)" : "à jour ✓")}
+    ${tile("Missions à suivre", missTard.length + missSans.length,
+      missTard.length? "échéance de dossier dépassée" : missSans.length? "sans prochaine échéance" : "dossiers sous contrôle ✓")}
   </div>
 
   <div class="row sect">
@@ -2412,6 +2455,19 @@ function viewJour(root){
         : `<div class="empty">Aucune signature marquée « probable »</div>`}
     </div>
     <div class="card grow">
+      <h3 class="mt0">🧰 Missions à suivre</h3>
+      ${(missTard.length || missSans.length)? `<table class="tbl dense"><tbody>
+        ${missTard.slice(0,5).map(m=>`<tr class="clickable jr-mi" data-mid="${m.id}">
+          <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
+          <td class="num">${miEcheanceHTML(m)}</td></tr>`).join("")}
+        ${missSans.slice(0,3).map(m=>`<tr class="clickable jr-mi" data-mid="${m.id}">
+          <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
+          <td class="num">${miEcheanceHTML(m)}</td></tr>`).join("")}
+        </tbody></table>
+        ${(missTard.length>5 || missSans.length>3)? `<p class="small muted" style="margin-bottom:0">Le reste dans la vue Missions (filtre « À suivre »)</p>`:""}`
+        : `<div class="empty">Toutes les missions ont une prochaine échéance ✓</div>`}
+    </div>
+    <div class="card grow">
       <h3 class="mt0">📆 Revues annuelles à programmer</h3>
       ${revues.length? `<table class="tbl dense"><tbody>${revues.slice(0,6).map(x=>`<tr class="clickable jr-rev" data-key="${esc(x.key)}">
         <td><b>${esc(x.name)}</b></td>
@@ -2432,6 +2488,10 @@ function viewJour(root){
   root.querySelectorAll(".jr-rev").forEach(r=>r.addEventListener("click", ()=>{
     state._cliOpen = r.dataset.key; state._cliSearch = "";
     go("clients");
+  }));
+  root.querySelectorAll(".jr-mi").forEach(r=>r.addEventListener("click", ()=>{
+    const m = state.missions.find(x=>x.id===+r.dataset.mid);
+    if (m) missionModal(m);
   }));
 }
 
@@ -2468,6 +2528,14 @@ function briefClient(key){
           <td class="num">${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</td>
           <td class="num"><b>${eur(pondere(p))}</b></td><td>${esc(p.prochaine_action||"—")}</td></tr>`).join("")}</tbody></table>`
         : `<p class="pd-note">Aucune opportunité pipeline pour l'instant.</p>`}</div>
+      ${(()=>{ const mis = state.missions.filter(mm=>mm.client_key===key);
+        return mis.length? `<div class="pd-sec"><h3>Missions de conseil</h3>
+        <table class="pd-tbl"><thead><tr><th>Mission</th><th>Statut</th><th class="num">Avancement</th><th>Prochaine échéance</th></tr></thead>
+        <tbody>${mis.map(mm=>{ const pr = miProgress(mm); return `<tr>
+          <td>${esc(mm.titre||mm.type)}</td><td>${esc(mm.statut)}</td>
+          <td class="num">${pr.total? pr.done+"/"+pr.total : "—"}</td>
+          <td>${mm.echeance? new Date(String(mm.echeance).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR") + (mm.echeance_note? " — "+esc(mm.echeance_note) : "") : (miSansEcheance(mm)? "⚠ à définir" : "—")}</td>
+        </tr>`; }).join("")}</tbody></table></div>` : ""; })()}
       ${taches.length? `<div class="pd-sec"><h3>Tâches ouvertes</h3>
         <table class="pd-tbl"><tbody>${taches.map(a=>`<tr><td>☐</td><td>${esc(a.texte)}</td><td>${esc(consName(a.conseiller_id))}</td><td class="num">${a.echeance? new Date(a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</td></tr>`).join("")}</tbody></table></div>`:""}
       <div class="pd-sec"><h3>Derniers événements</h3>
@@ -2655,6 +2723,18 @@ function viewClients(root){
               <td>${isOverdue(p)? "⏰ closing dépassé" : isStale(p)? `💤 ${staleDays(p)} j`:""}</td>
               <td>${esc(p.prochaine_action||"")}</td>
             </tr>`).join("")}</tbody></table>
+            ${(()=>{ const mis = state.missions.filter(mm=>mm.client_key===g.key);
+              return `<h3 style="display:flex;justify-content:space-between;align-items:center;gap:6px"><span>🧰 Missions de conseil</span>
+                <button class="btn small cli-mi-add" data-key="${esc(g.key)}" data-nom="${esc(g.name)}">＋ Mission</button></h3>
+              ${mis.length? `<table class="tbl dense"><tbody>${mis.map(mm=>{ const pr = miProgress(mm); return `
+                <tr class="clickable cli-mi" data-mid="${mm.id}">
+                  <td>${esc(mm.titre||mm.type)}</td>
+                  <td><span class="badge" style="color:${MI_ST_COLORS[mm.statut]}"><span class="dot" style="background:${MI_ST_COLORS[mm.statut]}"></span>${esc(mm.statut)}</span></td>
+                  <td class="num small">${pr.total? pr.done+"/"+pr.total : "—"}</td>
+                  <td>${miEcheanceHTML(mm)}</td>
+                  <td class="num small">${+mm.hono_facture? eur(mm.hono_facture):""}</td>
+                </tr>`; }).join("")}</tbody></table>`
+              : `<div class="small muted">Aucune mission d'honoraires pour ce client.</div>`}`; })()}
           </div>
           <div class="card" style="flex:1.1;min-width:340px">
             <h3 class="mt0" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px"><span>🗂 Suivi client</span>
@@ -2705,6 +2785,14 @@ function viewClients(root){
   root.querySelectorAll(".cli-op").forEach(r=>r.addEventListener("click", e=>{
     e.stopPropagation();
     pipeModal(state.pipeline.find(p=>p.id===+r.dataset.id));
+  }));
+  root.querySelectorAll(".cli-mi").forEach(r=>r.addEventListener("click", e=>{
+    e.stopPropagation();
+    missionModal(state.missions.find(m=>m.id===+r.dataset.mid));
+  }));
+  root.querySelectorAll(".cli-mi-add").forEach(b=>b.addEventListener("click", e=>{
+    e.stopPropagation();
+    missionModal(null, {clientKey:b.dataset.key, clientNom:b.dataset.nom});
   }));
   root.querySelectorAll(".ci-brief").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
@@ -3673,6 +3761,310 @@ function viewRapport(root){
   });
 }
 
+/* ================================================================
+   Missions de conseil (v15) — suivi des dossiers d'honoraires
+   Remplace le Trello : mission rattachée au client, check-list,
+   cycle de vie avec échéance de suivi obligatoire après livraison.
+   ================================================================ */
+const MI_STATUTS = ["À démarrer","En cours","En attente","Livrée","Suivi","Close"];
+const MI_ST_COLORS = {"À démarrer":"var(--s2)","En cours":"var(--s1)","En attente":"#c98a2b","Livrée":"#7a67c9","Suivi":"#2e9e63","Close":"var(--muted)"};
+const MI_TYPES = ["Audit / Conseil patrimonial","Diagnostic retraite","Rémunération (CAP)","Cession / Transmission (CAP)","Création société / holding","Transformation de société","Cession de parts","Formalités d'entreprises","Immobilier professionnel","Dutreil","Abonnement / suivi","Autre"];
+function missionModelesDefaults(){
+  return [
+    {nom:"Audit / Conseil patrimonial", items:["Carte d'identité", "Lettre de mission", "Facture d'acompte", "Pièces", "Implémentation BIG", "Rédaction", "Validation projet", "Rdv client", "Finalisation"]},
+    {nom:"Création de société / holding", items:["Taxe foncière", "Procuration pour effectuer les formalités", "Autorisation de domiciliation", "Attestation de non-condamnation et de filiation", "Rédaction de statuts", "Documents envoyés au(x) client(s) pour signature", "CNI des associés", "Si Personne Morale : Kbis – 3 mois", "Reprises des actes effectués pour le compte de la société en formation", "attestation de dépôt du capital", "Signatures des statuts", "JAL", "INPI : pas de signature qualifiée", "Formalité acceptée", "Réception des pièces par courrier", "Envoi des pièces au client par courrier"]},
+    {nom:"Transformation SARL → SAS", items:["Bilan de moins de 6 mois ⚠️", "Procuration pour effectuer les formalités", "Nomination commissaire à la transformation", "Signature des documents par les associés", "INPI : dépôt d’actes de la nomination", "8 jours après l’enregistrement du dépôt d’actes et 30 jours après le rapport du commissaire : AGE et STATUTS", "Rédaction de nouveaux statuts", "PV AGE : transformation", "Documents envoyés pour signature", "Signatures par les associés", "JAL", "INPI", "Formalité acceptée / réception des Kbis", "Envoi au client par courrier", "Informer l'expert comptable / client qu'il faudra tenir un registre des titres", "Faire checklist aux clients de ce qu'ils doivent transmettre à l'expert comptable"]},
+    {nom:"Transformation SAS → SARL", items:["Procuration pour effectuer les formalités", "Rédaction de nouveaux statuts", "Signature des documents par les associés", "PV AGE : transformation", "Signatures par les associés", "JAL", "INPI", "Formalité acceptée / réception des Kbis", "Envoi au client par courrier", "Documents envoyés pour signature"]},
+    {nom:"Transformation en société civile", items:["Procuration pour effectuer les formalités", "Rédaction de nouveaux statuts", "PV AGE : transformation", "Documents envoyés pour signature", "Signatures par les associés", "JAL", "INPI", "Formalité acceptée / réception des Kbis", "Envoi au client par courrier"]},
+    {nom:"Cession de parts + modification BE", items:["AGE agrément avant cession", "Modification statutaire", "Procuration pour effectuer les formalités", "Acte de cession de parts (exemplaire : cédants, cessionnaires, société et 2 pour le pôle enregistrement)", "Signature des documents par les associés", "Envoyer au pôle enregistrement avec chèque + tous les originaux", "Déposer acte sur INPI : AGE + Statuts modifiés + Acte de cession ENREGISTRE", "AGE validation cession", "Quand dépôt d’acte validé : modification des BE sous 1 mois (modification Entreprise) (voir pour remettre PV AG + statuts)", "INPI fait", "INPI validé", "Documents reçus", "Documents transmis au client + comptable"]},
+    {nom:"Cession de parts + nouveaux associés", items:["PV AGE", "Statuts modifiés", "Procuration pour effectuer les formalités", "Acte de cession de parts (exemplaire : cédant, cessionnaire, société + 2 pour le pole enregistrement)", "Documents envoyés pour signature", "Signature par le client", "CNI des nouveaux associés", "Envoi au service de l'enregistrement tous les originaux + chèque)", "Modification d'entreprise sur l'INPI", "Formalité acceptée / réception des documents", "Envoi des documents au client par courrier"]},
+    {nom:"Apport dans une société", items:["Bilan de moins de 6 mois ⚠️", "Nomination commissaire aux apports", "AG envoyée pour signature", "Contrat d’apport", "Contrat envoyé pour signature", "Documents signés"]},
+    {nom:"Société dont les parts sont apportées", items:["Bilan de moins de 6 mois ⚠️", "AGE : entrée d’un nouvel associé (avant contrat d'apport)", "Statuts modifiés", "Procuration pour effectuer les formalités", "Documents envoyés pour signature", "Signature par le client", "INPI : modification BE"]},
+    {nom:"Augmentation de capital (société qui reçoit)", items:["AGE : Augmentation de capital + entrée d’un nouvel associé", "Statuts modifiés", "Procuration pour effectuer les formalités", "Documents envoyés pour signature", "Signature par le client", "JAL : augmentation de capital", "INPI", "Formalité acceptée / réception des documents", "Envoi des documents au client par courrier"]},
+    {nom:"Modification statutaire", items:["Procuration pour effectuer les formalités", "PV AG : vote de la modification", "modification de gérance : attestation de non condamnation et filiation.", "Modification siège : Attestation de domiciliation", "Justificatif de domicile", "Statuts modifiés", "Documents envoyés pour signature", "Signatures des documents", "Si modification de l’objet social, siège, capital : JAL", "Si modification objet ou siège : INPI catégorie Modifier l’Entreprise (sauf quand ca ne modifie l'activité principale : cas WILDBEE)", "Si modification standard (clauses) : déposer un acte (AGE, Statuts, procuration)"]},
+    {nom:"Modification bénéficiaire effectif", items:["Pas de dépôts d’actes au préalable : modification d’entreprise sur INPI directement", "A faire dans un délai d’un mois à la suite de la modification"]},
+    {nom:"Réduction de capital", items:["Rédaction PV AGE", "statuts modifiés", "Procuration", "Envoi des documents pour signature", "documents signés", "Publication au JAL", "Déposer actes pour débuter l'opposabilité des créanciers (1mois)", "INPI dépôts d'actes", "INPI modification entreprise", "Dossier inpi validé", "Documents reçus", "Documents transmis au client"]},
+    {nom:"Émission d'obligations", items:["Bilan de moins de 6 mois", "Nomination commissaire aux comptes si société de moins de 2 ans", "Document nomination envoyé pour signature", "Document signé", "Contrat d'émission (taux, libération totale ou progressive)", "AGE autorisant l'émission (selon si c'est PDT ou actionnaires qui votent)", "En attente du rapport du CAC", "Rapport du CAA reçu le", "Contrat d'émission envoyé pour signature", "SAS pas de publicité si pas d'offre au public"]},
+    {nom:"Dissolution / liquidation", items:["Procuration pour effectuer les formalités", "PV AGE votant dissolution(Nom liquidateur, adresse de la liquidation, fin de gérance)", "Publication JAL de la dissolution", "Sinon : rapport du liquidateur", "INPI cessation", "PV AGE liquidation", "URSSAF (attestation de régularité sociale ou d'E sans salarié) 3957", "Attestation de régularité fiscale SIP (site ou formulaire 3666-SD)", "Attestation SIE", "CNI du liquidateur", "Publication JAL de la cloture de liquidation", "Enregistrement de la liquidation aux impôts (sociétés commerciales ou si boni)", "INPI", "INPI validé", "Documents reçus"]},
+    {nom:"ECC Dutreil", items:["Rédaction ECC", "Signature", "ECC envoyé au SDE (+chèque 125€)", "Enregistrement SDE", "Attestation de la société certifiant que l'ECC est en cours et qu'il respecte le %", "Société interposée : Attestation précisant le nombre de titre détenus au jour de l'ECC"]}
+  ];
+}
+function missionModeles(){
+  const cab = state.paramsCabinet || {};
+  return Array.isArray(cab.missionModeles) && cab.missionModeles.length? cab.missionModeles : missionModelesDefaults();
+}
+const miOuverte = m => m.statut !== "Close";
+function miEcheanceDepassee(m){
+  return miOuverte(m) && m.echeance && String(m.echeance).slice(0,10) <= new Date().toISOString().slice(0,10);
+}
+function miSansEcheance(m){
+  return miOuverte(m) && m.statut !== "À démarrer" && !m.echeance;
+}
+const miASuivre = m => miEcheanceDepassee(m) || miSansEcheance(m);
+function miProgress(m){
+  const et = m.etapes||[]; const done = et.filter(e=>e.done).length;
+  return {done, total:et.length, pct: et.length? done/et.length : 0};
+}
+function miClientNom(key){
+  const p = state.pipeline.find(x=>normName(x.client)===key);
+  if (p) return (p.client||"").trim();
+  const ci = state.clientsInfos.find(c=>c.client_key===key);
+  return ci? (ci.nom||key) : key;
+}
+function miEcheanceHTML(m){
+  if (!m.echeance) return miSansEcheance(m)? `<span class="badge urgent"><span class="dot"></span>⚠ sans échéance</span>` : `<span class="small muted">—</span>`;
+  const d = new Date(String(m.echeance).slice(0,10)+"T00:00:00");
+  const txt = d.toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"});
+  return miEcheanceDepassee(m)? `<span class="badge urgent"><span class="dot"></span>⏰ ${txt}</span>` : `<span class="small">📅 ${txt}</span>`;
+}
+function miCardHTML(m){
+  const pr = miProgress(m);
+  return `<div class="kcard mi-card" data-mid="${m.id}" draggable="true" title="Cliquer pour ouvrir — glisser pour changer de statut">
+    <div class="kclient"><span class="cdot" style="background:${consColor(m.conseiller_id)}" title="${esc(consName(m.conseiller_id))}"></span>
+      <span class="kc-name">${esc(miClientNom(m.client_key))}</span>
+      ${pr.total? `<span class="kpond">${pr.done}/${pr.total}</span>`:""}</div>
+    <div class="kmeta"><span class="tag">${esc(m.type||"Mission")}</span>${m.titre && m.titre!==miClientNom(m.client_key)? ` <span class="small">${esc(m.titre)}</span>`:""}</div>
+    <div class="kmeta" style="margin-top:4px">${miEcheanceHTML(m)}${+m.hono_facture? ` <span class="small muted">${eur(m.hono_facture)} facturés</span>`:""}</div>
+  </div>`;
+}
+function viewMissions(root){
+  if (state._miView === undefined) state._miView = "kanban";
+  const q = (state._miSearch||"").toLowerCase();
+  const fType = state._miType || "";
+  const fCons = isManager()? (state._miCons ?? "") : "";
+  let rows = state.missions.filter(m =>
+    (!fCons || m.conseiller_id===+fCons) &&
+    (!fType || m.type===fType) &&
+    (!q || miClientNom(m.client_key).toLowerCase().includes(q) || (m.titre||"").toLowerCase().includes(q)));
+  const nSuivre = rows.filter(miASuivre).length;
+  if (state._miSuivre) rows = rows.filter(miASuivre);
+  const ouvertes = rows.filter(miOuverte);
+  const fact = state.missions.reduce((a,m)=>a+(+m.hono_facture||0),0);
+  const enc = state.missions.reduce((a,m)=>a+(+m.hono_encaisse||0),0);
+
+  root.innerHTML = `
+  ${vhead("Missions de conseil", "audits, formalités, restructurations — le dossier vit jusqu'au suivi, pas jusqu'à la livraison", `
+    <div class="seg" id="mi-seg">
+      <button data-v="kanban" class="${state._miView==="kanban"?"active":""}">Kanban</button>
+      <button data-v="table" class="${state._miView==="table"?"active":""}">Tableau</button>
+    </div>
+    <button class="btn" id="mi-add">+ Mission</button>`)}
+  <div class="inline-controls" style="margin-bottom:12px">
+    <label class="fld" style="min-width:200px"><span>Recherche</span>
+      <input type="search" id="mi-search" placeholder="client, intitulé…" value="${esc(state._miSearch||"")}"></label>
+    <label class="fld"><span>Type</span><select id="mi-type"><option value="">Tous</option>
+      ${MI_TYPES.map(t=>`<option ${t===fType?"selected":""}>${t}</option>`).join("")}</select></label>
+    ${isManager()? `<label class="fld"><span>Conseiller</span><select id="mi-cons"><option value="">Tous</option>
+      ${activeConseillers().map(c=>`<option value="${c.id}" ${String(c.id)===String(fCons)?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`:""}
+    ${nSuivre? `<button class="chip ${state._miSuivre?"warn":""}" id="mi-suivre" style="margin-bottom:8px" title="Échéance dépassée ou pas de prochaine échéance">⚠ À suivre (${nSuivre})</button>`:""}
+    <span style="flex:1"></span>
+    <div class="small muted" style="padding-bottom:8px">
+      <b>${ouvertes.length}</b> mission(s) ouvertes · facturé <b>${eur(fact)}</b> · encaissé <b>${eur(enc)}</b></div>
+  </div>
+  <div id="mi-body"></div>`;
+
+  const body = $("#mi-body");
+  if (state._miView === "kanban"){
+    body.innerHTML = `<div class="kanban" style="grid-template-columns:repeat(6, minmax(215px,1fr))">${MI_STATUTS.map(st=>{
+      const items = rows.filter(m=>m.statut===st).sort((a,b)=>String(a.echeance||"9999").localeCompare(String(b.echeance||"9999")));
+      return `<div class="kcol mi-col" data-st="${esc(st)}">
+        <div class="kcol-head"><b style="color:${MI_ST_COLORS[st]}">${esc(st)}</b><span class="kcount">${items.length}</span></div>
+        <div class="kcol-cards">${items.map(miCardHTML).join("")}</div>
+        ${st==="À démarrer"? `<button class="kcol-add" id="mi-addcol">+ ajouter ici</button>`:""}
+      </div>`;}).join("")}</div>`;
+    body.querySelectorAll(".mi-card").forEach(card=>{
+      card.addEventListener("click", ()=>missionModal(state.missions.find(m=>m.id===+card.dataset.mid)));
+      card.addEventListener("dragstart", e=>{ e.dataTransfer.setData("text/plain", card.dataset.mid); e.dataTransfer.effectAllowed="move"; card.classList.add("dragging"); });
+      card.addEventListener("dragend", ()=>card.classList.remove("dragging"));
+    });
+    body.querySelectorAll(".mi-col").forEach(col=>{
+      col.addEventListener("dragover", e=>{ e.preventDefault(); e.dataTransfer.dropEffect="move"; col.classList.add("dragover"); });
+      col.addEventListener("dragleave", ()=>col.classList.remove("dragover"));
+      col.addEventListener("drop", async e=>{
+        e.preventDefault(); col.classList.remove("dragover");
+        const m = state.missions.find(x=>x.id===+e.dataTransfer.getData("text/plain"));
+        const st = col.dataset.st;
+        if (!m || m.statut===st) return;
+        if ((st==="Livrée"||st==="Suivi") && !m.echeance){ missionModal(m, {forceStatut:st}); return; }
+        try{
+          const upd = {...m, statut:st};
+          if (st==="Livrée" && !upd.livree_le) upd.livree_le = new Date().toISOString().slice(0,10);
+          if (st==="Close"){ upd.close_le = new Date().toISOString().slice(0,10); upd.echeance = null; }
+          await state.db.saveMission(upd); await state.db.loadAll();
+          toast(`${miClientNom(m.client_key)} → ${st} ✓`); render();
+        }catch(err){ toast("Erreur : "+(err.message||err)); }
+      });
+    });
+    $("#mi-addcol")?.addEventListener("click", ()=>missionModal(null));
+  } else {
+    const sorted = [...rows].sort((a,b)=>String(a.echeance||"9999").localeCompare(String(b.echeance||"9999")));
+    body.innerHTML = `<div class="card tbl-scroll"><table class="tbl dense">
+      <thead><tr><th>Client</th><th>Mission</th><th>Type</th><th>Conseiller</th><th>Statut</th>
+      <th>Prochaine échéance</th><th class="num">Avancement</th><th class="num">Devis</th><th class="num">Facturé</th><th class="num">Encaissé</th></tr></thead>
+      <tbody>${sorted.map(m=>{ const pr = miProgress(m); return `<tr class="clickable mi-row" data-mid="${m.id}">
+        <td><b>${esc(miClientNom(m.client_key))}</b></td>
+        <td style="white-space:normal;min-width:150px">${esc(m.titre||"")}</td>
+        <td class="small">${esc(m.type||"")}</td>
+        <td><span class="cdot" style="background:${consColor(m.conseiller_id)}"></span>${esc(consName(m.conseiller_id))}</td>
+        <td><span class="badge" style="color:${MI_ST_COLORS[m.statut]}"><span class="dot" style="background:${MI_ST_COLORS[m.statut]}"></span>${esc(m.statut)}</span></td>
+        <td>${miEcheanceHTML(m)}${m.echeance_note? ` <span class="small muted">${esc(m.echeance_note)}</span>`:""}</td>
+        <td class="num">${pr.total? `${pr.done}/${pr.total}`:"—"}</td>
+        <td class="num">${eur(m.hono_devis)}</td><td class="num"><b>${eur(m.hono_facture)}</b></td><td class="num">${eur(m.hono_encaisse)}</td>
+      </tr>`; }).join("") || `<tr><td colspan="10" class="empty">Aucune mission — le bouton « + Mission » crée la première</td></tr>`}</tbody>
+    </table></div>`;
+    body.querySelectorAll(".mi-row").forEach(r=>r.addEventListener("click", ()=>missionModal(state.missions.find(m=>m.id===+r.dataset.mid))));
+  }
+
+  $("#mi-seg").querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{ state._miView = b.dataset.v; render(); }));
+  $("#mi-add").addEventListener("click", ()=>missionModal(null));
+  $("#mi-suivre")?.addEventListener("click", ()=>{ state._miSuivre = !state._miSuivre; render(); });
+  $("#mi-search").addEventListener("input", e=>{ state._miSearch = e.target.value; viewMissions(root); });
+  $("#mi-type").addEventListener("change", e=>{ state._miType = e.target.value; render(); });
+  $("#mi-cons")?.addEventListener("change", e=>{ state._miCons = e.target.value; render(); });
+}
+
+function missionModal(m, opts={}){
+  const isNew = !m;
+  m = m? {...m, etapes:(m.etapes||[]).map(e=>({...e})), journal:(m.journal||[]).map(j=>({...j}))}
+       : {client_key:opts.clientKey||"", titre:"", type:MI_TYPES[0], statut:"À démarrer",
+          conseiller_id: isManager()? (activeConseillers()[0]?.id||null) : state.profile.conseiller_id,
+          description:"", hono_devis:0, hono_facture:0, hono_encaisse:0,
+          echeance:null, echeance_note:"", etapes:[], journal:[]};
+  if (opts.forceStatut) m.statut = opts.forceStatut;
+  const clientsMap = new Map();
+  for (const p of state.pipeline) if (p.client) clientsMap.set(normName(p.client), (p.client||"").trim());
+  for (const ci of state.clientsInfos) if (!clientsMap.has(ci.client_key)) clientsMap.set(ci.client_key, ci.nom||ci.client_key);
+  let clientNom = opts.clientNom || (m.client_key? miClientNom(m.client_key) : "");
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  const IXN = {};
+  const renderModal = ()=>{
+    const pr = miProgress(m);
+    back.innerHTML = `<div class="modal" style="width:760px;max-width:96vw">
+    <h3>${isNew? "Nouvelle mission" : `Mission — ${esc(miClientNom(m.client_key))}`}</h3>
+    <div class="form-grid">
+      <label class="fld"><span>Client</span><input type="text" id="mi-client" value="${esc(clientNom)}" list="mi-clients" autocomplete="off">
+        <datalist id="mi-clients">${[...clientsMap.values()].sort((a,b)=>a.localeCompare(b,"fr")).map(n=>`<option value="${esc(n)}">`).join("")}</datalist></label>
+      <label class="fld"><span>Intitulé (ex : Création holding CM4G)</span><input type="text" id="mi-titre" value="${esc(m.titre||"")}"></label>
+      <label class="fld"><span>Type</span><select id="mi-mtype">${MI_TYPES.map(t=>`<option ${t===m.type?"selected":""}>${t}</option>`).join("")}</select></label>
+      ${isManager()? `<label class="fld"><span>Conseiller responsable</span><select id="mi-mcons">
+        ${activeConseillers().map(c=>`<option value="${c.id}" ${c.id===m.conseiller_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`
+        : `<label class="fld"><span>Conseiller</span><input type="text" value="${esc(consName(m.conseiller_id))}" disabled></label>`}
+      <label class="fld"><span>Statut</span><select id="mi-statut">${MI_STATUTS.map(s=>`<option ${s===m.statut?"selected":""}>${s}</option>`).join("")}</select></label>
+      <label class="fld"><span>Prochaine échéance ${["Livrée","Suivi"].includes(m.statut)? "<b>(obligatoire)</b>":""}</span><input type="date" id="mi-ech" value="${m.echeance? String(m.echeance).slice(0,10):""}"></label>
+      <label class="fld full"><span>Objet de l'échéance</span><input type="text" id="mi-echnote" value="${esc(m.echeance_note||"")}" placeholder="ex : point à 6 mois après livraison, relance bilan comptable, revue an 1 de la holding…"></label>
+      <label class="fld"><span>Honoraires devis (€ HT)</span><input type="number" id="mi-devis" value="${+m.hono_devis||0}" min="0" step="any"></label>
+      <label class="fld"><span>Facturé (€ HT)</span><input type="number" id="mi-fact" value="${+m.hono_facture||0}" min="0" step="any"></label>
+      <label class="fld"><span>Encaissé (€ HT)</span><input type="number" id="mi-enc" value="${+m.hono_encaisse||0}" min="0" step="any"></label>
+      <label class="fld full"><span>Contexte / notes du dossier</span><textarea id="mi-desc" rows="2">${esc(m.description||"")}</textarea></label>
+    </div>
+    <div class="row" style="margin-top:10px">
+      <div class="card grow" style="min-width:300px">
+        <h3 class="mt0" style="display:flex;justify-content:space-between;align-items:center"><span>Check-list ${pr.total? `<span class="small muted">${pr.done}/${pr.total}</span>`:""}</span>
+          ${!m.etapes.length? `<select id="mi-modele" class="small" style="max-width:230px"><option value="">Appliquer un modèle…</option>
+            ${missionModeles().map((mo,i)=>`<option value="${i}">${esc(mo.nom)} (${mo.items.length})</option>`).join("")}</select>`:""}</h3>
+        <div id="mi-etapes" style="max-height:260px;overflow-y:auto">
+          ${m.etapes.map((e,i)=>`<label class="mi-et"><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span><button class="mi-etdel" data-ei="${i}" title="Retirer l'étape">✕</button></label>`).join("") || `<div class="empty">Aucune étape — applique un modèle ou ajoute les tiennes</div>`}
+        </div>
+        <div class="inline-controls" style="margin-top:8px">
+          <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newet" placeholder="Nouvelle étape…"></label>
+          <button class="btn secondary small" id="mi-addet">Ajouter</button>
+        </div>
+      </div>
+      <div class="card grow" style="min-width:300px">
+        <h3 class="mt0">Journal du dossier</h3>
+        <div class="inline-controls">
+          <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newnote" placeholder="Relance mail, retour client, décision…"></label>
+          <button class="btn secondary small" id="mi-addnote">Noter</button>
+        </div>
+        <div class="tl" style="max-height:230px;overflow-y:auto">
+          ${(m.journal||[]).map(j=>`<div class="tl-item"><span class="tl-ico">📝</span>
+            <div class="tl-body"><span>${esc(j.n)}</span>
+              <div class="tl-meta">${j.c? esc(consName(j.c)) : "Équipe"} · ${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("")
+          || `<div class="empty">Aucune note pour l'instant</div>`}
+        </div>
+      </div>
+    </div>
+    <div class="modal-actions">
+      ${!isNew && isManager()? `<button class="btn danger" id="mi-del" style="margin-right:auto">Supprimer</button>`:""}
+      <button class="btn secondary" id="mi-cancel">Annuler</button>
+      <button class="btn" id="mi-save">Enregistrer</button>
+    </div>
+  </div>`;
+    bindModal();
+  };
+  const bindModal = ()=>{
+    const readForm = ()=>{
+      clientNom = back.querySelector("#mi-client").value;
+      m.titre = back.querySelector("#mi-titre").value.trim();
+      m.type = back.querySelector("#mi-mtype").value;
+      if (isManager()) m.conseiller_id = +back.querySelector("#mi-mcons").value;
+      m.statut = back.querySelector("#mi-statut").value;
+      m.echeance = back.querySelector("#mi-ech").value || null;
+      m.echeance_note = back.querySelector("#mi-echnote").value.trim();
+      m.hono_devis = +back.querySelector("#mi-devis").value||0;
+      m.hono_facture = +back.querySelector("#mi-fact").value||0;
+      m.hono_enc_tmp = null;
+      m.hono_encaisse = +back.querySelector("#mi-enc").value||0;
+      m.description = back.querySelector("#mi-desc").value.trim();
+    };
+    back.querySelector("#mi-cancel").addEventListener("click", ()=>back.remove());
+    back.addEventListener("click", e=>{ if (e.target===back) back.remove(); }, {once:true});
+    back.querySelector("#mi-modele")?.addEventListener("change", e=>{
+      const mo = missionModeles()[+e.target.value];
+      if (mo){ readForm(); m.etapes = mo.items.map(t=>({t, done:false})); if (!m.titre) m.titre = mo.nom; renderModal(); }
+    });
+    back.querySelectorAll("#mi-etapes input[type=checkbox]").forEach(cb=>cb.addEventListener("change", ()=>{
+      m.etapes[+cb.dataset.ei].done = cb.checked;
+    }));
+    back.querySelectorAll(".mi-etdel").forEach(b=>b.addEventListener("click", e=>{
+      e.preventDefault(); readForm(); m.etapes.splice(+b.dataset.ei,1); renderModal();
+    }));
+    const addEt = ()=>{
+      const el = back.querySelector("#mi-newet"); const t = el.value.trim();
+      if (!t) return; readForm(); m.etapes.push({t, done:false}); renderModal();
+    };
+    back.querySelector("#mi-addet").addEventListener("click", addEt);
+    back.querySelector("#mi-newet").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addEt(); } });
+    const addNote = ()=>{
+      const el = back.querySelector("#mi-newnote"); const n = el.value.trim();
+      if (!n) return; readForm();
+      m.journal = [{q:new Date().toISOString(), n, c:state.profile.conseiller_id||null}, ...(m.journal||[])];
+      renderModal();
+    };
+    back.querySelector("#mi-addnote").addEventListener("click", addNote);
+    back.querySelector("#mi-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
+    back.querySelector("#mi-statut").addEventListener("change", ()=>{ readForm(); renderModal(); });
+    back.querySelector("#mi-del")?.addEventListener("click", async ()=>{
+      if (!confirm("Supprimer définitivement cette mission et son historique ?")) return;
+      try{ await state.db.deleteMission(m.id); back.remove(); await state.db.loadAll(); toast("Mission supprimée"); render(); }
+      catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+    back.querySelector("#mi-save").addEventListener("click", async ()=>{
+      readForm();
+      const nomClient = back.querySelector("#mi-client").value.trim();
+      if (!nomClient){ toast("Indique le client de la mission"); return; }
+      if (["Livrée","Suivi"].includes(m.statut) && !m.echeance){
+        toast("Une mission " + m.statut.toLowerCase() + " doit avoir une prochaine échéance — c'est elle qui garantit le suivi du client");
+        back.querySelector("#mi-ech").focus(); return;
+      }
+      const key = normName(nomClient);
+      try{
+        if (!clientsMap.has(key))
+          await state.db.saveClientInfo({client_key:key, nom:nomClient, statut:"Client", origine:"", notes:""});
+        m.client_key = key;
+        if (m.statut==="Livrée" && !m.livree_le) m.livree_le = new Date().toISOString().slice(0,10);
+        if (m.statut==="Close"){ m.close_le = m.close_le || new Date().toISOString().slice(0,10); m.echeance = null; }
+        delete m.hono_enc_tmp;
+        await state.db.saveMission(m);
+        back.remove(); await state.db.loadAll(); toast("Mission enregistrée ✓"); render();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+  };
+  document.body.appendChild(back);
+  renderModal();
+}
+
 /* ---------------- Paramétrage (manager) ---------------- */
 function propoParamsEditorHTML(){
   const P = propoParams();
@@ -3963,6 +4355,7 @@ const VIEWS = {
   pipeline:{label:"Pipeline", icon:ICONS.funnel, fn:viewPipeline},
   clients:{label:"Clients", icon:ICONS.people, fn:viewClients},
   propositions:{label:"Propositions", icon:ICONS.pie, fn:viewPropositions},
+  missions:{label:"Missions", icon:ICONS.kit, fn:viewMissions},
   fiche:{label:"Fiches", icon:ICONS.user, fn:viewFiche},
   rapport:{label:"Rapport hebdo", icon:ICONS.doc, fn:viewRapport, manager:true},
   progression:{label:"Progression", icon:ICONS.chart, fn:viewProgression, manager:true},
