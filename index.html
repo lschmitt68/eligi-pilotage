@@ -218,6 +218,21 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .kcard .ksig{color:var(--critical); font-weight:700; font-size:10.5px}
 
 /* ============ Modal / overlay ============ */
+/* v23 — recherche globale */
+.gs-open{display:flex; align-items:center; gap:10px; width:100%; background:rgba(255,255,255,.05);
+  border:1px solid rgba(255,255,255,.14); color:var(--sidebar-muted); padding:8px 10px; border-radius:10px;
+  cursor:pointer; font:inherit; font-size:13px; margin:2px 0 10px; text-align:left}
+.gs-open:hover{color:var(--sidebar-ink); background:rgba(255,255,255,.1)}
+.gs-open kbd{margin-left:auto; font-size:10px; border:1px solid rgba(255,255,255,.25); border-radius:5px; padding:1px 5px; color:var(--sidebar-muted); font-family:inherit}
+.gs-modal{width:min(640px,94vw); padding:14px}
+.gs-input{width:100%; box-sizing:border-box; font:inherit; font-size:15.5px; padding:10px 12px; border:1px solid var(--border); border-radius:10px; background:var(--bg); color:inherit; outline:none}
+.gs-input:focus{border-color:var(--s1)}
+.gs-list{max-height:56vh; overflow:auto; margin-top:8px}
+.gs-cat{font-size:10.5px; font-weight:700; text-transform:uppercase; letter-spacing:.5px; opacity:.6; margin:10px 4px 3px}
+.gs-item{display:flex; gap:10px; align-items:center; padding:7px 10px; border-radius:10px; cursor:pointer}
+.gs-item.active,.gs-item:hover{background:rgba(41,120,214,.13)}
+.gs-item .gs-ico{flex:none; width:22px; text-align:center}
+.gs-item b{display:block; overflow:hidden; text-overflow:ellipsis; white-space:nowrap}
 .modal-back{position:fixed; inset:0; background:rgba(9,12,16,.45); z-index:60; display:flex; align-items:flex-start; justify-content:center; padding:5vh 16px; backdrop-filter:blur(2px)}
 .modal{background:var(--surface); border:1px solid var(--border); border-radius:16px; box-shadow:var(--shadow-lg);
   width:640px; max-width:100%; max-height:88vh; overflow:auto; padding:20px 22px}
@@ -4674,6 +4689,113 @@ function viewParam(root){
 /* ================================================================
    Navigation + rendu
    ================================================================ */
+/* ================================================================
+   v23 — Recherche globale (Ctrl+K)
+   ================================================================ */
+const GS_NORM = s => String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase();
+function gsIndex(){
+  const items = [];
+  const groups = {};
+  for (const p of state.pipeline){
+    const key = normName(p.client||"(sans nom)");
+    (groups[key] = groups[key] || {key, name:(p.client||"(sans nom)").trim(), rows:[]}).rows.push(p);
+  }
+  for (const ci of state.clientsInfos)
+    if (!groups[ci.client_key]) groups[ci.client_key] = {key:ci.client_key, name:(ci.nom||ci.client_key).trim(), rows:[]};
+  for (const g of Object.values(groups)){
+    const ci = state.clientsInfos.find(c=>c.client_key===g.key) || {};
+    items.push({cat:"Clients", ico:"\uD83D\uDC64", label:g.name,
+      sub:[ci.statut||"Prospect", ci.groupe? "groupe "+ci.groupe : "", g.rows.length? g.rows.length+" dossier(s)" : ""].filter(Boolean).join(" \u00b7 "),
+      text:GS_NORM([g.name, ci.groupe, ci.profession, ci.tel, ci.email].filter(Boolean).join(" ")),
+      run(){ state._cliOpen = g.key; state._cliSearch = ""; go("clients");
+             setTimeout(()=>{ try{ document.querySelector(`.cli-row[data-key="${CSS.escape(g.key)}"]`)?.scrollIntoView({block:"center"}); }catch(e){} }, 60); }});
+  }
+  for (const p of state.pipeline){
+    items.push({cat:"Opportunit\u00e9s (pipeline)", ico:"\uD83D\uDCC8", label:`${(p.client||"(sans nom)").trim()} \u2014 ${p.support||""}`,
+      sub:[p.etape, eur(+p.collecte_potentielle||0), consName(p.conseiller_id)].filter(Boolean).join(" \u00b7 "),
+      text:GS_NORM([p.client, p.support, p.etape, p.prochaine_action].filter(Boolean).join(" ")),
+      run(){ go("pipeline"); setTimeout(()=>pipeModal(p), 60); }});
+  }
+  for (const m of state.missions){
+    items.push({cat:"Missions", ico:"\uD83E\uDDF0", label:`${miClientNom(m.client_key)} \u2014 ${m.type||"Mission"}`,
+      sub:[m.statut, m.titre && m.titre!==miClientNom(m.client_key)? m.titre : "", consName(m.conseiller_id)].filter(Boolean).join(" \u00b7 "),
+      text:GS_NORM([miClientNom(m.client_key), m.titre, m.type, m.statut].filter(Boolean).join(" ")),
+      run(){ go("missions"); setTimeout(()=>missionModal(m), 60); }});
+  }
+  for (const pr of state.propositions){
+    const nom = String(pr.data?.nomClient || pr.client_key || "");
+    items.push({cat:"Propositions", ico:"\uD83D\uDCC4", label:nom,
+      sub:[pr.statut, pr.updated_at? new Date(pr.updated_at).toLocaleDateString("fr-FR") : ""].filter(Boolean).join(" \u00b7 "),
+      text:GS_NORM([nom, pr.statut].filter(Boolean).join(" ")),
+      run(){ state._propSearch = nom; go("propositions"); }});
+  }
+  return items;
+}
+function gsMatch(items, q){
+  const terms = GS_NORM(q).split(/\s+/).filter(Boolean);
+  if (!terms.length) return [];
+  const scored = [];
+  for (const it of items){
+    if (!terms.every(t=>it.text.includes(t))) continue;
+    const first = it.text.indexOf(terms[0]);
+    scored.push([(first===0? 0:1)*1000 + first, it]);
+  }
+  scored.sort((a,b)=>a[0]-b[0]);
+  const ordre = ["Clients","Missions","Opportunit\u00e9s (pipeline)","Propositions"];
+  const byCat = {}, out = [];
+  for (const cat of ordre)
+    for (const [,it] of scored){
+      if (it.cat!==cat) continue;
+      byCat[cat] = (byCat[cat]||0)+1;
+      if (byCat[cat]<=8) out.push(it);
+    }
+  return out.slice(0,30);
+}
+function globalSearchModal(){
+  if (!state.profile || document.querySelector(".gs-back")) return;
+  const items = gsIndex();
+  const back = document.createElement("div");
+  back.className = "modal-back gs-back";
+  const HINT = `<div class="small muted" style="padding:8px 4px">Tapez au moins 2 caract\u00e8res \u2014 \u2191\u2193 pour naviguer, Entr\u00e9e pour ouvrir, \u00c9chap pour fermer.</div>`;
+  back.innerHTML = `<div class="modal gs-modal">
+    <input class="gs-input" id="gs-q" type="search" placeholder="Rechercher un client, une mission, une opportunit\u00e9, une proposition\u2026" autocomplete="off" spellcheck="false">
+    <div class="gs-list" id="gs-list">${HINT}</div>
+  </div>`;
+  document.body.appendChild(back);
+  const inp = back.querySelector("#gs-q"), list = back.querySelector("#gs-list");
+  let res = [], active = 0;
+  const close = ()=>{ document.removeEventListener("keydown", onKey, true); back.remove(); };
+  const openItem = it => { close(); it.run(); };
+  const paint = ()=>{
+    const q = inp.value.trim();
+    if (q.length < 2){ list.innerHTML = HINT; return; }
+    if (!res.length){ list.innerHTML = `<div class="small muted" style="padding:8px 4px">Aucun r\u00e9sultat pour \u00ab ${esc(q)} \u00bb.</div>`; return; }
+    let html = "", lastCat = "";
+    res.forEach((it,i)=>{
+      if (it.cat!==lastCat){ html += `<div class="gs-cat">${esc(it.cat)}</div>`; lastCat = it.cat; }
+      html += `<div class="gs-item ${i===active? "active":""}" data-i="${i}"><span class="gs-ico">${it.ico}</span><span style="min-width:0;flex:1"><b>${esc(it.label)}</b>${it.sub? `<span class="small muted" style="display:block">${esc(it.sub)}</span>`:""}</span></div>`;
+    });
+    list.innerHTML = html;
+    list.querySelectorAll(".gs-item").forEach(el=>el.addEventListener("click", ()=>openItem(res[+el.dataset.i])));
+    list.querySelector(".gs-item.active")?.scrollIntoView({block:"nearest"});
+  };
+  inp.addEventListener("input", ()=>{ res = inp.value.trim().length<2? [] : gsMatch(items, inp.value); active = 0; paint(); });
+  const onKey = e => {
+    if (e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); }
+    else if (e.key==="ArrowDown"){ e.preventDefault(); if (res.length){ active = (active+1)%res.length; paint(); } }
+    else if (e.key==="ArrowUp"){ e.preventDefault(); if (res.length){ active = (active-1+res.length)%res.length; paint(); } }
+    else if (e.key==="Enter"){ if (res[active]){ e.preventDefault(); openItem(res[active]); } }
+  };
+  document.addEventListener("keydown", onKey, true);
+  back.addEventListener("mousedown", e=>{ if (e.target===back) close(); });
+  inp.focus();
+}
+document.addEventListener("keydown", e=>{
+  if ((e.ctrlKey || e.metaKey) && !e.altKey && String(e.key).toLowerCase()==="k"){
+    e.preventDefault(); globalSearchModal();
+  }
+});
+
 const VIEWS = {
   dashboard:{label:"Dashboard", icon:ICONS.dash, fn:viewDashboard, manager:true},
   jour:{label:"Ma journée", icon:ICONS.today, fn:viewJour},
@@ -4705,6 +4827,7 @@ function render(){
   <div class="layout">
     <aside class="sidebar">
       <div class="logo"><img src="logo-blanc.png" alt="Eligi" style="width:96px;display:block;margin-bottom:4px" onerror="this.remove()"><small>Pilotage commercial</small></div>
+      <button class="gs-open" id="gs-open" title="Recherche globale (Ctrl+K)">🔍<span class="nav-label">Rechercher…</span><kbd>Ctrl K</kbd></button>
       <nav class="snav">${views.map(([k,v])=>`<button data-nav="${k}" class="${k===state.view?"active":""}">${v.icon}<span class="nav-label">${v.label}</span></button>`).join("")}</nav>
       <div class="side-bottom">
         <button class="theme-btn" id="theme-toggle" title="Changer de thème">${ICONS.sun}<span class="nav-label">Thème</span></button>
@@ -4718,6 +4841,7 @@ function render(){
     <main class="main" id="view"></main>
   </div>`;
   app.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click", ()=>go(b.dataset.nav)));
+  $("#gs-open").addEventListener("click", globalSearchModal);
   $("#logout").addEventListener("click", logout);
   $("#theme-toggle").addEventListener("click", cycleTheme);
   VIEWS[state.view].fn($("#view"));
