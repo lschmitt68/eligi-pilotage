@@ -2810,7 +2810,8 @@ function viewClients(root){
             </div>
           </div>
           <div class="card grow tbl-scroll">
-            <h3 class="mt0">Dossiers</h3>
+            <h3 class="mt0" style="display:flex;justify-content:space-between;align-items:center;gap:6px"><span>Dossiers</span>
+              <button class="btn small cli-op-add" data-nom="${esc(g.name)}">＋ Opportunité</button></h3>
             ${g.rows.length? "" : `<div class="empty">Aucune opportunité pour l'instant — le bouton « ＋ Proposition » ou la vue Pipeline permettent d'en créer une.</div>`}
             <table class="tbl dense"><tbody>${g.rows.sort((a,b)=>pondere(b)-pondere(a)).map(p=>`<tr class="clickable cli-op" data-id="${p.id}">
               <td><span class="cdot" style="background:${consColor(p.conseiller_id)}"></span>${esc(consName(p.conseiller_id))}</td>
@@ -2892,6 +2893,12 @@ function viewClients(root){
   root.querySelectorAll(".cli-mi-add").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
     missionModal(null, {clientKey:b.dataset.key, clientNom:b.dataset.nom});
+  }));
+  root.querySelectorAll(".cli-op-add").forEach(b=>b.addEventListener("click", e=>{
+    e.stopPropagation();
+    pipeModal(null);
+    const el = document.querySelector("#pm-client");
+    if (el){ el.value = b.dataset.nom; el.dispatchEvent(new Event("input")); }
   }));
   root.querySelectorAll(".ci-brief").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
