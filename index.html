@@ -2454,6 +2454,10 @@ function viewJour(root){
     <button class="btn" id="jr-newop">＋ Opportunité</button>`)}
   ${mgr && noSaisie.length? `<div class="card reminder" style="border-left-color:var(--warn)">📝 <b>Saisies manquantes ${esc(cur)} :</b>
     ${noSaisie.map(c=>`<span class="chip warn"><span class="cdot" style="background:${consColor(c.id)};margin:0"></span>${esc(c.nom)}</span>`).join("")}</div>`:""}
+  ${mgr && (()=>{ const j = macroJours();
+    return (j===null || j>30)? `<div class="card reminder" style="border-left-color:var(--s1)">📈 <b>Contexte macro des propositions ${j===null? "jamais actualisé" : `actualisé il y a ${j} jours`}</b>
+      <span class="muted small">— un point par mois : régime de marché, inflation, taux, commentaire repris dans les documents</span>
+      <span style="flex:1"></span><button class="btn small" id="jr-macro">Mettre à jour</button></div>` : ""; })() || ""}
 
   <div class="tiles">
     ${tile("Tâches en retard", tRetard, tRetard? "à traiter en priorité":"tout est à jour ✓")}
@@ -2511,6 +2515,7 @@ function viewJour(root){
 
   bindActionsCards(root, ()=>viewJour(root));
   $("#jr-saisie").addEventListener("click", ()=>go("saisie"));
+  $("#jr-macro")?.addEventListener("click", ()=>go("param"));
   $("#jr-newop").addEventListener("click", ()=>pipeModal(null));
   root.querySelectorAll(".jr-op").forEach(r=>r.addEventListener("click", ()=>{
     const p = state.pipeline.find(x=>x.id===+r.dataset.id);
@@ -3449,6 +3454,13 @@ function propoWizard(propo){
           <tbody>${PROPO_CLASSES.map((cl,i)=>`<tr><td>${cl}</td>
             <td class="num"><input type="number" class="wiz-hyp" data-i="${i}" data-f="r" value="${(c.P.hyp[i].r*100).toFixed(1)}" step="0.1" style="width:70px"></td>
             <td class="num"><input type="number" class="wiz-hyp" data-i="${i}" data-f="v" value="${(c.P.hyp[i].v*100).toFixed(1)}" min="0" step="0.5" style="width:70px"></td></tr>`).join("")}</tbody></table>
+          <p class="small" style="margin:8px 0 4px">📈 <b>Cadre de marché :</b> ${esc(c.P.macro.regime||"—")} · inflation ${fmtPct(c.P.macro.inflation||0)} · sans risque ${fmtPct(c.P.macro.sansRisque||0)}
+            ${(()=>{ const mj = c.P.macro_maj;
+              if (!mj) return `<span class="badge watch"><span class="dot"></span>date de mise à jour inconnue</span>`;
+              const j = Math.floor((Date.now() - new Date(String(mj).slice(0,10)+"T00:00:00").getTime())/86400000);
+              return j>30? `<span class="badge watch"><span class="dot"></span>actualisé il y a ${j} j — à revoir dans Paramétrage</span>`
+                         : `<span class="small muted">actualisé le ${new Date(String(mj).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR")}</span>`; })()}</p>
+          ${c.P.macro.commentaire? `<p class="small muted" style="margin:0 0 4px">${esc(c.P.macro.commentaire)}</p>`:""}
           <p class="small muted" style="margin-bottom:0">Hypothèses non garanties, photographiées dans la proposition (le document archivé reste stable).</p>
         </div>
       </div>`;
@@ -3588,6 +3600,7 @@ function propoDoc(p){
     </div>
     <div class="pd-line">Sur 3 ans, cette allocation aurait progressé de <b>${fmtPct(c.btCumul)}</b> au total (${fmtPct(c.btAnnu)} par an) — simulation sur indices passés, ne préjuge pas de l'avenir.</div>
     <div class="pd-line">Frais totaux <b>${(c.tfa*100).toFixed(2).replace(".",",")} % / an</b> · coût des frais sur l'horizon ${eur(c.coutFraisHorizon)} · économie d'impôt PER ${eur(c.ecoPER)}</div>
+    <div class="pd-line">📈 <b>Contexte de marché${(d.P?.macro_maj)? ` au ${new Date(String(d.P.macro_maj).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR")}` : ""} :</b> ${esc(d.P?.macro?.regime||"")} · inflation ${fmtPct(d.P?.macro?.inflation||0)} · taux sans risque ${fmtPct(d.P?.macro?.sansRisque||0)}${(d.P?.macro?.commentaire)? `<br><span class="pd-note">${esc(d.P.macro.commentaire)}</span>`:""}</div>
     <div class="pd-risk"><span>Échelle de risque</span>${propoSriScale(c.sriPort)}<span class="pd-note">1 = faible · 7 = élevé · perte en capital possible</span></div>
     <div class="pd-engage">
       <span>✓ Conseil indépendant (CIF) — votre seul intérêt</span>
@@ -3926,6 +3939,11 @@ async function ajouterCAAuditSemaine(consId, week, montant){
   base.ca_audit = (+base.ca_audit||0) + montant;
   await state.db.upsertSaisie(base);
 }
+function macroJours(){
+  const mj = state.paramsCabinet?.macro_maj;
+  if (!mj) return null;
+  return Math.floor((Date.now() - new Date(String(mj).slice(0,10)+"T00:00:00").getTime())/86400000);
+}
 const miOuverte = m => m.statut !== "Close";
 function miEcheanceDepassee(m){
   return miOuverte(m) && m.echeance && String(m.echeance).slice(0,10) <= new Date().toISOString().slice(0,10);
@@ -4221,6 +4239,9 @@ function propoParamsEditorHTML(){
   return `<div class="card" id="ppar-card">
     <div class="helpbox" style="margin-bottom:12px">
       ${custom? "⚙️ Des <b>paramètres personnalisés</b> sont enregistrés pour le cabinet." : "Le moteur utilise actuellement les <b>valeurs par défaut</b>."}
+      ${(()=>{ const j = macroJours(); return j===null? " 📈 Cadre macro <b>jamais horodaté</b> — enregistre une fois pour démarrer le suivi mensuel."
+        : j>30? ` 📈 Cadre macro actualisé il y a <b>${j} jours</b> — un point mensuel est recommandé.`
+        : ` 📈 Cadre macro actualisé le <b>${new Date(String(state.paramsCabinet.macro_maj).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR")}</b>.`; })()}
       Les modifications s'appliquent aux <b>nouvelles</b> propositions — les documents déjà émis conservent leurs hypothèses d'origine.
     </div>
     <div class="row">
@@ -4292,6 +4313,7 @@ function bindPropoParamsEditor(root){
     }
     const data = {
       hyp, grille,
+      macro_maj: new Date().toISOString().slice(0,10),
       macro:{inflation:(+card.querySelector("#ppar-infl").value||0)/100,
              sansRisque:(+card.querySelector("#ppar-rf").value||0)/100,
              regime:card.querySelector("#ppar-regime").value.trim(),
