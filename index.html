@@ -841,6 +841,9 @@ class SupaDB {
     const row = {client_key:info.client_key, statut:info.statut, origine:info.origine, notes:info.notes, maj_le:new Date().toISOString()};
     if (info.nom !== undefined) row.nom = info.nom;
     if (info.derniere_revue !== undefined) row.derniere_revue = info.derniere_revue || null;
+    for (const k of ["tel","email","adresse","profession","situation","groupe"])
+      if (info[k] !== undefined) row[k] = info[k] || "";
+    if (info.date_naissance !== undefined) row.date_naissance = info.date_naissance || null;
     const {error} = await this.c.from("clients_infos").upsert(row, {onConflict:"client_key"});
     if (error) throw error;
   }
@@ -1041,6 +1044,9 @@ class DemoDB {
     const row = {client_key:info.client_key, statut:info.statut, origine:info.origine, notes:info.notes, maj_le:new Date().toISOString()};
     if (info.nom !== undefined) row.nom = info.nom;
     if (info.derniere_revue !== undefined) row.derniere_revue = info.derniere_revue || null;
+    for (const k of ["tel","email","adresse","profession","situation","groupe"])
+      if (info[k] !== undefined) row[k] = info[k] || "";
+    if (info.date_naissance !== undefined) row.date_naissance = info.date_naissance || null;
     if (i>=0) Object.assign(this.clientsInfos[i], row);
     else this.clientsInfos.push({id:this._id++, ...row});
   }
@@ -2545,6 +2551,11 @@ function briefClient(key){
         <div class="pd-title"><b>Brief client — ${esc(name)}</b><span>Préparation de rendez-vous · ${new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span></div>
       </div>
       <div class="pd-meta">${esc(info.statut||"Prospect")}${info.origine? ` · origine : ${esc(info.origine)}`:""}${rows.length? ` · conseiller(s) : ${[...new Set(rows.map(p=>consName(p.conseiller_id)))].join(", ")}`:""}${info.statut==="Client"? ` · revue annuelle : ${info.derniere_revue? new Date(info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "jamais faite"}${revueEchue(info)? " ⚠":""}`:""}</div>
+      ${(info.tel||info.email||info.adresse||info.date_naissance||info.profession||info.situation||info.groupe)? `<div class="pd-sec"><h3>Coordonnées & situation</h3><p>
+        ${info.tel? `📞 ${esc(info.tel)} &nbsp; `:""}${info.email? `✉️ ${esc(info.email)} &nbsp; `:""}${info.adresse? `📍 ${esc(info.adresse)}`:""}
+        ${(info.date_naissance||info.profession||info.situation)? `<br>${info.date_naissance? `Né(e) le ${new Date(String(info.date_naissance).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR")}${ageDe(info.date_naissance)!==null? ` (${ageDe(info.date_naissance)} ans)`:""} · `:""}${esc([info.situation, info.profession].filter(Boolean).join(" · "))}`:""}
+        ${info.groupe? `<br>👥 Groupe : ${esc(info.groupe)}${(()=>{ const mm = state.clientsInfos.filter(ci=>ci.client_key!==key && (ci.groupe||"").trim().toLowerCase()===(info.groupe||"").trim().toLowerCase()); return mm.length? " — avec " + mm.map(m=>esc(m.nom||m.client_key)).join(", ") : ""; })()}`:""}
+      </p></div>`:""}
       ${(info.notes||"").trim()? `<div class="pd-sec"><h3>Notes du cabinet</h3><p>${esc(info.notes)}</p></div>`:""}
       <div class="pd-sec"><h3>Dossiers en cours</h3>
         ${rows.length? `<table class="pd-tbl"><thead><tr><th>Support</th><th>Étape</th><th class="num">Potentiel</th><th class="num">Pondéré</th><th>Prochaine action</th></tr></thead>
@@ -2593,6 +2604,15 @@ function suiviClient(g){
   ev.sort((x,y)=>y.t-x.t);
   return ev;
 }
+function ageDe(d){
+  if (!d) return null;
+  const n = new Date(), b = new Date(String(d).slice(0,10)+"T00:00:00");
+  let a = n.getFullYear() - b.getFullYear();
+  const m = n.getMonth() - b.getMonth();
+  if (m < 0 || (m === 0 && n.getDate() < b.getDate())) a--;
+  return a;
+}
+const CI_SITUATIONS = ["","Célibataire","Marié(e)","Pacsé(e)","Union libre","Divorcé(e)","Veuf(ve)"];
 /* Création de fiche : nom ET prénom obligatoires (au moins deux mots de 2 lettres) */
 function nomPrenomOk(nom){
   return String(nom||"").trim().split(/\s+/).filter(w=>w.length>=2).length >= 2;
@@ -2626,6 +2646,8 @@ function clientModal(afterSave){
       <label class="fld full"><span>Nom du client</span><input type="text" id="cm-nom" placeholder="ex : DURAND Marie" autocomplete="off"></label>
       <label class="fld"><span>Statut</span><select id="cm-statut">${STATUTS.map(s=>`<option>${s}</option>`).join("")}</select></label>
       <label class="fld"><span>Origine du contact</span><select id="cm-origine">${ORIGINES.map(o=>`<option value="${o}">${o||"—"}</option>`).join("")}</select></label>
+      <label class="fld"><span>Téléphone (facultatif)</span><input type="tel" id="cm-tel" placeholder="06 …"></label>
+      <label class="fld"><span>Email (facultatif)</span><input type="email" id="cm-email" placeholder="client@…"></label>
       <label class="fld full"><span>Notes du cabinet (facultatif)</span><textarea id="cm-notes" rows="2" placeholder="contexte, famille, préférences…"></textarea></label>
       <div class="dup-warn" id="cm-dup" style="display:none"></div>
     </div>
@@ -2661,7 +2683,9 @@ function clientModal(afterSave){
       await state.db.saveClientInfo({client_key:key, nom,
         statut:back.querySelector("#cm-statut").value,
         origine:back.querySelector("#cm-origine").value,
-        notes:back.querySelector("#cm-notes").value.trim()});
+        notes:back.querySelector("#cm-notes").value.trim(),
+        tel:back.querySelector("#cm-tel").value.trim(),
+        email:back.querySelector("#cm-email").value.trim()});
       await state.db.loadAll();
       back.remove(); state._cliOpen = key; state._cliSearch = "";
       toast("Fiche client créée ✓"); afterSave(key);
@@ -2684,14 +2708,14 @@ function viewClients(root){
       groups[ci.client_key] = {key:ci.client_key, name:(ci.nom||ci.client_key).trim(), rows:[], standalone:true};
   }
   let list = Object.values(groups);
-  if (q) list = list.filter(g=>g.name.toLowerCase().includes(q));
+  for (const g of list) g.info = state.clientsInfos.find(ci=>ci.client_key===g.key) || {statut:"Prospect", origine:"", notes:""};
+  if (q) list = list.filter(g=>g.name.toLowerCase().includes(q) || (g.info.groupe||"").toLowerCase().includes(q));
   for (const g of list){
     g.pond = g.rows.reduce((a,p)=>a+pondere(p),0);
     g.signe = g.rows.filter(p=>(p.etape||"").toLowerCase()==="signé").reduce((a,p)=>a+pondere(p),0);
     g.coll = g.rows.reduce((a,p)=>a+(+p.collecte_potentielle||0),0);
     g.relance = aRelancer(g.rows).length;
     g.cons = [...new Set(g.rows.map(p=>p.conseiller_id))];
-    g.info = state.clientsInfos.find(ci=>ci.client_key===g.key) || {statut:"Prospect", origine:"", notes:""};
     g.dernier = g.rows.reduce((a,p)=>Math.max(a, new Date(p.updated_at||p.created_at||0).getTime()), 0);
     if (!g.dernier && g.info.maj_le) g.dernier = new Date(g.info.maj_le).getTime();
     g.suivi = suiviClient(g);
@@ -2728,7 +2752,30 @@ function viewClients(root){
       <tr class="cli-detail" data-for="${esc(g.key)}" style="display:${state._cliOpen===g.key? "":"none"}"><td colspan="8">
         <div class="row" style="margin:8px 0 10px">
           <div class="card" style="flex:1;min-width:300px">
-            <h3 class="mt0">Fiche client — ${esc(g.name)}</h3>
+            <h3 class="mt0">Fiche client — ${esc(g.name)}${(()=>{ const a = ageDe(g.info.date_naissance); return a!==null? ` <span class="small muted">(${a} ans)</span>`:""; })()}</h3>
+            ${(g.info.tel||g.info.email||g.info.groupe)? `<p class="small" style="margin:0 0 10px">
+              ${g.info.tel? `📞 <a href="tel:${esc(String(g.info.tel).replace(/\s+/g,""))}">${esc(g.info.tel)}</a>`:""}
+              ${g.info.email? ` &nbsp;✉️ <a href="mailto:${esc(g.info.email)}">${esc(g.info.email)}</a>`:""}
+              ${g.info.groupe? ` &nbsp;<span class="tag" title="Groupe / famille">👥 ${esc(g.info.groupe)}</span>`:""}
+            </p>`:""}
+            ${(()=>{ const grp = (g.info.groupe||"").trim();
+              if (!grp) return "";
+              const membres = state.clientsInfos.filter(ci=>ci.client_key!==g.key && (ci.groupe||"").trim().toLowerCase()===grp.toLowerCase());
+              return membres.length? `<p class="small" style="margin:0 0 10px">Même groupe :
+                ${membres.map(m=>`<button class="chip ci-lien" data-key="${esc(m.client_key)}">${esc(m.nom||m.client_key)}</button>`).join(" ")}</p>` : ""; })()}
+            <div class="inline-controls">
+              <label class="fld" style="min-width:135px"><span>Téléphone</span><input type="tel" class="ci-tel" value="${esc(g.info.tel||"")}" placeholder="06 …"></label>
+              <label class="fld" style="min-width:190px"><span>Email</span><input type="email" class="ci-email" value="${esc(g.info.email||"")}" placeholder="client@…"></label>
+              <label class="fld" style="min-width:145px"><span>Date de naissance</span><input type="date" class="ci-nais" value="${g.info.date_naissance? String(g.info.date_naissance).slice(0,10):""}"></label>
+            </div>
+            <div class="inline-controls">
+              <label class="fld" style="flex:1;min-width:220px"><span>Adresse</span><input type="text" class="ci-adresse" value="${esc(g.info.adresse||"")}" placeholder="n°, rue, CP, ville"></label>
+            </div>
+            <div class="inline-controls">
+              <label class="fld" style="min-width:140px"><span>Situation familiale</span><select class="ci-sit">${CI_SITUATIONS.map(s=>`<option value="${s}" ${s===(g.info.situation||"")?"selected":""}>${s||"—"}</option>`).join("")}</select></label>
+              <label class="fld" style="min-width:150px"><span>Profession / activité</span><input type="text" class="ci-prof" value="${esc(g.info.profession||"")}" placeholder="dirigeant, cadre…"></label>
+              <label class="fld" style="min-width:150px"><span>Groupe / famille</span><input type="text" class="ci-groupe" value="${esc(g.info.groupe||"")}" list="ci-groupes" placeholder="ex : Famille GUGENBUHL"></label>
+            </div>
             <div class="inline-controls">
               <label class="fld"><span>Statut</span><select class="ci-statut">${STATUTS.map(s=>`<option ${s===g.info.statut?"selected":""}>${s}</option>`).join("")}</select></label>
               <label class="fld"><span>Origine du contact</span><select class="ci-origine">${ORIGINES.map(o=>`<option value="${o}" ${o===g.info.origine?"selected":""}>${o||"—"}</option>`).join("")}</select></label>
@@ -2804,7 +2851,8 @@ function viewClients(root){
           </div>
         </div>
       </td></tr>`).join("") || `<tr><td colspan="8" class="empty">Aucun client</td></tr>`}</tbody>
-  </table></div>`;
+  </table></div>
+  <datalist id="ci-groupes">${[...new Set(state.clientsInfos.map(ci=>(ci.groupe||"").trim()).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
 
   $("#cli-new").addEventListener("click", ()=>clientModal(()=>viewClients(root)));
   $("#cli-search").addEventListener("input", e=>{ state._cliSearch = e.target.value; viewClients(root); });
@@ -2828,6 +2876,12 @@ function viewClients(root){
   root.querySelectorAll(".ci-brief").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
     briefClient(b.dataset.key);
+  }));
+  root.querySelectorAll(".ci-lien").forEach(b=>b.addEventListener("click", e=>{
+    e.stopPropagation();
+    state._cliOpen = b.dataset.key; state._cliSearch = "";
+    viewClients(root);
+    document.querySelector(`.cli-detail[data-for="${CSS.escape(b.dataset.key)}"]`)?.scrollIntoView({block:"center"});
   }));
   root.querySelectorAll(".ci-propo").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
@@ -2919,6 +2973,13 @@ function viewClients(root){
         origine: det.querySelector(".ci-origine").value,
         notes: det.querySelector(".ci-notes").value.trim(),
         derniere_revue: det.querySelector(".ci-revue").value || null,
+        tel: det.querySelector(".ci-tel").value.trim(),
+        email: det.querySelector(".ci-email").value.trim(),
+        adresse: det.querySelector(".ci-adresse").value.trim(),
+        date_naissance: det.querySelector(".ci-nais").value || null,
+        situation: det.querySelector(".ci-sit").value,
+        profession: det.querySelector(".ci-prof").value.trim(),
+        groupe: det.querySelector(".ci-groupe").value.trim(),
       });
       await state.db.loadAll(); toast("Fiche client enregistrée ✓"); viewClients(root);
     }catch(err){ toast("Erreur : "+(err.message||err)); }
