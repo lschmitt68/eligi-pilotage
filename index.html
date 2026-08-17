@@ -369,8 +369,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .pd-tbl td{padding:5px 8px; border-bottom:1px solid #eeeee8}
 .pd-tbl .num, .pd-tbl td.num{text-align:right; font-variant-numeric:tabular-nums}
 .pd-mentions{margin-top:20px; padding-top:10px; border-top:1px solid #e2e2dc; font-size:.64rem; color:#8a897f; line-height:1.45}
+.rm-pages .pd-page{margin-bottom:18px}
+.rm-pages .pd-page:last-child{margin-bottom:0}
 @media print{
   body.doc-open > *:not(.doc-back){display:none !important}
+  body.doc-open .rm-pages .pd-page{page-break-after:always}
+  body.doc-open .rm-pages .pd-page:last-child{page-break-after:auto}
   body.doc-open .doc-back{position:static; padding:0; background:#fff; overflow:visible}
   body.doc-open .pd-actions{display:none}
   body.doc-open .pd-page{box-shadow:none; border-radius:0; padding:0}
@@ -3992,6 +3996,7 @@ function viewRapport(root){
     ${isLocked(week)? `<button class="btn secondary" id="rp-unlock">🔓 Rouvrir</button>`
       : `<button class="btn" id="rp-lock">✔ Valider la semaine</button>`}
     <button class="btn secondary" id="rp-print">${ICONS.doc} Imprimer / PDF</button>
+    <button class="btn secondary" id="rm-open" title="Rapport mensuel PDF par collaborateur">\uD83D\uDCC5 Rapport mensuel</button>
     <button class="btn secondary" id="rp-export">${ICONS.dl} Exporter</button>`)}
 
   <div class="tiles">
@@ -4057,6 +4062,7 @@ function viewRapport(root){
 
   bindWeekNav();
   $("#rp-print").addEventListener("click", ()=>window.print());
+  $("#rm-open").addEventListener("click", ()=>rapportMensuel());
   $("#rp-export").addEventListener("click", exportXLSX);
   bindActionsCards(root);
   $("#rp-lock")?.addEventListener("click", async ()=>{
@@ -4795,6 +4801,110 @@ document.addEventListener("keydown", e=>{
     e.preventDefault(); globalSearchModal();
   }
 });
+
+/* ================================================================
+   v24 — Rapport mensuel PDF par collaborateur
+   ================================================================ */
+function rmPct(v, o){ return o? fmtPct(v/o) : "—"; }
+function rmConsPageHTML(c, m){
+  const w = monthAgg(c.id, m), o = objForMonth(c.id, m), pa = pipeAgg(c.id);
+  const wks = monthWeeks(m);
+  const saisies = wks.filter(wk=>state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===wk)).length;
+  const conges = monthCongeCount(c.id, m);
+  const evs = state.pipeEvents.filter(e=>e.conseiller_id===c.id && String(e.quand||"").slice(0,7)===m);
+  const crees = evs.filter(e=>!e.de_etape).length;
+  const signes = evs.filter(e=>(e.vers_etape||"").toLowerCase()==="signé").length;
+  const perdus = evs.filter(e=>e.vers_etape==="Perdu");
+  const mis = state.missions.filter(mm=>mm.conseiller_id===c.id);
+  const misEnCours = mis.filter(mm=>!["Close"].includes(mm.statut));
+  const misTot = k => mis.reduce((a,mm)=>a+(+mm["hono_"+k]||0),0);
+  const camps = campagnesActives().map(cp=>({cp, st:campagneStats(cp, c.id)})).filter(x=>x.st.obj>0 || x.st.n>0);
+  const L = [["SCPI","collecte_scpi","ca_scpi"],["Produits structurés","collecte_structures","ca_structures"],
+             ["Audit / honoraires","collecte_audit","ca_audit"],["Assurance / PER","collecte_assurance",null],
+             ["Autres",null,"ca_autres"]];
+  return `<div class="pd-page">
+    <div class="pd-head"><img src="logo-teal.png" alt="Eligi">
+      <div class="pd-title"><b>Rapport mensuel — ${esc(c.nom)}</b>
+      <span>${esc(monthLabel(m))} · édité le ${new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span></div></div>
+    <div class="pd-meta">${wks.length} semaine(s) · ${saisies}/${wks.length} saisie(s)${conges? ` · ${conges} semaine(s) de congés`:""}</div>
+    <div class="pd-sec"><h3>Résultats du mois</h3>
+      <table class="pd-tbl"><thead><tr><th></th><th class="num">Réalisé</th><th class="num">Objectif</th><th class="num">Atteinte</th></tr></thead><tbody>
+        <tr><td>CA total</td><td class="num"><b>${eur(w.ca_total)}</b></td><td class="num">${eur(o.ca)}</td><td class="num">${rmPct(w.ca_total,o.ca)}</td></tr>
+        <tr><td>Collecte totale</td><td class="num"><b>${eur(w.collecte_totale)}</b></td><td class="num">${eur(o.coll)}</td><td class="num">${rmPct(w.collecte_totale,o.coll)}</td></tr>
+        <tr><td>Rendez-vous</td><td class="num"><b>${fmtNum.format(w.rdv||0)}</b></td><td class="num">${fmtNum.format(o.rdv||0)}</td><td class="num">${rmPct(w.rdv,o.rdv)}</td></tr>
+        <tr><td>Signatures</td><td class="num"><b>${fmtNum.format(w.nb_signatures||0)}</b></td><td class="num">—</td><td class="num">—</td></tr>
+      </tbody></table></div>
+    <div class="pd-sec"><h3>Détail par ligne métier</h3>
+      <table class="pd-tbl"><thead><tr><th>Ligne</th><th class="num">Collecte</th><th class="num">CA</th></tr></thead><tbody>
+        ${L.map(([lab,ck,cak])=>`<tr><td>${lab}</td><td class="num">${ck? eur(w[ck]) : "—"}</td><td class="num">${cak? eur(w[cak]) : "—"}</td></tr>`).join("")}
+        <tr class="total"><td><b>Total</b></td><td class="num"><b>${eur(w.collecte_totale)}</b></td><td class="num"><b>${eur(w.ca_total)}</b></td></tr>
+      </tbody></table></div>
+    <div class="pd-sec"><h3>Pipeline</h3>
+      <p>Mouvements du mois : <b>${crees}</b> dossier(s) créé(s) · <b>${signes}</b> passé(s) en Signé · <b>${perdus.length}</b> perdu(s)${perdus.length? ` (${[...new Set(perdus.map(e=>e.raison).filter(Boolean))].map(esc).join(", ")||"sans raison saisie"})`:""}.<br>
+      État à date : <b>${pa.count}</b> dossier(s) actif(s) · pondéré <b>${eur(pa.pond)}</b> · dont signé <b>${eur(pa.signe)}</b>.</p></div>
+    ${camps.length? `<div class="pd-sec"><h3>Campagnes produit en cours</h3>
+      <table class="pd-tbl"><thead><tr><th>Campagne</th><th class="num">Objectif</th><th class="num">Signé</th><th class="num">Pondéré</th><th class="num">Atteinte</th></tr></thead>
+      <tbody>${camps.map(({cp,st})=>`<tr><td>${esc(cp.nom)} <span class="pd-note">(fin ${new Date(cp.date_fin+"T00:00:00").toLocaleDateString("fr-FR")})</span></td>
+        <td class="num">${eur(st.obj)}</td><td class="num">${eur(st.signe)}</td><td class="num">${eur(st.pond)}</td><td class="num">${rmPct(st.signe,st.obj)}</td></tr>`).join("")}</tbody></table></div>`:""}
+    ${mis.length? `<div class="pd-sec"><h3>Missions de conseil — état à date</h3>
+      <p>${misEnCours.length} mission(s) en cours sur ${mis.length} · devis <b>${eur(misTot("devis"))}</b> · facturé <b>${eur(misTot("facture"))}</b> · encaissé <b>${eur(misTot("encaisse"))}</b>${(()=>{ const r = mis.filter(miEcheanceDepassee).length; return r? ` · ⚠ ${r} échéance(s) dépassée(s)` : ""; })()}.</p></div>`:""}
+    <div class="pd-mentions">Document interne ELIGI — rapport mensuel d'activité. Ne pas diffuser.</div>
+  </div>`;
+}
+function rmSynthesePageHTML(m){
+  const cons = activeConseillers();
+  const rows = cons.map(c=>({c, w:monthAgg(c.id,m), o:objForMonth(c.id,m), pa:pipeAgg(c.id)}));
+  const tot = k => rows.reduce((a,r)=>a+(+r.w[k]||0),0);
+  const totO = k => rows.reduce((a,r)=>a+(+r.o[k]||0),0);
+  return `<div class="pd-page">
+    <div class="pd-head"><img src="logo-teal.png" alt="Eligi">
+      <div class="pd-title"><b>Synthèse cabinet — ${esc(monthLabel(m))}</b>
+      <span>édité le ${new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span></div></div>
+    <div class="pd-sec"><h3>Résultats par collaborateur</h3>
+      <table class="pd-tbl"><thead><tr><th>Collaborateur</th><th class="num">CA</th><th class="num">Obj. CA</th><th class="num">Atteinte</th>
+        <th class="num">Collecte</th><th class="num">RDV</th><th class="num">Signatures</th><th class="num">Pipeline pondéré</th></tr></thead>
+      <tbody>${rows.map(r=>`<tr><td>${esc(r.c.nom)}</td><td class="num"><b>${eur(r.w.ca_total)}</b></td><td class="num">${eur(r.o.ca)}</td>
+        <td class="num">${rmPct(r.w.ca_total,r.o.ca)}</td><td class="num">${eur(r.w.collecte_totale)}</td>
+        <td class="num">${fmtNum.format(r.w.rdv||0)}</td><td class="num">${fmtNum.format(r.w.nb_signatures||0)}</td>
+        <td class="num">${eur(r.pa.pond)}</td></tr>`).join("")}
+      <tr class="total"><td><b>Équipe</b></td><td class="num"><b>${eur(tot("ca_total"))}</b></td><td class="num"><b>${eur(totO("ca"))}</b></td>
+        <td class="num"><b>${rmPct(tot("ca_total"),totO("ca"))}</b></td><td class="num"><b>${eur(tot("collecte_totale"))}</b></td>
+        <td class="num"><b>${fmtNum.format(tot("rdv"))}</b></td><td class="num"><b>${fmtNum.format(tot("nb_signatures"))}</b></td>
+        <td class="num"><b>${eur(rows.reduce((a,r)=>a+r.pa.pond,0))}</b></td></tr></tbody></table></div>
+    <div class="pd-mentions">Document interne ELIGI — synthèse mensuelle cabinet. Ne pas diffuser.</div>
+  </div>`;
+}
+function rapportMensuel(mInit, consInit){
+  let m = mInit || (monthCodes().includes(curMonth())? curMonth() : monthCodes()[monthCodes().length-1]);
+  let sel = consInit !== undefined ? consInit : "";
+  const back = document.createElement("div");
+  back.className = "modal-back doc-back";
+  document.body.appendChild(back);
+  document.body.classList.add("doc-open");
+  const paint = ()=>{
+    const cons = activeConseillers();
+    const pages = sel===""
+      ? [rmSynthesePageHTML(m), ...cons.map(c=>rmConsPageHTML(c, m))]
+      : [rmConsPageHTML(cons.find(c=>c.id===+sel), m)];
+    back.innerHTML = `<div class="pd-wrap" style="max-width:860px">
+      <div class="pd-actions no-print">
+        <select id="rm-mois" class="btn secondary" style="padding:8px 10px">${monthCodes().map(x=>`<option value="${x}" ${x===m?"selected":""}>${esc(monthLabel(x))}</option>`).join("")}</select>
+        <select id="rm-cons" class="btn secondary" style="padding:8px 10px"><option value="">Tous les collaborateurs + synthèse</option>
+          ${cons.map(c=>`<option value="${c.id}" ${String(sel)===String(c.id)?"selected":""}>${esc(c.nom)}</option>`).join("")}</select>
+        <button class="btn" id="rm-print">${ICONS.doc} Imprimer / PDF</button>
+        <button class="btn secondary" id="rm-close">${ICONS.close} Fermer</button>
+      </div>
+      <div class="rm-pages">${pages.join("")}</div>
+    </div>`;
+    back.querySelector("#rm-mois").addEventListener("change", e=>{ m = e.target.value; paint(); });
+    back.querySelector("#rm-cons").addEventListener("change", e=>{ sel = e.target.value; paint(); });
+    back.querySelector("#rm-print").addEventListener("click", ()=>window.print());
+    back.querySelector("#rm-close").addEventListener("click", close);
+  };
+  const close = ()=>{ back.remove(); document.body.classList.remove("doc-open"); };
+  back.addEventListener("click", e=>{ if (e.target===back) close(); });
+  paint();
+}
 
 const VIEWS = {
   dashboard:{label:"Dashboard", icon:ICONS.dash, fn:viewDashboard, manager:true},
