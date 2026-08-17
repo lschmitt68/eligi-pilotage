@@ -279,6 +279,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .fun-n{width:34px; flex:none; text-align:right; font-weight:700; font-variant-numeric:tabular-nums}
 .fun-conv{width:52px; flex:none; text-align:right; font-size:12px; color:var(--ink-2); font-variant-numeric:tabular-nums}
 
+/* Cockpit & cartes flexibles : jamais de chevauchement (v18.1) */
+.card.grow{min-width:min(320px,100%)}
+.jr-wrap{overflow-x:auto; max-width:100%}
+.jr-wrap .tbl{width:100%}
+.jr-wrap td{white-space:nowrap}
+
 /* Missions (v15) */
 .mi-et{display:flex; align-items:center; gap:8px; padding:4px 2px; font-size:13px; border-bottom:1px dashed var(--border)}
 .mi-et .mi-done{text-decoration:line-through; color:var(--muted)}
@@ -2457,7 +2463,7 @@ function viewJour(root){
     ${actionsCardHTML(mgr? null : meId, mgr? "Actions de l'équipe" : "Mes tâches")}
     <div class="card grow">
       <h3 class="mt0">🔥 À relancer en premier</h3>
-      ${relance.length? `<table class="tbl dense"><tbody>${relance.slice(0,6).map(p=>opRow(p, isOverdue(p)? "⏰ closing dépassé" : `💤 ${staleDays(p)} j sans mouvement`)).join("")}</tbody></table>
+      ${relance.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${relance.slice(0,6).map(p=>opRow(p, isOverdue(p)? "⏰ dépassé" : `💤 ${staleDays(p)} j`)).join("")}</tbody></table></div>
         ${relance.length>6? `<p class="small muted" style="margin-bottom:0">+ ${relance.length-6} autres dans le Pipeline (filtre « À relancer »)</p>`:""}`
         : `<div class="empty">Rien à relancer — pipeline vivant ✓</div>`}
     </div>
@@ -2465,32 +2471,32 @@ function viewJour(root){
   <div class="row sect">
     <div class="card grow">
       <h3 class="mt0">📅 Closings à venir (14 jours)</h3>
-      ${closings.length? `<table class="tbl dense"><tbody>${closings.slice(0,6).map(p=>opRow(p, new Date(String(p.closing_prevu).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}) + (String(p.closing_prevu).slice(0,10)<today? " ⚠":""))).join("")}</tbody></table>`
+      ${closings.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${closings.slice(0,6).map(p=>opRow(p, new Date(String(p.closing_prevu).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}) + (String(p.closing_prevu).slice(0,10)<today? " ⚠":""))).join("")}</tbody></table></div>`
         : `<div class="empty">Aucun closing prévu sous 14 jours</div>`}
     </div>
     <div class="card grow">
       <h3 class="mt0">✍ Signatures à concrétiser</h3>
-      ${sig.length? `<table class="tbl dense"><tbody>${sig.slice(0,6).map(p=>opRow(p, esc(p.prochaine_action||""))).join("")}</tbody></table>`
+      ${sig.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${sig.slice(0,6).map(p=>opRow(p, esc(p.prochaine_action||""))).join("")}</tbody></table></div>`
         : `<div class="empty">Aucune signature marquée « probable »</div>`}
     </div>
     <div class="card grow">
       <h3 class="mt0">🧰 Missions à suivre</h3>
-      ${(missTard.length || missSans.length)? `<table class="tbl dense"><tbody>
+      ${(missTard.length || missSans.length)? `<div class="jr-wrap"><table class="tbl dense"><tbody>
         ${missTard.slice(0,5).map(m=>`<tr class="clickable jr-mi" data-mid="${m.id}">
           <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
           <td class="num">${miEcheanceHTML(m)}</td></tr>`).join("")}
         ${missSans.slice(0,3).map(m=>`<tr class="clickable jr-mi" data-mid="${m.id}">
           <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
           <td class="num">${miEcheanceHTML(m)}</td></tr>`).join("")}
-        </tbody></table>
+        </tbody></table></div>
         ${(missTard.length>5 || missSans.length>3)? `<p class="small muted" style="margin-bottom:0">Le reste dans la vue Missions (filtre « À suivre »)</p>`:""}`
         : `<div class="empty">Toutes les missions ont une prochaine échéance ✓</div>`}
     </div>
     <div class="card grow">
       <h3 class="mt0">📆 Revues annuelles à programmer</h3>
-      ${revues.length? `<table class="tbl dense"><tbody>${revues.slice(0,6).map(x=>`<tr class="clickable jr-rev" data-key="${esc(x.key)}">
+      ${revues.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${revues.slice(0,6).map(x=>`<tr class="clickable jr-rev" data-key="${esc(x.key)}">
         <td><b>${esc(x.name)}</b></td>
-        <td class="num small muted">${x.last? "dernière : " + new Date(x.last+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}) : "jamais faite"}</td></tr>`).join("")}</tbody></table>
+        <td class="num small muted">${x.last? "dernière : " + new Date(x.last+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}) : "jamais faite"}</td></tr>`).join("")}</tbody></table></div>
         ${revues.length>6? `<p class="small muted" style="margin-bottom:0">+ ${revues.length-6} autres — ouvre la vue Clients</p>`:""}`
         : `<div class="empty">Aucune revue annuelle en retard ✓</div>`}
     </div>
@@ -4444,9 +4450,9 @@ function render(){
   app.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click", ()=>go(b.dataset.nav)));
   $("#logout").addEventListener("click", logout);
   $("#theme-toggle").addEventListener("click", cycleTheme);
-  const rem = saisieReminderHTML();
-  if (rem) $("#view").insertAdjacentHTML("beforebegin", rem);
   VIEWS[state.view].fn($("#view"));
+  const rem = saisieReminderHTML();
+  if (rem) $("#view").insertAdjacentHTML("afterbegin", rem);   // DANS la zone principale : jamais en colonne à côté
   bindReminder();
 }
 
