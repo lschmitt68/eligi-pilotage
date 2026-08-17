@@ -472,7 +472,7 @@ const pondere = p => (p.ca_potentiel||0) * (p.probabilite||0);
 /* ---------------- État global ---------------- */
 const state = {
   profile:null,       // {email, role, conseiller_id}
-  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[], clientsInfos:[], interactions:[], propositions:[], paramsCabinet:{}, connexions:[], missions:[],
+  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[], clientsInfos:[], interactions:[], propositions:[], paramsCabinet:{}, connexions:[], missions:[], campagnes:[],
   week:null,          // semaine suivie (équivalent Dashboard!B3)
   view:null,
   ficheConseillerId:null,
@@ -766,6 +766,24 @@ class SupaDB {
     state.connexions = cx.error? [] : (cx.data||[]);   // tolérant : le journal ne bloque jamais l'appli
     const mi = await this.c.from("missions").select("*").order("id", {ascending:false});
     state.missions = mi.error? [] : (mi.data||[]);     // tolérant tant que la migration v15 n'est pas passée
+    const cg = await this.c.from("campagnes").select("*").order("date_fin");
+    state.campagnes = cg.error? [] : (cg.data||[]);    // tolérant tant que la migration v22 n'est pas passée
+  }
+  async saveCampagne(c){
+    const row = {nom:c.nom, support:c.support||"", date_debut:c.date_debut||null, date_fin:c.date_fin,
+                 description:c.description||"", objectifs:c.objectifs||{}};
+    if (c.id){
+      const {error} = await this.c.from("campagnes").update(row).eq("id", c.id);
+      if (error) throw error; return c.id;
+    }
+    const {data, error} = await this.c.from("campagnes").insert(row).select().single();
+    if (error) throw error; return data.id;
+  }
+  async deleteCampagne(id){
+    const {error: e1} = await this.c.from("pipeline").update({campagne_id:null}).eq("campagne_id", id);
+    if (e1) throw e1;
+    const {error} = await this.c.from("campagnes").delete().eq("id", id);
+    if (error) throw error;
   }
   async saveMission(m){
     const row = {client_key:m.client_key, titre:m.titre||"", type:m.type||"", statut:m.statut||"À démarrer",
@@ -966,7 +984,7 @@ class DemoDB {
     this.objSemaine = []; this.actions = []; this.validations = [];
     this.pipeEvents = this.pipeline.map(p=>({id:this._id++, pipeline_id:p.id, conseiller_id:p.conseiller_id,
       client:p.client, de_etape:null, vers_etape:p.etape, quand:p.updated_at}));
-    this.clientsInfos = []; this.interactions = []; this.propositions = []; this.paramsCabinet = {}; this.connexions = []; this.missions = [];
+    this.clientsInfos = []; this.interactions = []; this.propositions = []; this.paramsCabinet = {}; this.connexions = []; this.missions = []; this.campagnes = [];
     this.absences = (D.absences||[]).map(a=>({id:this._id++, conseiller_id:byName[a.conseiller], semaine:wkey(a.semaine)}));
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
@@ -993,6 +1011,20 @@ class DemoDB {
     state.paramsCabinet = this.paramsCabinet || {};
     state.connexions = (this.connexions||[]).filter(cx=>isManager() || cx.email===state.profile?.email).map(c=>({...c}));
     state.missions = (this.missions||[]).map(m=>({...m, etapes:(m.etapes||[]).map(e=>({...e})), journal:(m.journal||[]).map(j=>({...j}))}));
+    state.campagnes = (this.campagnes||[]).map(c=>({...c, objectifs:{...(c.objectifs||{})}}));
+  }
+  async saveCampagne(c){
+    if (!isManager()) throw new Error("Réservé au manager");
+    if (c.id){ Object.assign(this.campagnes.find(x=>x.id===c.id), c); return c.id; }
+    const id = this._id++;
+    this.campagnes.push({...c, id});
+    return id;
+  }
+  async deleteCampagne(id){
+    if (!isManager()) throw new Error("Réservé au manager");
+    for (const p of this.pipeline) if (p.campagne_id===id) p.campagne_id = null;
+    const i = this.campagnes.findIndex(x=>x.id===id);
+    if (i>=0) this.campagnes.splice(i,1);
   }
   async saveMission(m){
     const row = {...m, updated_at:new Date().toISOString()};
@@ -1579,6 +1611,11 @@ function viewDashboard(root){
     <span class="small muted">— clique pour saisir</span>`:""}
     ${enConges.length? `<span class="small" style="margin-left:${noSaisie.length?"14px":"0"}">✈ <b>En congés :</b> ${enConges.map(c=>esc(c.nom)).join(", ")}</span>`:""}</div>` : ""}
 
+  ${(()=>{ const cs = state.campagnes.filter(c=>campagneJoursRestants(c) >= -14).sort((a,b)=>String(a.date_fin).localeCompare(String(b.date_fin)));
+    return (cs.length || isManager())? `<div class="sect sect-head"><h2>Campagnes produit</h2>
+      <span class="sub">fenêtres de commercialisation en cours</span>
+      <span style="flex:1"></span><button class="btn secondary small" id="camp-add">+ Campagne</button></div>
+    ${cs.length? `<div class="row sect">${cs.map(c=>campagneCardHTML(c)).join("")}</div>` : ""}` : ""; })()}
   <div class="sect sect-head"><h2>Conseillers — ${esc(perLabel)}</h2>${annee? `<span class="sub">cumul de l'année civile · objectif annuel = somme des objectifs hebdo (congés déduits) · Projection = tendance fin d'année + pipeline pondéré − signé</span>` : mois? `<span class="sub">cumul des ${nSemMois} semaines du mois · objectifs mensuels = somme des objectifs hebdo (congés déduits)</span>`:""}</div>
   <div class="card tbl-scroll">
     <table class="tbl dense">
@@ -1637,6 +1674,7 @@ function viewDashboard(root){
 
   mixBars($("#dash-mix"), mix);
   bindPeriodNav();
+  bindCampagnes(root);
   $("#dash-export").addEventListener("click", exportXLSX);
   $("#bk-now")?.addEventListener("click", exportXLSX);
   const openMeeting = ()=>meetingMode();
@@ -1887,6 +1925,114 @@ function viewSaisie(root){
 }
 
 /* ---------------- Pipeline : kanban + tableau ---------------- */
+/* ===== Campagnes produit (v22) — fenêtre de commercialisation + objectifs par conseiller ===== */
+function campagneJoursRestants(c){
+  const t = new Date(); t.setHours(0,0,0,0);
+  return Math.ceil((new Date(String(c.date_fin).slice(0,10)+"T00:00:00").getTime() - t.getTime())/86400000);
+}
+function campagnesActives(){ return state.campagnes.filter(c=>campagneJoursRestants(c) >= 0); }
+function campagneStats(camp, consId){
+  const rows = state.pipeline.filter(p=>p.campagne_id===camp.id && (!consId || p.conseiller_id===consId));
+  const signe = rows.filter(p=>(p.etape||"").toLowerCase()==="signé").reduce((a,p)=>a+(+p.collecte_potentielle||0),0);
+  const pond = rows.filter(p=>(p.etape||"").toLowerCase()!=="signé").reduce((a,p)=>a+(+p.collecte_potentielle||0)*(+p.probabilite||0),0);
+  const obj = consId? (+(camp.objectifs||{})[consId]||0)
+                    : activeConseillers().reduce((a,c)=>a+(+(camp.objectifs||{})[c.id]||0),0);
+  return {signe, pond, obj, n:rows.length};
+}
+function campagneCardHTML(camp, forCons){
+  const j = campagneJoursRestants(camp);
+  const badge = j<0? `<span class="badge neutral"><span class="dot"></span>terminée</span>`
+    : j===0? `<span class="badge urgent"><span class="dot"></span>dernier jour !</span>`
+    : j<=7? `<span class="badge urgent"><span class="dot"></span>J-${j}</span>`
+    : `<span class="badge"><span class="dot" style="background:var(--s1)"></span>J-${j}</span>`;
+  const cons = forCons? state.conseillers.filter(c=>c.id===forCons) : activeConseillers();
+  const tot = campagneStats(camp, null);
+  return `<div class="card grow" style="min-width:360px">
+    <h3 class="mt0" style="display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap">
+      <span>🚀 ${esc(camp.nom)} <span class="tag">${esc(camp.support)}</span></span>
+      <span style="display:flex;gap:6px;align-items:center">${badge}
+        ${isManager()? `<button class="btn secondary small camp-edit" data-cid="${camp.id}">Modifier</button>`:""}</span></h3>
+    <p class="small muted" style="margin:0 0 8px">Commercialisation jusqu'au <b>${new Date(String(camp.date_fin).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</b>${camp.description? ` — ${esc(camp.description)}`:""}</p>
+    <div class="jr-wrap"><table class="tbl dense">
+      <thead><tr><th>Conseiller</th><th class="num">Objectif collecte</th><th class="num">Signé</th><th class="num">Pondéré</th><th style="min-width:90px"></th><th class="num">Atteint</th></tr></thead>
+      <tbody>${cons.map(c=>{
+        const s = campagneStats(camp, c.id);
+        const taux = s.obj? s.signe/s.obj : 0;
+        return `<tr>
+          <td><span class="cdot" style="background:${consColor(c.id)}"></span>${esc(c.nom)}</td>
+          <td class="num">${eur(s.obj)}</td>
+          <td class="num"><b>${eur(s.signe)}</b></td>
+          <td class="num">${eur(s.pond)}</td>
+          <td><div class="fun-bar"><div class="fun-fill" style="width:${Math.min(100, Math.round(taux*100))}%${taux>=1? ";background:#2e9e63":""}"></div></div></td>
+          <td class="num">${s.obj? fmtPct(taux):"—"}</td>
+        </tr>`; }).join("")}
+      ${!forCons && cons.length>1? `<tr class="total"><td>Équipe</td><td class="num">${eur(tot.obj)}</td><td class="num">${eur(tot.signe)}</td><td class="num">${eur(tot.pond)}</td><td></td><td class="num">${tot.obj? fmtPct(tot.signe/tot.obj):"—"}</td></tr>`:""}
+      </tbody>
+    </table></div>
+    <p class="small muted" style="margin-bottom:0">${tot.n} dossier(s) rattachés — champ « Campagne produit » d'une opportunité pipeline.</p>
+  </div>`;
+}
+function bindCampagnes(root){
+  root.querySelectorAll(".camp-edit").forEach(b=>b.addEventListener("click", e=>{
+    e.stopPropagation();
+    campagneModal(state.campagnes.find(c=>c.id===+b.dataset.cid));
+  }));
+  root.querySelector("#camp-add")?.addEventListener("click", ()=>campagneModal(null));
+}
+function campagneModal(camp){
+  const isNew = !camp;
+  camp = camp? {...camp, objectifs:{...(camp.objectifs||{})}}
+             : {nom:"", support:"Produit structuré", date_debut:new Date().toISOString().slice(0,10),
+                date_fin:"", description:"", objectifs:{}};
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal" style="width:560px">
+    <h3>${isNew? "Nouvelle campagne produit" : `Campagne — ${esc(camp.nom)}`}</h3>
+    <p class="small muted" style="margin-top:0">Une campagne = un produit avec une fenêtre de commercialisation et un objectif de collecte par conseiller. Les opportunités pipeline s'y rattachent via le champ « Campagne produit ».</p>
+    <div class="form-grid">
+      <label class="fld full"><span>Nom du produit (ex : Daytona 6)</span><input type="text" id="cg-nom" value="${esc(camp.nom)}"></label>
+      <label class="fld"><span>Support</span><select id="cg-support">${SUPPORTS.map(s=>`<option ${s===camp.support?"selected":""}>${s}</option>`).join("")}</select></label>
+      <label class="fld"><span>Début</span><input type="date" id="cg-debut" value="${camp.date_debut? String(camp.date_debut).slice(0,10):""}"></label>
+      <label class="fld"><span>Fin de commercialisation</span><input type="date" id="cg-fin" value="${camp.date_fin? String(camp.date_fin).slice(0,10):""}"></label>
+      <label class="fld full"><span>Description (taux, échéance, points clés…)</span><input type="text" id="cg-desc" value="${esc(camp.description||"")}"></label>
+    </div>
+    <h3 style="margin:12px 0 6px">Objectifs de collecte par conseiller</h3>
+    <table class="tbl dense"><tbody>
+      ${activeConseillers().map(c=>`<tr>
+        <td><span class="cdot" style="background:${consColor(c.id)}"></span>${esc(c.nom)}</td>
+        <td class="num"><input type="number" class="cg-obj" data-cid="${c.id}" value="${+(camp.objectifs||{})[c.id]||0}" min="0" step="5000" style="width:120px"> €</td>
+      </tr>`).join("")}
+    </tbody></table>
+    <div class="modal-actions">
+      ${!isNew? `<button class="btn danger" id="cg-del" style="margin-right:auto">Supprimer</button>`:""}
+      <button class="btn secondary" id="cg-cancel">Annuler</button>
+      <button class="btn" id="cg-save">Enregistrer</button>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
+  back.querySelector("#cg-cancel").addEventListener("click", ()=>back.remove());
+  back.querySelector("#cg-del")?.addEventListener("click", async ()=>{
+    if (!confirm(`Supprimer la campagne « ${camp.nom} » ? Les opportunités rattachées restent dans le pipeline (elles sont simplement détachées).`)) return;
+    try{ await state.db.deleteCampagne(camp.id); back.remove(); await state.db.loadAll(); toast("Campagne supprimée"); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+  back.querySelector("#cg-save").addEventListener("click", async ()=>{
+    const nom = back.querySelector("#cg-nom").value.trim();
+    const fin = back.querySelector("#cg-fin").value;
+    if (!nom){ toast("Indique le nom du produit"); return; }
+    if (!fin){ toast("Indique la date de fin de commercialisation"); return; }
+    const objectifs = {};
+    back.querySelectorAll(".cg-obj").forEach(inp=>{ const v = +inp.value||0; if (v>0) objectifs[inp.dataset.cid] = v; });
+    try{
+      await state.db.saveCampagne({id:camp.id, nom, support:back.querySelector("#cg-support").value,
+        date_debut:back.querySelector("#cg-debut").value||null, date_fin:fin,
+        description:back.querySelector("#cg-desc").value.trim(), objectifs});
+      back.remove(); await state.db.loadAll(); toast("Campagne enregistrée ✓"); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+}
+
 function funnelStats(consId){
   const evs = state.pipeEvents.filter(e=>!consId || e.conseiller_id===+consId);
   const byPipe = new Map();
@@ -2136,6 +2282,8 @@ function pipeModal(p, etapeInit){
       <label class="fld"><span>Client</span><input type="text" id="pm-client" value="${esc(p.client)}" list="pm-clients-list" autocomplete="off">
         <datalist id="pm-clients-list">${[...new Map(state.pipeline.map(x=>[normName(x.client), (x.client||"").trim()])).values()].filter(Boolean).sort((a,b)=>a.localeCompare(b,"fr")).map(nm=>`<option value="${esc(nm)}">`).join("")}</datalist></label>
       <label class="fld"><span>Support</span><select id="pm-support">${SUPPORTS.map(s=>`<option ${s===p.support?"selected":""}>${s}</option>`).join("")}</select></label>
+      ${(campagnesActives().length || p.campagne_id)? `<label class="fld"><span>Campagne produit</span><select id="pm-camp"><option value="">—</option>
+        ${[...new Map([...campagnesActives(), ...state.campagnes.filter(c=>c.id===p.campagne_id)].map(c=>[c.id,c])).values()].map(c=>`<option value="${c.id}" ${c.id===p.campagne_id?"selected":""}>${esc(c.nom)} (fin ${new Date(String(c.date_fin).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})})</option>`).join("")}</select></label>`:""}
       <label class="fld"><span>Étape</span><select id="pm-etape">${ETAPES.map(e=>`<option ${e===p.etape?"selected":""}>${e}</option>`).join("")}</select></label>
       <label class="fld"><span>Collecte potentielle (€)</span><input type="number" id="pm-coll" value="${p.collecte_potentielle||0}" min="0" step="any"></label>
       <label class="fld"><span>CA potentiel (€)</span><input type="number" id="pm-ca" value="${p.ca_potentiel||0}" min="0" step="any"></label>
@@ -2169,6 +2317,10 @@ function pipeModal(p, etapeInit){
   back.querySelector("#pm-client").addEventListener("input", updDup);
   updDup();
   back.querySelector("#pm-ca").addEventListener("input", updPond);
+  back.querySelector("#pm-camp")?.addEventListener("change", e=>{
+    const cg = state.campagnes.find(c=>c.id===+e.target.value);
+    if (cg && cg.support) back.querySelector("#pm-support").value = cg.support;
+  });
   back.querySelector("#pm-proba").addEventListener("change", updPond);
   back.querySelector("#pm-cancel").addEventListener("click", ()=>back.remove());
   back.addEventListener("click", e=>{ if(e.target===back) back.remove(); });
@@ -2194,6 +2346,7 @@ function pipeModal(p, etapeInit){
         priorite: back.querySelector("#pm-prio").value,
         prochaine_action: back.querySelector("#pm-action").value.trim(),
         signature_probable: back.querySelector("#pm-sig").checked,
+        campagne_id: back.querySelector("#pm-camp")? (+back.querySelector("#pm-camp").value||null) : (p.campagne_id||null),
       });
       const opData = {
         conseiller_id: isManager()? +back.querySelector("#pm-cons")?.value || p.conseiller_id : p.conseiller_id,
@@ -2468,6 +2621,8 @@ function viewJour(root){
     ${tile("Missions à suivre", missTard.length + missSans.length,
       missTard.length? "échéance de dossier dépassée" : missSans.length? "sans prochaine échéance" : "dossiers sous contrôle ✓")}
   </div>
+  ${(()=>{ const cs = campagnesActives().sort((a,b)=>String(a.date_fin).localeCompare(String(b.date_fin)));
+    return cs.length? `<div class="row sect">${cs.map(c=>campagneCardHTML(c, mgr? null : meId)).join("")}</div>` : ""; })()}
 
   <div class="row sect">
     ${actionsCardHTML(mgr? null : meId, mgr? "Actions de l'équipe" : "Mes tâches")}
@@ -2516,6 +2671,7 @@ function viewJour(root){
   bindActionsCards(root, ()=>viewJour(root));
   $("#jr-saisie").addEventListener("click", ()=>go("saisie"));
   $("#jr-macro")?.addEventListener("click", ()=>go("param"));
+  bindCampagnes(root);
   $("#jr-newop").addEventListener("click", ()=>pipeModal(null));
   root.querySelectorAll(".jr-op").forEach(r=>r.addEventListener("click", ()=>{
     const p = state.pipeline.find(x=>x.id===+r.dataset.id);
