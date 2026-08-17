@@ -1282,12 +1282,24 @@ function shiftWeek(delta){
   const j = i + delta;
   if (j >= 0 && j < codes.length){ state.week = codes[j]; render(); }
 }
+function weekDates(code){
+  const s = state.semaines.find(x=>x.code===code);
+  if (!s) return "";
+  const lun = new Date(String(s.lundi).slice(0,10)+"T00:00:00");
+  const dim = new Date(lun.getTime() + 6*86400000);
+  const f = d => d.toLocaleDateString("fr-FR",{day:"numeric",month:"short"});
+  return `${f(lun)} – ${f(dim)}`;
+}
+function weekOptLabel(code){
+  const dd = weekDates(code);
+  return dd? `${code} · ${dd}` : code;
+}
 function weekNavHTML(){
   const codes = weekCodes();
   const i = codes.indexOf(state.week);
   return `<div class="weeknav">
     <button class="wk-btn" id="wk-prev" title="Semaine précédente" ${i<=0?"disabled":""}>${ICONS.left}</button>
-    <select id="wk-select">${codes.map(c=>`<option value="${c}" ${c===state.week?"selected":""}>${c}</option>`).join("")}</select>
+    <select id="wk-select" title="Semaine suivie (dates du lundi au dimanche)">${codes.map(c=>`<option value="${c}" ${c===state.week?"selected":""}>${weekOptLabel(c)}</option>`).join("")}</select>
     <button class="wk-btn" id="wk-next" title="Semaine suivante" ${i>=codes.length-1?"disabled":""}>${ICONS.right}</button>
   </div>`;
 }
@@ -1499,7 +1511,7 @@ function viewDashboard(root){
   const mois = per==="mois", annee = per==="annee";
   const m = mois? (state._mois || (state._mois = curMonth())) : null;
   const y = annee? (state._annee || (state._annee = curYear())) : null;
-  const perLabel = annee? `année ${y}` : mois? monthLabel(m) : `semaine ${week}`;
+  const perLabel = annee? `année ${y}` : mois? monthLabel(m) : `semaine ${week} (${weekDates(week)})`;
   const nSemMois = mois? monthWeeks(m).length : 0;
   const nSemAn = annee? yearWeeks(y).length : 0;
   const cons = activeConseillers();
@@ -1530,7 +1542,7 @@ function viewDashboard(root){
   ];
 
   root.innerHTML = `
-  ${vhead("Dashboard équipe", annee? `Année ${y} — cumul de ${nSemAn} semaines · Projection = atterrissage fin d'année` : mois? `${perLabel} — ${nSemMois} semaine(s) : ${esc(monthWeeks(m)[0]||"")} → ${esc(monthWeeks(m)[nSemMois-1]||"")}` : `Semaine actuelle : ${todayWeekCode()}`, `
+  ${vhead("Dashboard équipe", annee? `Année ${y} — cumul de ${nSemAn} semaines · Projection = atterrissage fin d'année` : mois? `${perLabel} — ${nSemMois} semaine(s) : ${esc(monthWeeks(m)[0]||"")} → ${esc(monthWeeks(m)[nSemMois-1]||"")}` : `Semaine actuelle : ${todayWeekCode()}${weekDates(todayWeekCode())? ` · ${weekDates(todayWeekCode())}` : ""}`, `
     ${periodNavHTML()}
     <button class="btn secondary" id="dash-meeting">${ICONS.play} Mode réunion</button>
     <button class="btn secondary" id="dash-export">${ICONS.dl} Exporter</button>`)}
@@ -1752,7 +1764,7 @@ function viewSaisie(root){
   ${vhead("Saisie hebdomadaire", "1 ligne = 1 conseiller × 1 semaine — uniquement le réalisé", weekNavHTML())}
   ${missing.length? `<div class="card" style="padding:11px 16px; display:flex; align-items:center; gap:8px; flex-wrap:wrap; margin-bottom:14px">
     <b class="small">Semaines sans saisie${isManager()? ` (${esc(consName(consId))})`:""} :</b>
-    ${missing.slice(-8).map(w=>`<span class="chip warn" data-goweek="${w}">${w.replace("2026-","")}</span>`).join("")}
+    ${missing.slice(-8).map(w=>`<span class="chip warn" data-goweek="${w}" title="${weekDates(w)}">${w.replace(/^\d{4}-/,"")} · ${weekDates(w)}</span>`).join("")}
     <span class="small muted">— clique pour compléter</span></div>`:""}
   <div class="row">
     <div class="card" style="width:640px;max-width:100%">
@@ -2197,7 +2209,7 @@ function viewFiche(root){
   const mois = per==="mois", annee = per==="annee";
   const m = mois? (state._mois || (state._mois = curMonth())) : null;
   const yA = annee? (state._annee || (state._annee = curYear())) : null;
-  const perLabel = annee? `année ${yA}` : mois? monthLabel(m) : state.week;
+  const perLabel = annee? `année ${yA}` : mois? monthLabel(m) : `${state.week} (${weekDates(state.week)})`;
   const w = annee? yearAgg(consId, yA) : mois? monthAgg(consId, m) : weekAgg(consId, state.week), p = pipeAgg(consId);
   const att = annee? atterrissage(consId) : null;
   const proj = annee? att.avecPipe : w.ca_total + p.pond - p.signe;
@@ -4241,8 +4253,8 @@ function viewParam(root){
     <div class="inline-controls" style="margin-bottom:12px">
       <label class="fld"><span>Conseiller</span><select id="os-cons"><option value="">Toute l'équipe</option>
         ${state.conseillers.map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join("")}</select></label>
-      <label class="fld"><span>De la semaine</span><select id="os-from">${weekCodes().map(w=>`<option>${w}</option>`).join("")}</select></label>
-      <label class="fld"><span>À la semaine</span><select id="os-to">${weekCodes().map(w=>`<option>${w}</option>`).join("")}</select></label>
+      <label class="fld"><span>De la semaine</span><select id="os-from">${weekCodes().map(w=>`<option value="${w}">${weekOptLabel(w)}</option>`).join("")}</select></label>
+      <label class="fld"><span>À la semaine</span><select id="os-to">${weekCodes().map(w=>`<option value="${w}">${weekOptLabel(w)}</option>`).join("")}</select></label>
       <label class="fld" style="min-width:110px"><span>Obj. CA (€)</span><input type="number" id="os-ca" value="0" min="0"></label>
       <label class="fld" style="min-width:110px"><span>Obj. collecte (€)</span><input type="number" id="os-coll" value="0" min="0"></label>
       <label class="fld" style="min-width:90px"><span>Obj. RDV</span><input type="number" id="os-rdv" value="0" min="0"></label>
