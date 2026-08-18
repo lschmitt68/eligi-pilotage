@@ -2720,7 +2720,7 @@ function viewJour(root){
 function briefClient(key){
   const rows = state.pipeline.filter(p=>normName(p.client)===key);
   const info = state.clientsInfos.find(ci=>ci.client_key===key) || {};
-  const name = rows.length? (rows[0].client||"").trim() : (info.nom||key);
+  const name = nomAffiche(key, rows.length? (rows[0].client||"").trim() : (info.nom||key));
   const suivi = suiviClient({key}).filter(ev=>ev.kind!=="ac").slice(0,8);
   const taches = state.actions.filter(a=>a.client_key===key && !a.fait);
   const props = state.propositions.filter(pr=>pr.client_key===key)
@@ -2908,7 +2908,9 @@ function viewClients(root){
   }
   let list = Object.values(groups);
   for (const g of list) g.info = state.clientsInfos.find(ci=>ci.client_key===g.key) || {statut:"Prospect", origine:"", notes:""};
-  if (q) list = list.filter(g=>g.name.toLowerCase().includes(q) || (g.info.groupe||"").toLowerCase().includes(q));
+  if (q) list = list.filter(g=>g.name.toLowerCase().includes(q)
+    || nomAffiche(g.key, g.name).toLowerCase().includes(q)
+    || (g.info.groupe||"").toLowerCase().includes(q));
   for (const g of list){
     g.pond = g.rows.reduce((a,p)=>a+pondere(p),0);
     g.signe = g.rows.filter(p=>(p.etape||"").toLowerCase()==="signé").reduce((a,p)=>a+pondere(p),0);
@@ -2923,7 +2925,8 @@ function viewClients(root){
       .reduce((a,i)=>Math.max(a, new Date(i.quand||0).getTime()), 0);
     if (lastIx > g.dernier) g.dernier = lastIx;
   }
-  list.sort((a,b)=>a.name.localeCompare(b.name, "fr", {sensitivity:"base"}));
+  for (const g of list) g.disp = nomAffiche(g.key, g.name);
+  list.sort((a,b)=>a.disp.localeCompare(b.disp, "fr", {sensitivity:"base"}));
   const statutBadge = s => s==="Client"? `<span class="badge ok"><span class="dot"></span>Client</span>`
     : s==="Inactif"? `<span class="badge neutral"><span class="dot"></span>Inactif</span>`
     : `<span class="badge"><span class="dot" style="background:var(--s1)"></span>Prospect</span>`;
@@ -2940,7 +2943,7 @@ function viewClients(root){
     <th class="num">Collecte pot.</th><th class="num">Pondéré</th><th class="num">Dont signé</th><th>À relancer</th></tr></thead>
     <tbody>${list.map((g,i)=>`
       <tr class="clickable cli-row" data-key="${esc(g.key)}" title="Ouvrir la fiche client">
-        <td><b>${esc(g.name)}</b></td>
+        <td><b>${esc(g.disp)}</b></td>
         <td>${statutBadge(g.info.statut)}${revueEchue(g.info)? ` <span class="badge watch" title="Revue annuelle à programmer (dernière : ${g.info.derniere_revue? new Date(g.info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "jamais"})"><span class="dot"></span>Revue due</span>`:""}</td>
         <td>${g.cons.map(id=>`<span class="cdot" style="background:${consColor(id)}" title="${esc(consName(id))}"></span>`).join("")}</td>
         <td class="num">${g.rows.length}</td>
@@ -2952,7 +2955,7 @@ function viewClients(root){
       <tr class="cli-detail" data-for="${esc(g.key)}" style="display:${state._cliOpen===g.key? "":"none"}"><td colspan="8">
         <div class="row" style="margin:8px 0 10px">
           <div class="card" style="flex:1;min-width:300px">
-            <h3 class="mt0">Fiche client — ${esc(g.name)}${(()=>{ const a = ageDe(g.info.date_naissance); return a!==null? ` <span class="small muted">(${a} ans)</span>`:""; })()}</h3>
+            <h3 class="mt0">Fiche client — ${esc(g.disp)}${(()=>{ const a = ageDe(g.info.date_naissance); return a!==null? ` <span class="small muted">(${a} ans)</span>`:""; })()}</h3>
             ${(g.info.tel||g.info.email||g.info.groupe||g.info.lien_onedrive||g.info.lien_must)? `<p class="small" style="margin:0 0 10px">
               ${g.info.tel? `📞 <a href="tel:${esc(String(g.info.tel).replace(/\s+/g,""))}">${esc(g.info.tel)}</a>`:""}
               ${g.info.email? ` &nbsp;✉️ <a href="mailto:${esc(g.info.email)}">${esc(g.info.email)}</a>`:""}
@@ -4144,11 +4147,17 @@ function miProgress(m){
   const et = m.etapes||[]; const done = et.filter(e=>e.done).length;
   return {done, total:et.length, pct: et.length? done/et.length : 0};
 }
+function nomAffiche(key, fallback){
+  /* v26.1 : si la fiche porte un nom de famille / prénom, c'est la référence d'affichage */
+  const ci = state.clientsInfos.find(c=>c.client_key===key);
+  if (ci && ((ci.nom_famille||"").trim() || (ci.prenom||"").trim()))
+    return [ci.nom_famille, ci.prenom].map(s=>String(s||"").trim()).filter(Boolean).join(" ");
+  return fallback;
+}
 function miClientNom(key){
   const p = state.pipeline.find(x=>normName(x.client)===key);
-  if (p) return (p.client||"").trim();
-  const ci = state.clientsInfos.find(c=>c.client_key===key);
-  return ci? (ci.nom||key) : key;
+  const brut = p? (p.client||"").trim() : (state.clientsInfos.find(c=>c.client_key===key)?.nom || key);
+  return nomAffiche(key, brut);
 }
 function miEcheanceHTML(m){
   if (!m.echeance) return miSansEcheance(m)? `<span class="badge urgent"><span class="dot"></span>⚠ sans échéance</span>` : `<span class="small muted">—</span>`;
@@ -4728,9 +4737,9 @@ function gsIndex(){
     if (!groups[ci.client_key]) groups[ci.client_key] = {key:ci.client_key, name:(ci.nom||ci.client_key).trim(), rows:[]};
   for (const g of Object.values(groups)){
     const ci = state.clientsInfos.find(c=>c.client_key===g.key) || {};
-    items.push({cat:"Clients", ico:"\uD83D\uDC64", label:g.name,
+    items.push({cat:"Clients", ico:"\uD83D\uDC64", label:nomAffiche(g.key, g.name),
       sub:[ci.statut||"Prospect", ci.groupe? "groupe "+ci.groupe : "", g.rows.length? g.rows.length+" dossier(s)" : ""].filter(Boolean).join(" \u00b7 "),
-      text:GS_NORM([g.name, ci.groupe, ci.profession, ci.tel, ci.email].filter(Boolean).join(" ")),
+      text:GS_NORM([g.name, ci.nom_famille, ci.prenom, ci.groupe, ci.profession, ci.tel, ci.email].filter(Boolean).join(" ")),
       run(){ state._cliOpen = g.key; state._cliSearch = ""; go("clients");
              setTimeout(()=>{ try{ document.querySelector(`.cli-row[data-key="${CSS.escape(g.key)}"]`)?.scrollIntoView({block:"center"}); }catch(e){} }, 60); }});
   }
