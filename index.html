@@ -378,6 +378,7 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
   body.doc-open .doc-back{position:static; padding:0; background:#fff; overflow:visible}
   body.doc-open .pd-actions{display:none}
   body.doc-open .pd-page{box-shadow:none; border-radius:0; padding:0}
+  body.doc-open .pd-page, body.doc-open .pd-page *{-webkit-print-color-adjust:exact; print-color-adjust:exact}
 }
 
 /* ============ Suivi client (timeline CRM) ============ */
@@ -2647,6 +2648,8 @@ function viewJour(root){
     ${tile("Closings sous 14 jours", closings.length)}
     ${tile("Signatures probables", sig.length, eur(sig.reduce((a,p)=>a+pondere(p),0)) + " pondérés")}
     ${tile("Revues annuelles", revues.length, revues.length? "clients à revoir (conformité)" : "à jour ✓")}
+    ${(()=>{ const pr = propoARelancer(); return tile("Propositions sans réponse", pr.length,
+      pr.length? `envoyées depuis ≥ ${PROPO_RELANCE_J} j — à relancer` : "aucune en attente ✓"); })()}
     ${tile("Missions à suivre", missTard.length + missSans.length,
       missTard.length? "échéance de dossier dépassée" : missSans.length? "sans prochaine échéance" : "dossiers sous contrôle ✓")}
   </div>
@@ -2687,6 +2690,18 @@ function viewJour(root){
         : `<div class="empty">Toutes les missions ont une prochaine échéance ✓</div>`}
     </div>
     <div class="card grow">
+      <h3 class="mt0">📄 Propositions à relancer</h3>
+      ${(()=>{ const prs = propoARelancer().sort((a,b)=>propoJours(b)-propoJours(a));
+        return prs.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${prs.slice(0,6).map(pr=>`
+          <tr class="clickable jr-prop" data-id="${pr.id}">
+            ${mgr? `<td><span class="cdot" style="background:${consColor(pr.conseiller_id)}" title="${esc(consName(pr.conseiller_id))}"></span></td>`:""}
+            <td><b>${esc(pr.data?.nomClient||pr.client_key)}</b></td>
+            <td class="num">${eur(+pr.data?.montant||0)}</td>
+            <td class="num"><span class="ksleep">💤 ${propoJours(pr)} j</span></td></tr>`).join("")}</tbody></table></div>
+          ${prs.length>6? `<p class="small muted" style="margin-bottom:0">+ ${prs.length-6} autres dans les Propositions</p>`:""}`
+        : `<div class="empty">Aucune proposition envoyée en attente ✓</div>`; })()}
+    </div>
+    <div class="card grow">
       <h3 class="mt0">📆 Revues annuelles à programmer</h3>
       ${revues.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${revues.slice(0,6).map(x=>`<tr class="clickable jr-rev" data-key="${esc(x.key)}">
         <td><b>${esc(x.name)}</b></td>
@@ -2698,6 +2713,11 @@ function viewJour(root){
   </div>`;
 
   bindActionsCards(root, ()=>viewJour(root));
+  root.querySelectorAll(".jr-prop").forEach(r=>r.addEventListener("click", ()=>{
+    const pr = state.propositions.find(x=>x.id===+r.dataset.id);
+    state._propSearch = pr? String(pr.data?.nomClient||pr.client_key) : "";
+    go("propositions");
+  }));
   $("#jr-saisie").addEventListener("click", ()=>go("saisie"));
   $("#jr-macro")?.addEventListener("click", ()=>go("param"));
   bindCampagnes(root);
@@ -3422,14 +3442,16 @@ function propoCompute(d){
 }
 
 /* ---------- Graphiques SVG ---------- */
-function propoDonut(cible, size=170){
+const DOC_COLORS = ["#2a78d6","#eb6834","#1baf7a","#eda100","#e87ba4"];   // = s1..s5 clairs, figés pour le document
+const DOC_GOOD = "#0f9d58", DOC_CRIT = "#d03b3b", DOC_BLUE = "#2a78d6", DOC_MUT = "#6b7a88";
+function propoDonut(cible, size=170, colors=MIX_COLORS){
   const cx=size/2, cy=size/2, r=size/2-6, r2=r*0.62;
   let a0=-Math.PI/2, segs="";
   cible.forEach((w,i)=>{
     if (w<=0.0001) return;
     const a1 = a0 + w*2*Math.PI, big = (a1-a0)>Math.PI?1:0;
     const p = (a,rr)=>`${cx+rr*Math.cos(a)},${cy+rr*Math.sin(a)}`;
-    segs += `<path d="M ${p(a0,r)} A ${r} ${r} 0 ${big} 1 ${p(a1,r)} L ${p(a1,r2)} A ${r2} ${r2} 0 ${big} 0 ${p(a0,r2)} Z" fill="${MIX_COLORS[i%MIX_COLORS.length]}" opacity=".92"><title>${PROPO_CLASSES[i]} : ${fmtPct(w)}</title></path>`;
+    segs += `<path d="M ${p(a0,r)} A ${r} ${r} 0 ${big} 1 ${p(a1,r)} L ${p(a1,r2)} A ${r2} ${r2} 0 ${big} 0 ${p(a0,r2)} Z" fill="${colors[i%colors.length]}" opacity=".92"><title>${PROPO_CLASSES[i]} : ${fmtPct(w)}</title></path>`;
     a0 = a1;
   });
   return `<svg viewBox="0 0 ${size} ${size}" style="width:${size}px;max-width:100%">${segs}</svg>`;
@@ -3448,21 +3470,93 @@ function propoFan(c, w=560, h=190){
   const band = line("fav") + " " + pts.slice().reverse().map(p=>`L${X(p.t).toFixed(1)},${Y(p.def).toFixed(1)}`).join(" ") + " Z";
   const ticks = [0, Math.round(H/2), Math.round(H)].filter((v,i,a)=>a.indexOf(v)===i);
   return `<svg viewBox="0 0 ${w} ${h}" style="width:100%">
-    <path d="${band}" fill="var(--sidebar-active)" opacity=".13"/>
-    <path d="${line("fav")}" fill="none" stroke="var(--good)" stroke-width="1.6" stroke-dasharray="4 3"/>
-    <path d="${line("med")}" fill="none" stroke="var(--sidebar-active)" stroke-width="2.4"/>
-    <path d="${line("def")}" fill="none" stroke="var(--critical)" stroke-width="1.6" stroke-dasharray="4 3"/>
-    ${ticks.map(v=>`<text x="${X(v)}" y="${h-6}" font-size="10" fill="var(--muted)" text-anchor="middle">${v} an${v>1?"s":""}</text>`).join("")}
-    <text x="${w-8}" y="${Y(pts[pts.length-1].fav)-4}" font-size="10" fill="var(--good)" text-anchor="end">${eur(pts[pts.length-1].fav)}</text>
-    <text x="${w-8}" y="${Y(pts[pts.length-1].med)-4}" font-size="10.5" font-weight="700" fill="var(--sidebar-active)" text-anchor="end">${eur(pts[pts.length-1].med)}</text>
-    <text x="${w-8}" y="${Y(pts[pts.length-1].def)+11}" font-size="10" fill="var(--critical)" text-anchor="end">${eur(pts[pts.length-1].def)}</text>
+    <path d="${band}" fill="${DOC_BLUE}" opacity=".12"/>
+    <path d="${line("fav")}" fill="none" stroke="${DOC_GOOD}" stroke-width="1.6" stroke-dasharray="4 3"/>
+    <path d="${line("med")}" fill="none" stroke="${DOC_BLUE}" stroke-width="2.4"/>
+    <path d="${line("def")}" fill="none" stroke="${DOC_CRIT}" stroke-width="1.6" stroke-dasharray="4 3"/>
+    ${ticks.map(v=>`<text x="${X(v)}" y="${h-6}" font-size="10" fill="${DOC_MUT}" text-anchor="middle">${v} an${v>1?"s":""}</text>`).join("")}
+    <text x="${w-8}" y="${Y(pts[pts.length-1].fav)-4}" font-size="10" fill="${DOC_GOOD}" text-anchor="end">${eur(pts[pts.length-1].fav)}</text>
+    <text x="${w-8}" y="${Y(pts[pts.length-1].med)-4}" font-size="10.5" font-weight="700" fill="${DOC_BLUE}" text-anchor="end">${eur(pts[pts.length-1].med)}</text>
+    <text x="${w-8}" y="${Y(pts[pts.length-1].def)+11}" font-size="10" fill="${DOC_CRIT}" text-anchor="end">${eur(pts[pts.length-1].def)}</text>
   </svg>`;
 }
-function propoAllocBars(c){
+function propoAllocBars(c, colors=MIX_COLORS){
   return `<div class="mix">${PROPO_CLASSES.map((cl,i)=>`<div class="mrow">
-    <span class="mlabel"><span class="cdot" style="background:${MIX_COLORS[i%MIX_COLORS.length]}"></span>${cl}</span>
-    <div class="mtrack"><div class="mfill" style="width:${(c.cible[i]*100).toFixed(1)}%;background:${MIX_COLORS[i%MIX_COLORS.length]}"></div></div>
+    <span class="mlabel"><span class="cdot" style="background:${colors[i%colors.length]}"></span>${cl}</span>
+    <div class="mtrack"><div class="mfill" style="width:${(c.cible[i]*100).toFixed(1)}%;background:${colors[i%colors.length]}"></div></div>
     <span class="mval">${fmtPct(c.cible[i])} · ${eur(c.montants[i])}</span></div>`).join("")}</div>`;
+}
+function propoBarsAnnees(c, w=460, h=150){
+  const vals = c.btR, n = vals.length;
+  const vmax = Math.max(0.02, ...vals.map(v=>Math.abs(v)));
+  const hasNeg = vals.some(v=>v<0);
+  const zone = hasNeg? (h-52)/2 : (h-56);
+  const y0 = hasNeg? 18 + zone : h-30;   // ligne zéro : centre si pertes, sinon base
+  const bw = Math.min(70, (w-60)/n * .55);
+  let bars = "";
+  vals.forEach((v,i)=>{
+    const x = 40 + (w-60)*(i+.5)/n - bw/2;
+    const bh = Math.abs(v)/vmax*zone;
+    const y = v>=0? y0-bh : y0;
+    bars += `<rect x="${x.toFixed(1)}" y="${y.toFixed(1)}" width="${bw.toFixed(1)}" height="${Math.max(1.5,bh).toFixed(1)}" rx="3" fill="${v>=0? DOC_GOOD : DOC_CRIT}" opacity=".85"/>
+      <text x="${(x+bw/2).toFixed(1)}" y="${(v>=0? y-5 : y0+bh+13).toFixed(1)}" font-size="10.5" font-weight="700" fill="${v>=0? DOC_GOOD : DOC_CRIT}" text-anchor="middle">${fmtPct(v)}</text>
+      <text x="${(x+bw/2).toFixed(1)}" y="${h-8}" font-size="10" fill="${DOC_MUT}" text-anchor="middle">${c.btAns[i]}</text>`;
+  });
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%">
+    <line x1="30" y1="${y0}" x2="${w-12}" y2="${y0}" stroke="${DOC_MUT}" stroke-width="1" opacity=".5"/>
+    ${bars}
+    <text x="${w-12}" y="16" font-size="10.5" fill="${DOC_MUT}" text-anchor="end">cumul&#160;: <tspan font-weight="700" fill="${DOC_BLUE}">${fmtPct(c.btCumul)}</tspan></text>
+  </svg>`;
+}
+function propoFraisCompare(c, w=460, h=190){
+  const nH = Math.max(1, Math.round(c.H));
+  const rows = [
+    {lab:"Année 1", eligi:c.coutEligiAn1, dist:c.coutDistribAn1},
+    {lab:"Années suivantes (/an)", eligi:c.coutEligiRec, dist:c.coutDistribRec},
+    {lab:`Cumul sur ${nH} ans`, eligi:c.coutEligiAn1 + c.coutEligiRec*(nH-1), dist:c.coutDistribAn1 + c.coutDistribRec*(nH-1)},
+  ];
+  const vmax = Math.max(1, ...rows.flatMap(r=>[r.eligi, r.dist]));
+  const bx = 168, bw = w-bx-78, bh = 15, gap = 7;
+  let g = "";
+  rows.forEach((r,i)=>{
+    const y = 26 + i*(bh*2+gap+20);
+    const we = Math.max(2, r.eligi/vmax*bw), wd = Math.max(2, r.dist/vmax*bw);
+    g += `<text x="${bx-8}" y="${y+bh-3}" font-size="10.5" font-weight="700" fill="#20211e" text-anchor="end">${r.lab}</text>
+      <rect x="${bx}" y="${y}" width="${we.toFixed(1)}" height="${bh}" rx="3" fill="#1b7a72"/>
+      <text x="${bx+we+6}" y="${y+bh-3}" font-size="10.5" font-weight="700" fill="#1b7a72">${eur(r.eligi)}</text>
+      <rect x="${bx}" y="${y+bh+4}" width="${wd.toFixed(1)}" height="${bh}" rx="3" fill="${DOC_MUT}" opacity=".55"/>
+      <text x="${bx+wd+6}" y="${y+2*bh+1}" font-size="10.5" fill="${DOC_MUT}">${eur(r.dist)}</text>`;
+  });
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%">
+    <text x="${bx}" y="14" font-size="10"><tspan font-weight="700" fill="#1b7a72">&#9632; ELIGI (honoraires)</tspan><tspan fill="${DOC_MUT}">&#160;&#160;&#9632; distribution classique (commissions)</tspan></text>
+    ${g}
+  </svg>`;
+}
+function propoObjTimeline(d, w=640){
+  /* v27.1 : une ligne par objectif — lisible quel que soit leur nombre */
+  const objs = (d.objectifs||[]).filter(o=>+o.part>0).sort((a,b)=>(+a.horizon||0)-(+b.horizon||0));
+  if (!objs.length) return "";
+  const hmax = Math.max(2, ...objs.map(o=>+o.horizon||0));
+  const rowH = 26, top = 8, axisH = 22, h = top + objs.length*rowH + axisH;
+  const x0 = 246, x1 = w-86;
+  const X = t=>x0+(x1-x0)*t/hmax;
+  const ticks = [...new Set([0, Math.round(hmax/2), hmax])];
+  const cut = s => { s = String(s||""); return s.length>34? s.slice(0,33)+"\u2026" : s; };
+  let g = "";
+  objs.forEach((o,i)=>{
+    const y = top + i*rowH + rowH/2 + 4;
+    const xe = X(+o.horizon||0), col = DOC_COLORS[i%DOC_COLORS.length];
+    g += `<text x="${x0-10}" y="${y}" font-size="10.5" fill="#20211e" text-anchor="end">${esc(cut(o.nom))}</text>
+      <line x1="${x0}" y1="${y-4}" x2="${xe.toFixed(1)}" y2="${y-4}" stroke="${col}" stroke-width="3.5" stroke-linecap="round" opacity=".8"/>
+      <circle cx="${xe.toFixed(1)}" cy="${y-4}" r="${(4.5+5*Math.min(1,+o.part)).toFixed(1)}" fill="${col}"/>
+      <text x="${(xe+12+5*Math.min(1,+o.part)).toFixed(1)}" y="${y}" font-size="10" fill="${DOC_MUT}">${fmtPct(+o.part)} \u00b7 ${o.horizon} an${+o.horizon>1?"s":""}</text>`;
+  });
+  const yAxis = top + objs.length*rowH + 4;
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%;margin-top:8px">
+    ${ticks.map(v=>`<line x1="${X(v).toFixed(1)}" y1="${top}" x2="${X(v).toFixed(1)}" y2="${yAxis-8}" stroke="${DOC_MUT}" stroke-width="1" opacity=".18"/>
+      <text x="${X(v).toFixed(1)}" y="${yAxis+8}" font-size="9.5" fill="${DOC_MUT}" text-anchor="middle">${v} an${v>1?"s":""}</text>`).join("")}
+    ${g}
+  </svg>`;
 }
 function propoSriScale(sri){
   return `<div class="sri-scale">${[1,2,3,4,5,6,7].map(n=>`<span class="sri-cell ${n===sri?"on":""}">${n}</span>`).join("")}</div>`;
@@ -3777,8 +3871,8 @@ function propoDoc(p){
       </div>
     </div>
     <div class="pd-cols">
-      <div class="pd-block" style="text-align:center">${propoDonut(c.cible, 150)}
-        <div class="pd-legend">${PROPO_CLASSES.map((cl,i)=>c.cible[i]>0.001?`<span><i style="background:${MIX_COLORS[i]}"></i>${cl} ${fmtPct(c.cible[i])}</span>`:"").join("")}</div>
+      <div class="pd-block" style="text-align:center">${propoDonut(c.cible, 150, DOC_COLORS)}
+        <div class="pd-legend">${PROPO_CLASSES.map((cl,i)=>c.cible[i]>0.001?`<span><i style="background:${DOC_COLORS[i]}"></i>${cl} ${fmtPct(c.cible[i])}</span>`:"").join("")}</div>
       </div>
       <div class="pd-block">
         <h4>Projection nette de frais à ${c.H.toFixed(0)} ans</h4>
@@ -3806,22 +3900,31 @@ function propoDoc(p){
       </tbody></table>
       <table class="pd-tbl"><thead><tr><th>Objectif</th><th class="num">Horizon</th><th class="num">Part</th><th>Liquidité</th></tr></thead>
       <tbody>${d.objectifs.filter(o=>+o.part>0).map(o=>`<tr><td>${esc(o.nom)}</td><td class="num">${o.horizon} ans</td><td class="num">${fmtPct(o.part)}</td><td>${esc(o.liq)}</td></tr>`).join("")}</tbody></table>
+      ${propoObjTimeline(d, 640)}
     </div>
     <div class="pd-sec"><h3>2 · Votre profil de risque</h3>
       <p>Profil retenu : <b>niveau ${c.niv} — ${PROPO_PROFILS[c.niv-1]}</b>. Méthode : le plus prudent de votre tolérance et de votre capacité à subir une perte.</p></div>
     <div class="pd-sec"><h3>3 · Allocation cible</h3>
       <table class="pd-tbl"><thead><tr><th>Classe d'actifs</th><th class="num">Part</th><th class="num">Montant</th></tr></thead>
       <tbody>${PROPO_CLASSES.map((cl,i)=>`<tr><td>${cl}</td><td class="num">${fmtPct(c.cible[i])}</td><td class="num">${eur(c.montants[i])}</td></tr>`).join("")}</tbody></table>
+      <div class="pd-cols" style="margin-top:10px">
+        <div class="pd-block" style="text-align:center">${propoDonut(c.cible, 140, DOC_COLORS)}</div>
+        <div class="pd-block">${propoAllocBars(c, DOC_COLORS)}</div>
+      </div>
       <p class="pd-note">En clair : voici comment votre argent est réparti entre grandes familles de placements.</p></div>
     <div class="pd-sec"><h3>4 · Enveloppes, contrats & disponibilité</h3>
       <table class="pd-tbl"><thead><tr><th>Enveloppe</th><th>Contrat</th><th>Disponibilité</th><th class="num">Montant</th></tr></thead>
       <tbody>${c.env.filter(e=>e.part>0.001).map(e=>`<tr><td>${esc(e.nom)}</td><td>${esc(e.contrat)}</td><td>${esc(e.dispo)}</td><td class="num">${eur(e.mt)}</td></tr>`).join("")}</tbody></table></div>
     <div class="pd-sec"><h3>5 · Rendement, risque & projection (nette de frais)</h3>
+      ${propoFan(c, 640, 190)}
+      <p class="pd-note" style="margin-top:2px">Trait plein : trajectoire médiane · pointillés : scénarios favorable et défavorable (dispersion statistique, non garantie).</p>
       <p>Rendement attendu : brut ${fmtPct(c.mu)} · net de frais <b>${fmtPct(c.muNet)}</b> · volatilité ${fmtPct(c.sigma)}.<br>
       À ${c.H.toFixed(0)} ans : médiane <b>${eur(c.medNet)}</b> · défavorable ${eur(c.defNet)} · favorable ${eur(c.favNet)}.<br>
       Coût cumulé des frais sur l'horizon : ${eur(c.coutFraisHorizon)}. Échelle de risque : ${c.sriPort} / 7.</p>
       <p class="pd-note">« Net de frais » = ce qu'il vous reste vraiment une fois les frais payés. « Défavorable » = si les marchés vont mal.</p></div>
     <div class="pd-sec"><h3>6 · Transparence des frais & fiscalité</h3>
+      ${propoFraisCompare(c, 640, 190)}
+      <p class="pd-note" style="margin-top:2px">Comparaison à portefeuille équivalent : honoraires ELIGI vs frais usuels d'un circuit de distribution commandé par commissions.</p>
       <p>Frais totaux estimés : <b>${(c.tfa*100).toFixed(2).replace(".",",")} % / an</b> (${eur(c.frais)}). Honoraires de mise en œuvre : ${eur(c.hono.mise)} (HT) — séparés de tout support.
       Économie d'impôt liée au PER : ${eur(c.ecoPER)} (versement PER × votre TMI).</p></div>
     <div class="pd-sec"><h3>7 · Votre accompagnement dans le temps</h3>
@@ -3831,6 +3934,7 @@ function propoDoc(p){
       <table class="pd-tbl"><tbody>${c.controles.map(x=>`<tr><td>${x.ok?"✅":"⚠️"}</td><td>${esc(x.nom)}</td><td>${esc(x.detail)}</td></tr>`).join("")}
       <tr><td></td><td><b>Verdict</b></td><td><b>${esc(c.verdict)}</b></td></tr></tbody></table></div>
     <div class="pd-sec"><h3>10 · Performance passée de cette allocation (3 ans)</h3>
+      ${propoBarsAnnees(c, 640, 160)}
       <p>${c.btAns.map((a,i)=>`${a} : ${fmtPct(c.btR[i])}`).join(" · ")} — cumulée <b>${fmtPct(c.btCumul)}</b>, soit ${fmtPct(c.btAnnu)} par an. ${eur(c.btVals[c.btVals.length-1])} simulés à fin ${c.btAns[c.btAns.length-1]}.</p>
       <p class="pd-note">Simulation sur indices passés, hors frais réels — les performances passées ne préjugent pas des performances futures.</p></div>`;
 
@@ -3858,6 +3962,15 @@ function propoDoc(p){
   back.querySelector("#pd-close").addEventListener("click", close);
   back.querySelector("#pd-print").addEventListener("click", ()=>window.print());
   back.addEventListener("click", e=>{ if (e.target===back) close(); });
+}
+
+/* ---------- Suivi des propositions envoyées (v27) ---------- */
+const PROPO_RELANCE_J = 10;
+function propoJours(pr){ return Math.floor((Date.now() - new Date(pr.updated_at||pr.created_at).getTime())/86400000); }
+function propoARelancer(){ return state.propositions.filter(pr=>pr.statut==="Envoyée" && propoJours(pr) >= PROPO_RELANCE_J); }
+function propoTaux(list){
+  const acc = list.filter(pr=>pr.statut==="Acceptée").length, ref = list.filter(pr=>pr.statut==="Refusée").length;
+  return (acc+ref)? acc/(acc+ref) : null;
 }
 
 /* ---------- Statuts & intégrations ---------- */
@@ -3912,7 +4025,7 @@ function propoRowsHTML(props, showClient){
   return props.map(pr=>{
     return `<tr class="clickable propo-row" data-id="${pr.id}">
       ${showClient? `<td><b>${esc(pr.data?.nomClient||pr.client_key)}</b></td>`:""}
-      <td>${new Date(pr.updated_at||pr.created_at).toLocaleDateString("fr-FR")}</td>
+      <td>${new Date(pr.updated_at||pr.created_at).toLocaleDateString("fr-FR")}${pr.statut==="Envoyée" && propoJours(pr)>=PROPO_RELANCE_J? ` <span class="ksleep">💤 ${propoJours(pr)} j</span>`:""}</td>
       <td><span class="cdot" style="background:${consColor(pr.conseiller_id)}"></span>${esc(consName(pr.conseiller_id))}</td>
       <td class="num"><b>${eur(+pr.data?.montant||0)}</b></td>
       <td>${esc(PROPO_PROFILS[(+pr.data?.profil||3)-1])}</td>
@@ -3958,8 +4071,10 @@ function viewPropositions(root){
   if (q) list = list.filter(pr=>String(pr.data?.nomClient||pr.client_key).toLowerCase().includes(q));
   const enCours = list.filter(pr=>pr.statut==="Brouillon"||pr.statut==="Envoyée").length;
   const acceptees = list.filter(pr=>pr.statut==="Acceptée");
+  const relanceN = state.propositions.filter(pr=>pr.statut==="Envoyée" && propoJours(pr)>=PROPO_RELANCE_J).length;
+  const taux = propoTaux(state.propositions);
   root.innerHTML = `
-  ${vhead("Propositions de placement", `${list.length} proposition(s) — méthode ELIGI : objectifs → profil → allocation → enveloppes → document`,
+  ${vhead("Propositions de placement", `${list.length} proposition(s)${relanceN? ` · 💤 ${relanceN} sans réponse ≥ ${PROPO_RELANCE_J} j` : ""}${taux!==null? ` · taux d'acceptation ${fmtPct(taux)}` : ""} — méthode ELIGI : objectifs → profil → allocation → enveloppes → document`,
     isSuivi()? "" : `<button class="btn" id="prop-new">＋ Nouvelle proposition</button>`)}
   <div class="tiles">
     ${tile("En cours", enCours, "brouillons + envoyées")}
