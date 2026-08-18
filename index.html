@@ -3147,6 +3147,10 @@ function viewClients(root){
               <button class="btn small ci-save" data-key="${esc(g.key)}">Enregistrer la fiche</button>
               <button class="btn secondary small ci-revue-now" data-key="${esc(g.key)}" title="Enregistre la revue à aujourd'hui et trace l'événement dans le suivi">✓ Revue faite aujourd'hui</button>
             </div>
+            ${isManager()? `<div class="ci-admin">
+              <button class="ci-rename" data-key="${esc(g.key)}">Renommer / fusionner la fiche</button>
+              ${!g.rows.length && !state.missions.some(mm=>mm.client_key===g.key)? `<button class="ci-delfiche danger-link" data-key="${esc(g.key)}">Supprimer la fiche</button>`:""}
+            </div>`:""}
           </div>
           <div class="card grow tbl-scroll">
             <h3 class="mt0" style="display:flex;justify-content:space-between;align-items:center;gap:6px"><span>Dossiers</span>
@@ -3231,10 +3235,6 @@ function viewClients(root){
                 <div class="tl-body"><span>${ev.e.de_etape? `${esc(ev.e.de_etape)} → <b>${esc(ev.e.vers_etape)}</b>` : `Nouveau dossier — <b>${esc(ev.e.vers_etape)}</b>`}${ev.e.raison? ` <span class="small muted">(${esc(ev.e.raison)})</span>`:""}</span>
                   <div class="tl-meta">Pipeline · ${esc(consName(ev.e.conseiller_id))} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
               </div>`).join("") || `<div class="empty">Aucun événement pour l'instant — ajoute un appel, un RDV ou une note ci-dessus</div>`}</div>
-            ${isManager()? `<div class="ci-admin">
-              <button class="ci-rename" data-key="${esc(g.key)}">Renommer / fusionner la fiche</button>
-              ${!g.rows.length && !state.missions.some(mm=>mm.client_key===g.key)? `<button class="ci-delfiche danger-link" data-key="${esc(g.key)}">Supprimer la fiche</button>`:""}
-            </div>`:""}
           </div>
         </div>
       </td></tr>`).join("") || `<tr><td colspan="8" class="empty">Aucun client</td></tr>`}</tbody>
