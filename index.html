@@ -399,7 +399,17 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 }
 
 /* ============ Suivi client (timeline CRM) ============ */
-.tl{max-height:280px; overflow:auto; margin-top:10px}
+.tl{max-height:280px; overflow:auto; margin-top:8px}
+.tl-composer{background:var(--surface-2); border-radius:10px; padding:7px 8px; margin-top:10px}
+.tl-seg{display:inline-flex; flex-wrap:wrap; max-width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:2px; gap:2px; margin-top:8px}
+.tl-seg button{background:none; border:0; border-radius:8px; padding:3px 10px; font-size:12px; cursor:pointer; color:var(--muted); font-weight:600; white-space:nowrap}
+.tl-seg button.on{background:var(--surface); color:var(--ink); box-shadow:var(--shadow)}
+.ci-stats{margin:2px 0 8px; font-size:12.5px; color:var(--muted)}
+.ci-admin{display:flex; gap:12px; margin-top:9px; padding-top:7px; border-top:1px solid var(--grid)}
+.ci-admin button{background:none; border:0; padding:0; cursor:pointer; font-size:11.5px; color:var(--muted); text-decoration:underline}
+.ci-admin button:hover{color:var(--ink)}
+.ci-admin button.danger-link{color:var(--critical)}
+.tl-subhead{font-size:11px; font-weight:700; text-transform:uppercase; letter-spacing:.4px; color:var(--muted); margin:10px 0 4px}
 .tl-item{display:flex; gap:9px; align-items:flex-start; padding:7px 2px; border-bottom:1px solid var(--grid); font-size:13px}
 .tl-item:last-child{border-bottom:0}
 .tl-ico{flex:none; width:22px; text-align:center}
@@ -3169,27 +3179,27 @@ function viewClients(root){
               <span style="display:flex;gap:6px;flex-wrap:wrap">
                 <button class="btn secondary small ci-brief" data-key="${esc(g.key)}">📋 Brief RDV</button>
                 <button class="btn small ci-propo" data-key="${esc(g.key)}">＋ Proposition</button>
-                ${isManager()? `<button class="btn secondary small ci-rename" data-key="${esc(g.key)}">Renommer / fusionner</button>`:""}
-                ${isManager() && !g.rows.length && !state.missions.some(mm=>mm.client_key===g.key)? `<button class="btn danger small ci-delfiche" data-key="${esc(g.key)}">Supprimer</button>`:""}
               </span></h3>
-            ${(state.propositions.filter(pr=>pr.client_key===g.key).length? `
-            <div class="tbl-scroll" style="margin-bottom:8px"><table class="tbl dense">
-              <tbody>${propoRowsHTML(state.propositions.filter(pr=>pr.client_key===g.key), false)}</tbody>
-            </table></div>`:"")}
-            <div class="inline-controls">
+            ${(()=>{ const an = new Date().getFullYear();
+              const ixAn = state.interactions.filter(i=>i.client_key===g.key && new Date(i.quand||0).getFullYear()===an);
+              const nApp = ixAn.filter(i=>i.type==="Appel").length, nRdv = ixAn.filter(i=>i.type==="RDV").length;
+              const dj = g.dernier? Math.floor((Date.now()-g.dernier)/86400000) : null;
+              return `<div class="ci-stats">📞 ${nApp} · 🤝 ${nRdv} · ${ixAn.length} échange(s) cette année${dj!==null? ` · dernier contact <b>${dj===0? "aujourd'hui" : "il y a "+dj+" j"}</b>`:""}</div>`; })()}
+            ${(()=>{ const prs = state.propositions.filter(pr=>pr.client_key===g.key);
+              return prs.length? `<div class="tl-subhead">📄 Propositions (${prs.length})</div>
+            <div class="tbl-scroll" style="margin-bottom:2px"><table class="tbl dense">
+              <tbody>${propoRowsHTML(prs, false)}</tbody>
+            </table></div>` : ""; })()}
+            <div class="tl-subhead">✍️ Nouvel échange</div>
+            <div class="inline-controls tl-composer">
               <label class="fld" style="min-width:92px"><select class="ix-type">${IX_TYPES.map(([t,ico])=>`<option value="${t}">${ico} ${t}</option>`).join("")}</select></label>
               <label class="fld" style="flex:1;min-width:150px"><input type="text" class="ix-note" placeholder="Compte rendu, remarque, tâche…"></label>
               <label class="fld ix-due-w" style="min-width:120px;display:none"><input type="date" class="ix-due" title="Échéance de la tâche"></label>
               ${voitTout()? `<label class="fld ix-cons-w" style="min-width:100px;display:none"><select class="ix-cons">${activeConseillers().map(c=>`<option value="${c.id}" ${c.id===g.cons[0]?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`:""}
               <button class="btn small ix-add" data-key="${esc(g.key)}">Ajouter</button>
             </div>
-            ${(()=>{ const an = new Date().getFullYear();
-              const ixAn = state.interactions.filter(i=>i.client_key===g.key && new Date(i.quand||0).getFullYear()===an);
-              const nApp = ixAn.filter(i=>i.type==="Appel").length, nRdv = ixAn.filter(i=>i.type==="RDV").length;
-              const dj = g.dernier? Math.floor((Date.now()-g.dernier)/86400000) : null;
-              return `<p class="small muted" style="margin:8px 0 4px">Cette année : ${nApp} appel(s) · ${nRdv} RDV · ${ixAn.length} échange(s) au total${dj!==null? ` — dernier contact il y a ${dj} j`:""}</p>`; })()}
-            <div class="inline-controls" style="gap:5px;margin-bottom:5px">${TL_FILTRES.map(([v,l])=>`
-              <button class="btn small ${(state._tlF||"")===v? "":"secondary"} tl-f" data-f="${v}" style="padding:2px 9px">${l}</button>`).join("")}</div>
+            <div class="tl-seg">${TL_FILTRES.map(([v,l])=>`
+              <button class="tl-f ${(state._tlF||"")===v? "on":""}" data-f="${v}">${l}</button>`).join("")}</div>
             <div class="tl">${g.suivi.filter(ev=>tlMatch(ev, state._tlF||"")).map(ev=> ev.kind==="pr" ? `
               <div class="tl-item"><span class="tl-ico">📄</span>
                 <div class="tl-body"><span>Proposition créée — ${eur(+ev.pr.data?.montant||0)} · ${esc(ev.pr.mode)} · <b>${esc(ev.pr.statut)}</b></span>
@@ -3221,6 +3231,10 @@ function viewClients(root){
                 <div class="tl-body"><span>${ev.e.de_etape? `${esc(ev.e.de_etape)} → <b>${esc(ev.e.vers_etape)}</b>` : `Nouveau dossier — <b>${esc(ev.e.vers_etape)}</b>`}${ev.e.raison? ` <span class="small muted">(${esc(ev.e.raison)})</span>`:""}</span>
                   <div class="tl-meta">Pipeline · ${esc(consName(ev.e.conseiller_id))} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
               </div>`).join("") || `<div class="empty">Aucun événement pour l'instant — ajoute un appel, un RDV ou une note ci-dessus</div>`}</div>
+            ${isManager()? `<div class="ci-admin">
+              <button class="ci-rename" data-key="${esc(g.key)}">Renommer / fusionner la fiche</button>
+              ${!g.rows.length && !state.missions.some(mm=>mm.client_key===g.key)? `<button class="ci-delfiche danger-link" data-key="${esc(g.key)}">Supprimer la fiche</button>`:""}
+            </div>`:""}
           </div>
         </div>
       </td></tr>`).join("") || `<tr><td colspan="8" class="empty">Aucun client</td></tr>`}</tbody>
