@@ -72,6 +72,18 @@ svg.ic{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-wid
   border-radius:9px; cursor:pointer; font-weight:550; font-size:13.5px; text-align:left;
 }
 .snav button:hover{background:rgba(255,255,255,.06); color:var(--sidebar-ink)}
+/* v30.3 — barre latérale repliée en rail d'icônes */
+.side-toggle{background:none; border:0; color:var(--sidebar-muted); cursor:pointer; font-size:15px;
+  padding:6px 8px; border-radius:8px; align-self:flex-end; margin:-4px -2px 4px 0}
+.side-toggle:hover{background:rgba(255,255,255,.08); color:var(--sidebar-ink)}
+.layout.snarrow .sidebar{width:58px; padding-left:9px; padding-right:9px}
+.layout.snarrow .nav-label, .layout.snarrow .logo, .layout.snarrow .user-mini,
+.layout.snarrow .gs-open kbd{display:none}
+.layout.snarrow .side-toggle{align-self:center; margin:0 0 8px}
+.layout.snarrow .snav button{justify-content:center; padding:9px 6px}
+.layout.snarrow .gs-open{justify-content:center; padding:8px 6px}
+.layout.snarrow .theme-btn{justify-content:center}
+.layout.snarrow .side-bottom{align-items:center}
 .snav button.active{background:var(--sidebar-active); color:#fff}
 .side-bottom{margin-top:auto; display:flex; flex-direction:column; gap:8px}
 .theme-btn{display:flex; align-items:center; gap:10px; background:none; border:0; color:var(--sidebar-muted);
@@ -5240,6 +5252,7 @@ function allowedViews(){
                        : k==="jour" && isManager() ? {...v, label:"Aujourd'hui"} : v]);
 }
 function go(view){ state.view = view; render(); }
+let SIDE_MIN = (()=>{ try{ return localStorage.getItem("eligi_side")==="min"; }catch(e){ return false; } })();
 
 function render(){
   const app = $("#app");
@@ -5249,11 +5262,12 @@ function render(){
   if (!views.some(([k])=>k===state.view)) state.view = views[0][0];
 
   app.innerHTML = `
-  <div class="layout">
+  <div class="layout${SIDE_MIN? " snarrow":""}">
     <aside class="sidebar">
+      <button class="side-toggle" id="side-toggle" title="${SIDE_MIN? "Déplier le menu" : "Replier le menu (plus de place pour le contenu)"}">${SIDE_MIN? "⟩" : "⟨"}</button>
       <div class="logo"><img src="logo-blanc.png" alt="Eligi" style="width:96px;display:block;margin-bottom:4px" onerror="this.remove()"><small>Pilotage commercial</small></div>
       <button class="gs-open" id="gs-open" title="Recherche globale (Ctrl+K)">🔍<span class="nav-label">Rechercher…</span><kbd>Ctrl K</kbd></button>
-      <nav class="snav">${views.map(([k,v])=>`<button data-nav="${k}" class="${k===state.view?"active":""}">${v.icon}<span class="nav-label">${v.label}</span></button>`).join("")}</nav>
+      <nav class="snav">${views.map(([k,v])=>`<button data-nav="${k}" class="${k===state.view?"active":""}" title="${esc(v.label)}">${v.icon}<span class="nav-label">${v.label}</span></button>`).join("")}</nav>
       <div class="side-bottom">
         <button class="theme-btn" id="theme-toggle" title="Changer de thème">${ICONS.sun}<span class="nav-label">Thème</span></button>
         <div class="user-mini">
@@ -5269,6 +5283,11 @@ function render(){
   $("#gs-open").addEventListener("click", globalSearchModal);
   $("#logout").addEventListener("click", logout);
   $("#theme-toggle").addEventListener("click", cycleTheme);
+  $("#side-toggle").addEventListener("click", ()=>{
+    SIDE_MIN = !SIDE_MIN;
+    try{ localStorage.setItem("eligi_side", SIDE_MIN? "min" : "full"); }catch(e){}
+    render();
+  });
   VIEWS[state.view].fn($("#view"));
   const rem = saisieReminderHTML();
   if (rem) $("#view").insertAdjacentHTML("afterbegin", rem);   // DANS la zone principale : jamais en colonne à côté
