@@ -1710,18 +1710,35 @@ function viewDashboard(root){
   <div class="row sect">
     <div class="card grow"><h3 class="mt0">Mix produits — ${esc(perLabel)}</h3><div id="dash-mix"></div></div>
     <div class="card grow">
-      <h3 class="mt0">Mode d'emploi réunion</h3>
-      <ol class="challenge">
-        <li>Choisir la semaine suivie ci-dessus</li>
-        <li>Lire chaque ligne : RDV, CA, collecte, pipeline, projection</li>
-        <li>Challenge immédiat si alerte = Urgent</li>
-        <li>Ouvrir le Pipeline pour les signatures probables</li>
-      </ol>
-      <button class="btn small" id="dash-meeting2" style="margin-top:8px">${ICONS.play} Lancer le mode réunion</button>
+      <h3 class="mt0">🚨 À traiter</h3>
+      ${(()=>{
+        const cur = weekCodes().includes(todayWeekCode())? todayWeekCode() : state.week;
+        const noSaisie = activeConseillers().filter(c=>!isConge(c.id,cur) && !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===cur));
+        const rel = aRelancer(state.pipeline).length;
+        const props = propoARelancer().length;
+        const revs = state.clientsInfos.filter(ci=>revueEchue(ci)).length;
+        const miss = state.missions.filter(m=>miEcheanceDepassee(m)).length + state.missions.filter(m=>miSansEcheance(m)).length;
+        const mj = macroJours();
+        const items = [
+          noSaisie.length? {ico:"📝", txt:`${noSaisie.length} saisie(s) manquante(s) ${esc(cur)} — ${noSaisie.map(c=>esc(c.nom)).join(", ")}`, nav:"saisie"} : null,
+          rel? {ico:"🔥", txt:`${rel} dossier(s) pipeline à relancer`, nav:"pipeline"} : null,
+          props? {ico:"📄", txt:`${props} proposition(s) envoyée(s) sans réponse ≥ ${PROPO_RELANCE_J} j`, nav:"propositions"} : null,
+          revs? {ico:"📆", txt:`${revs} revue(s) annuelle(s) à programmer`, nav:"clients"} : null,
+          miss? {ico:"🧰", txt:`${miss} mission(s) à suivre (échéance dépassée ou absente)`, nav:"missions"} : null,
+          (mj===null || mj>30)? {ico:"📈", txt:`Contexte macro ${mj===null? "jamais actualisé" : "actualisé il y a "+mj+" jours"}`, nav:"param"} : null,
+        ].filter(Boolean);
+        return items.length? `<table class="tbl dense"><tbody>${items.map(it=>`
+          <tr class="clickable dash-todo" data-nav2="${it.nav}"><td style="width:26px">${it.ico}</td><td>${it.txt}</td><td class="num muted">›</td></tr>`).join("")}</tbody></table>`
+        : `<div class="empty">Rien en souffrance — cabinet sous contrôle ✓</div>`;
+      })()}
+      <button class="btn small" id="dash-meeting2" style="margin-top:10px">${ICONS.play} Lancer le mode réunion</button>
     </div>
   </div>`;
 
   mixBars($("#dash-mix"), mix);
+  if (mix.every(m=>!m.value))
+    $("#dash-mix").insertAdjacentHTML("beforeend", `<p class="small muted" style="margin:8px 0 0">Aucune saisie sur la période — bascule en vue mois ou année (sélecteur en haut) pour voir le mix.</p>`);
+  root.querySelectorAll(".dash-todo").forEach(r=>r.addEventListener("click", ()=>go(r.dataset.nav2)));
   bindPeriodNav();
   bindCampagnes(root);
   $("#dash-export").addEventListener("click", exportXLSX);
