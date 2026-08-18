@@ -882,7 +882,8 @@ class SupaDB {
   }
   async addInteraction(i){
     const {error} = await this.c.from("interactions").insert(
-      {client_key:i.client_key, conseiller_id:i.conseiller_id||null, type:i.type, note:i.note});
+      {client_key:i.client_key, conseiller_id:i.conseiller_id||null, type:i.type, note:i.note,
+       auteur:i.auteur || monNom()});
     if (error) throw error;
   }
   async deleteInteraction(id){
@@ -1116,7 +1117,7 @@ class DemoDB {
     if (i>=0) this.propositions.splice(i,1);
   }
   async addInteraction(i){
-    this.interactions.unshift({id:this._id++, quand:new Date().toISOString(), ...i});
+    this.interactions.unshift({id:this._id++, quand:new Date().toISOString(), auteur:i.auteur || monNom(), ...i});
   }
   async deleteInteraction(id){
     const i = this.interactions.findIndex(x=>x.id===id);
@@ -1387,6 +1388,13 @@ function suiviVues(){
   return (Array.isArray(v) && v.length)? v.filter(k=>SUIVI_VUES_ETENDU.includes(k)) : SUIVI_VUES_DEFAUT;
 }
 function voitTout(){ return isManager() || isSuivi(); }   // visibilité étendue (manager + profil suivi)
+function monNom(){
+  /* nom d'affichage de la personne connectée : conseiller lié, sinon dérivé de l'e-mail */
+  const c = myConseiller(); if (c) return c.nom;
+  const base = String(state.profile?.email||"").split("@")[0];
+  const joli = base.split(/[._-]+/).filter(Boolean).map(s=>s[0].toUpperCase()+s.slice(1)).join(" ");
+  return joli || (state.profile?.role==="manager"? "Manager" : "Équipe");
+}
 const initials = nom => String(nom||"?").trim().split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
 
 /* ---------------- Navigation de semaine ---------------- */
@@ -2883,7 +2891,7 @@ function briefClient(key){
         <table class="pd-tbl"><tbody>${taches.map(a=>`<tr><td>☐</td><td>${esc(a.texte)}</td><td>${esc(consName(a.conseiller_id))}</td><td class="num">${a.echeance? new Date(a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</td></tr>`).join("")}</tbody></table></div>`:""}
       <div class="pd-sec"><h3>Derniers événements</h3>
         ${suivi.length? `<table class="pd-tbl"><tbody>${suivi.map(ev=> ev.kind==="ix"
-          ? `<tr><td>${IXI[ev.i.type]||"📝"}</td><td>${esc(ev.i.note)}</td><td>${ev.i.conseiller_id? esc(consName(ev.i.conseiller_id)):"Manager"}</td><td class="num">${fdt(ev.t)}</td></tr>`
+          ? `<tr><td>${IXI[ev.i.type]||"📝"}</td><td>${esc(ev.i.note)}</td><td>${esc(ev.i.auteur || (ev.i.conseiller_id? consName(ev.i.conseiller_id) : "Manager"))}</td><td class="num">${fdt(ev.t)}</td></tr>`
           : `<tr><td>${ev.e.vers_etape==="Perdu"? "❌" : ev.e.de_etape? "🧭":"✨"}</td><td>${ev.e.de_etape? `${esc(ev.e.de_etape)} → ${esc(ev.e.vers_etape)}` : `Nouveau dossier — ${esc(ev.e.vers_etape)}`}${ev.e.raison? ` (${esc(ev.e.raison)})`:""}</td><td>${esc(consName(ev.e.conseiller_id))}</td><td class="num">${fdt(ev.t)}</td></tr>`).join("")}</tbody></table>`
         : `<p class="pd-note">Aucun événement de suivi enregistré.</p>`}</div>
       ${lastProp? `<div class="pd-sec"><h3>Dernière proposition</h3>
@@ -3235,7 +3243,7 @@ function viewClients(root){
               </div>` : ev.kind==="ix" ? `
               <div class="tl-item"><span class="tl-ico">${IX_ICO[ev.i.type]||"📝"}</span>
                 <div class="tl-body"><span>${esc(ev.i.note)}</span>
-                  <div class="tl-meta">${esc(ev.i.type)} · ${ev.i.conseiller_id? esc(consName(ev.i.conseiller_id)) : "Manager"} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
+                  <div class="tl-meta">${esc(ev.i.type)} · ${esc(ev.i.auteur || (ev.i.conseiller_id? consName(ev.i.conseiller_id) : "Manager"))} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
                 ${(isManager()||ev.i.conseiller_id===state.profile.conseiller_id)? `<button class="btn danger small ix-del" data-id="${ev.i.id}" style="padding:1px 7px">✕</button>`:""}
               </div>` : ev.kind==="ac" ? `
               <div class="tl-item ${ev.a.fait?"done":""}"><span class="tl-ico">☑️</span>
