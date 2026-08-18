@@ -3419,6 +3419,8 @@ function propoCompute(d){
   // Adéquation
   const plaf = P.plafActions[niv-1];
   const controles = [
+    {nom:"SRI du portefeuille ≤ plafond du profil", ok: sriCoherent,
+     detail: `SRI ${sriPort}/7 ${sriCoherent?"≤":">"} plafond ${Math.min(7,niv+1)}/7 du profil ${PROPO_PROFILS[niv-1]}${sriPort<niv+1?" (effet diversification)":""}`},
     {nom:"Part Actions ≤ plafond du profil", ok: cible[2] <= plaf + 1e-9,
      detail: `Actions ${fmtPct(cible[2])} ${cible[2]<=plaf+1e-9?"≤":">"} plafond ${fmtPct(plaf)}${cible[2]>plaf+1e-9?" : abaisser l'exposition":""}`},
     {nom:"Horizon cohérent avec la part Actions", ok: cible[2] < .4 || H >= 5,
@@ -3584,7 +3586,7 @@ function propoWizard(propo){
       <span>horizon <b>${c.H.toFixed(1)} ans</b></span>
       <span>rendement net <b>${fmtPct(c.muNet)}</b></span>
       <span>volatilité <b>${fmtPct(c.sigma)}</b></span>
-      <span>SRI <b>${c.sriPort}/7</b></span>
+      <span>SRI portefeuille <b>${c.sriPort}/7</b> <span class="small muted">(plafond profil ${Math.min(7,c.niv+1)}/7)</span></span>
       <span class="badge ${okV?"ok":"watch"}"><span class="dot"></span>${esc(c.verdict)}</span>
     </div>`;
   }
@@ -3865,7 +3867,7 @@ function propoDoc(p){
     <div class="pd-hero">
       <div class="pd-tiles">
         <div><span>Montant placé</span><b>${eur(c.M)}</b></div>
-        <div><span>Profil de risque</span><b>${PROPO_PROFILS[c.niv-1]}</b><i>SRI ${c.sriPort}/7</i></div>
+        <div><span>Profil investisseur</span><b>${PROPO_PROFILS[c.niv-1]}</b><i>niveau ${c.niv}/5 · portefeuille SRI ${c.sriPort}/7 (plafond ${Math.min(7,c.niv+1)}/7)</i></div>
         <div><span>Rendement net attendu</span><b>${fmtPct(c.muNet)}</b><i>brut ${fmtPct(c.mu)} − frais ${(c.tfa*100).toFixed(2).replace(".",",")} %</i></div>
         <div><span>Horizon</span><b>${c.H.toFixed(0)} ans</b></div>
       </div>
@@ -3883,7 +3885,7 @@ function propoDoc(p){
     <div class="pd-line">Sur 3 ans, cette allocation aurait progressé de <b>${fmtPct(c.btCumul)}</b> au total (${fmtPct(c.btAnnu)} par an) — simulation sur indices passés, ne préjuge pas de l'avenir.</div>
     <div class="pd-line">Frais totaux <b>${(c.tfa*100).toFixed(2).replace(".",",")} % / an</b> · coût des frais sur l'horizon ${eur(c.coutFraisHorizon)} · économie d'impôt PER ${eur(c.ecoPER)}</div>
     <div class="pd-line">📈 <b>Contexte de marché${(d.P?.macro_maj)? ` au ${new Date(String(d.P.macro_maj).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR")}` : ""} :</b> ${esc(d.P?.macro?.regime||"")} · inflation ${fmtPct(d.P?.macro?.inflation||0)} · taux sans risque ${fmtPct(d.P?.macro?.sansRisque||0)}${(d.P?.macro?.commentaire)? `<br><span class="pd-note">${esc(d.P.macro.commentaire)}</span>`:""}</div>
-    <div class="pd-risk"><span>Échelle de risque</span>${propoSriScale(c.sriPort)}<span class="pd-note">1 = faible · 7 = élevé · perte en capital possible</span></div>
+    <div class="pd-risk"><span>Risque du portefeuille</span>${propoSriScale(c.sriPort)}<span class="pd-note">SRI ${c.sriPort}/7 · plafond de votre profil ${PROPO_PROFILS[c.niv-1]} : ${Math.min(7,c.niv+1)}/7${c.sriPort<c.niv+1? " — la diversification ramène le risque effectif sous votre plafond" : ""} · perte en capital possible</span></div>
     <div class="pd-engage">
       <span>✓ Conseil indépendant (CIF) — votre seul intérêt</span>
       <span>✓ Honoraires transparents — sans commission cachée</span>
@@ -3920,7 +3922,7 @@ function propoDoc(p){
       <p class="pd-note" style="margin-top:2px">Trait plein : trajectoire médiane · pointillés : scénarios favorable et défavorable (dispersion statistique, non garantie).</p>
       <p>Rendement attendu : brut ${fmtPct(c.mu)} · net de frais <b>${fmtPct(c.muNet)}</b> · volatilité ${fmtPct(c.sigma)}.<br>
       À ${c.H.toFixed(0)} ans : médiane <b>${eur(c.medNet)}</b> · défavorable ${eur(c.defNet)} · favorable ${eur(c.favNet)}.<br>
-      Coût cumulé des frais sur l'horizon : ${eur(c.coutFraisHorizon)}. Échelle de risque : ${c.sriPort} / 7.</p>
+      Coût cumulé des frais sur l'horizon : ${eur(c.coutFraisHorizon)}. Risque du portefeuille : SRI ${c.sriPort}/7, sous le plafond ${Math.min(7,c.niv+1)}/7 de votre profil.</p>
       <p class="pd-note">« Net de frais » = ce qu'il vous reste vraiment une fois les frais payés. « Défavorable » = si les marchés vont mal.</p></div>
     <div class="pd-sec"><h3>6 · Transparence des frais & fiscalité</h3>
       ${propoFraisCompare(c, 640, 190)}
