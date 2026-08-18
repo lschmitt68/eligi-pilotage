@@ -2816,7 +2816,7 @@ function briefClient(key){
   const rows = state.pipeline.filter(p=>normName(p.client)===key);
   const info = state.clientsInfos.find(ci=>ci.client_key===key) || {};
   const name = nomAffiche(key, rows.length? (rows[0].client||"").trim() : (info.nom||key));
-  const suivi = suiviClient({key}).filter(ev=>ev.kind!=="ac").slice(0,8);
+  const suivi = suiviClient({key}).filter(ev=>ev.kind==="ix"||ev.kind==="ev").slice(0,8);
   const taches = state.actions.filter(a=>a.client_key===key && !a.fait);
   const props = state.propositions.filter(pr=>pr.client_key===key)
     .sort((a,b)=>new Date(b.updated_at||b.created_at)-new Date(a.updated_at||a.created_at));
@@ -2886,8 +2886,28 @@ function suiviClient(g){
     ev.push({kind:"ev", t:new Date(e.quand||0).getTime(), e});
   for (const a of state.actions.filter(x=>x.client_key===g.key))
     ev.push({kind:"ac", t:a.echeance? new Date(a.echeance+"T12:00:00").getTime() : Infinity, a});
+  /* v30 : propositions, missions (création + journal), revues annuelles */
+  for (const pr of state.propositions.filter(x=>x.client_key===g.key))
+    ev.push({kind:"pr", t:new Date(pr.created_at||0).getTime(), pr});
+  for (const m of state.missions.filter(x=>x.client_key===g.key)){
+    ev.push({kind:"mi", t:new Date(m.created_at||0).getTime(), m});
+    for (const j of (m.journal||[]))
+      ev.push({kind:"mj", t:new Date(j.q||0).getTime(), m, j});
+  }
+  const ci = state.clientsInfos.find(x=>x.client_key===g.key);
+  if (ci?.derniere_revue)
+    ev.push({kind:"rv", t:new Date(ci.derniere_revue+"T12:00:00").getTime(), rv:ci.derniere_revue});
   ev.sort((x,y)=>y.t-x.t);
   return ev;
+}
+const TL_FILTRES = [["","Tout"],["echanges","📞 Échanges"],["pipe","🧭 Pipeline"],["prop","📄 Propositions"],["mi","🧰 Missions"]];
+function tlMatch(ev, f){
+  if (!f) return true;
+  if (f==="echanges") return ev.kind==="ix" || ev.kind==="ac";
+  if (f==="pipe") return ev.kind==="ev";
+  if (f==="prop") return ev.kind==="pr" || (ev.kind==="ix" && String(ev.i.note||"").startsWith("📄"));
+  if (f==="mi") return ev.kind==="mi" || ev.kind==="mj";
+  return true;
 }
 function ageDe(d){
   if (!d) return null;
@@ -3163,7 +3183,30 @@ function viewClients(root){
               ${voitTout()? `<label class="fld ix-cons-w" style="min-width:100px;display:none"><select class="ix-cons">${activeConseillers().map(c=>`<option value="${c.id}" ${c.id===g.cons[0]?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`:""}
               <button class="btn small ix-add" data-key="${esc(g.key)}">Ajouter</button>
             </div>
-            <div class="tl">${g.suivi.map(ev=> ev.kind==="ix" ? `
+            ${(()=>{ const an = new Date().getFullYear();
+              const ixAn = state.interactions.filter(i=>i.client_key===g.key && new Date(i.quand||0).getFullYear()===an);
+              const nApp = ixAn.filter(i=>i.type==="Appel").length, nRdv = ixAn.filter(i=>i.type==="RDV").length;
+              const dj = g.dernier? Math.floor((Date.now()-g.dernier)/86400000) : null;
+              return `<p class="small muted" style="margin:8px 0 4px">Cette année : ${nApp} appel(s) · ${nRdv} RDV · ${ixAn.length} échange(s) au total${dj!==null? ` — dernier contact il y a ${dj} j`:""}</p>`; })()}
+            <div class="inline-controls" style="gap:5px;margin-bottom:5px">${TL_FILTRES.map(([v,l])=>`
+              <button class="btn small ${(state._tlF||"")===v? "":"secondary"} tl-f" data-f="${v}" style="padding:2px 9px">${l}</button>`).join("")}</div>
+            <div class="tl">${g.suivi.filter(ev=>tlMatch(ev, state._tlF||"")).map(ev=> ev.kind==="pr" ? `
+              <div class="tl-item"><span class="tl-ico">📄</span>
+                <div class="tl-body"><span>Proposition créée — ${eur(+ev.pr.data?.montant||0)} · ${esc(ev.pr.mode)} · <b>${esc(ev.pr.statut)}</b></span>
+                  <div class="tl-meta">Proposition · ${esc(consName(ev.pr.conseiller_id))} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
+              </div>` : ev.kind==="mi" ? `
+              <div class="tl-item"><span class="tl-ico">🧰</span>
+                <div class="tl-body"><span>Mission ouverte — ${esc(ev.m.titre||ev.m.type)} · <b>${esc(ev.m.statut)}</b></span>
+                  <div class="tl-meta">Mission · ${esc(consName(ev.m.conseiller_id))} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
+              </div>` : ev.kind==="mj" ? `
+              <div class="tl-item"><span class="tl-ico">🗒</span>
+                <div class="tl-body"><span>${esc(ev.j.n)}</span>
+                  <div class="tl-meta">Journal mission · ${esc(ev.m.titre||ev.m.type)}${ev.j.c? " · "+esc(consName(ev.j.c)):""} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
+              </div>` : ev.kind==="rv" ? `
+              <div class="tl-item"><span class="tl-ico">📆</span>
+                <div class="tl-body"><span>Revue annuelle réalisée</span>
+                  <div class="tl-meta">Conformité · ${new Date(ev.rv+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})}</div></div>
+              </div>` : ev.kind==="ix" ? `
               <div class="tl-item"><span class="tl-ico">${IX_ICO[ev.i.type]||"📝"}</span>
                 <div class="tl-body"><span>${esc(ev.i.note)}</span>
                   <div class="tl-meta">${esc(ev.i.type)} · ${ev.i.conseiller_id? esc(consName(ev.i.conseiller_id)) : "Manager"} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
@@ -3296,6 +3339,9 @@ function viewClients(root){
       toast(cible? "Clients fusionnés ✓" : "Client renommé ✓");
       viewClients(root);
     }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  root.querySelectorAll(".tl-f").forEach(b=>b.addEventListener("click", e=>{
+    e.stopPropagation(); state._tlF = b.dataset.f; viewClients(root);
   }));
   root.querySelectorAll(".ci-save").forEach(b=>b.addEventListener("click", async e=>{
     e.stopPropagation();
