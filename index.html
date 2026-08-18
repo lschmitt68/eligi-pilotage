@@ -1479,7 +1479,7 @@ function signatureModal(op){
   const back = document.createElement("div");
   back.className = "modal-back";
   back.innerHTML = `<div class="modal" style="width:520px">
-    <h3>🎉 ${esc(op.client||"Opportunité")} — signé !</h3>
+    <h3>🎉 ${esc(cliAff(op.client)||"Opportunité")} — signé !</h3>
     <p class="small muted" style="margin:0 0 12px">Reporter cette signature dans la saisie hebdo de <b>${esc(consName(op.conseiller_id))}</b> ? (support : ${esc(op.support)})</p>
     <div class="form-grid">
       <label class="fld"><span>Semaine</span><select id="sg-week">${codes.map(w=>`<option ${w===defWeek?"selected":""}>${w}</option>`).join("")}</select></label>
@@ -1763,7 +1763,7 @@ function meetingMode(){
     <div class="row">
       <div class="card grow"><h3 class="mt0">Top pipeline en cours</h3>
         ${top.length? `<table class="tbl"><tbody>${top.map(x=>`<tr>
-          <td><b>${esc(x.client)}</b></td><td>${esc(x.support)}</td><td>${esc(x.etape)}</td>
+          <td><b>${esc(cliAff(x.client))}</b></td><td>${esc(x.support)}</td><td>${esc(x.etape)}</td>
           <td class="num">${fmtPct(x.probabilite||0)}</td><td class="num"><b>${eur(pondere(x))}</b></td>
           <td>${x.signature_probable?'<span class="ksig">SIGNATURE ?</span>':""}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">Aucune opportunité en cours</div>`}
       </div>
@@ -1780,16 +1780,16 @@ function meetingMode(){
     <div class="row" style="margin-top:16px">
       <div class="card grow"><h3 class="mt0">Signatures probables cette semaine</h3>
         ${sig.length? `<table class="tbl"><tbody>${sig.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
-          <td><b>${esc(x.client)}</b></td><td>${esc(x.support)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>` : `<div class="empty">Aucune signature marquée « probable » — à challenger !</div>`}
+          <td><b>${esc(cliAff(x.client))}</b></td><td>${esc(x.support)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>` : `<div class="empty">Aucune signature marquée « probable » — à challenger !</div>`}
       </div>
       <div class="card grow"><h3 class="mt0">Plus grosses opportunités en cours</h3>
         <table class="tbl"><tbody>${top.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
-          <td><b>${esc(x.client)}</b></td><td>${esc(x.etape)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>
+          <td><b>${esc(cliAff(x.client))}</b></td><td>${esc(x.etape)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>
       </div>
       <div class="card grow"><h3 class="mt0">🔥 À relancer (pipeline endormi)</h3>
         ${(()=>{ const st = aRelancer(state.pipeline).sort((a,b)=>pondere(b)-pondere(a)).slice(0,6);
           return st.length? `<table class="tbl"><tbody>${st.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
-            <td><b>${esc(x.client)}</b></td><td>${isOverdue(x)? "⏰ closing dépassé" : `💤 ${staleDays(x)} j`}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>`
+            <td><b>${esc(cliAff(x.client))}</b></td><td>${isOverdue(x)? "⏰ closing dépassé" : `💤 ${staleDays(x)} j`}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>`
           : `<div class="empty">Rien à relancer — pipeline vivant ✓</div>`; })()}
       </div>
     </div>`;
@@ -2194,7 +2194,7 @@ function viewPipeline(root){
 function kcardHTML(p){
   return `<div class="kcard" draggable="true" data-kid="${p.id}" title="Glisser pour changer d'étape — cliquer pour modifier">
     <div class="kclient"><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span>
-      <span class="kc-name">${esc(p.client||"(sans nom)")}</span>
+      <span class="kc-name">${esc(cliAff(p.client))}</span>
       <span class="kpond">${eur(pondere(p))}</span></div>
     <div class="kmeta"><span class="tag">${esc(p.support)}</span><span>${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</span>
       ${p.signature_probable? `<span class="ksig">SIGNATURE ?</span>`:""}
@@ -2249,7 +2249,7 @@ function renderPipeTable(body, rows){
     <th>Closing</th><th>Priorité</th><th>Prochaine action</th><th>Sign.</th><th></th></tr></thead>
     <tbody>${rows.map(p=>`<tr>
       <td><span class="cdot" style="background:${consColor(p.conseiller_id)}"></span>${esc(consName(p.conseiller_id))}</td>
-      <td><b>${esc(p.client)}</b></td><td>${esc(p.support)}</td>
+      <td><b>${esc(cliAff(p.client))}</b></td><td>${esc(p.support)}</td>
       <td>${(p.etape||"").toLowerCase()==="signé" ? `<span class="badge ok"><span class="dot"></span>✓ Signé</span>` : esc(p.etape)}</td>
       <td class="num">${eur(p.collecte_potentielle)}</td><td class="num">${eur(p.ca_potentiel)}</td>
       <td class="num">${fmtPct(p.probabilite||0)}</td><td class="num"><b>${eur(pondere(p))}</b></td>
@@ -2628,7 +2628,7 @@ function viewJour(root){
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const opRow = (p, extra="") => `<tr class="clickable jr-op" data-id="${p.id}">
     ${mgr? `<td><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span></td>`:""}
-    <td><b>${esc(p.client)}</b></td><td class="small">${esc(p.support)}</td><td class="small">${esc(p.etape)}</td>
+    <td><b>${esc(cliAff(p.client))}</b></td><td class="small">${esc(p.support)}</td><td class="small">${esc(p.etape)}</td>
     <td class="num"><b>${eur(pondere(p))}</b></td><td class="small">${extra}</td></tr>`;
 
   root.innerHTML = `
@@ -2695,7 +2695,7 @@ function viewJour(root){
         return prs.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${prs.slice(0,6).map(pr=>`
           <tr class="clickable jr-prop" data-id="${pr.id}">
             ${mgr? `<td><span class="cdot" style="background:${consColor(pr.conseiller_id)}" title="${esc(consName(pr.conseiller_id))}"></span></td>`:""}
-            <td><b>${esc(pr.data?.nomClient||pr.client_key)}</b></td>
+            <td><b>${esc(nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key))}</b></td>
             <td class="num">${eur(+pr.data?.montant||0)}</td>
             <td class="num"><span class="ksleep">💤 ${propoJours(pr)} j</span></td></tr>`).join("")}</tbody></table></div>
           ${prs.length>6? `<p class="small muted" style="margin-bottom:0">+ ${prs.length-6} autres dans les Propositions</p>`:""}`
@@ -3599,7 +3599,7 @@ function propoWizard(propo){
   function stepHTML(c){
     if (step===0) return `
       <div class="form-grid">
-        <label class="fld"><span>Client (pipeline)</span><input type="text" value="${esc(d.nomClient)}" disabled></label>
+        <label class="fld"><span>Client (pipeline)</span><input type="text" value="${esc(nomAffiche(normName(d.nomClient), d.nomClient))}" disabled></label>
         <label class="fld"><span>Date de l'entretien</span><input type="date" data-k="dateEntretien" value="${esc(d.dateEntretien||"")}"></label>
         <label class="fld"><span>Stade</span><select data-k="mode2">${["Prospect","Client"].map(x=>`<option ${x===p.mode?"selected":""}>${x}</option>`).join("")}</select></label>
         <label class="fld"><span>Montant à placer / arbitrer (€)</span><input type="number" data-k="montant" value="${+d.montant||0}" min="0" step="1000"></label>
@@ -3785,7 +3785,7 @@ function propoWizard(propo){
     back.innerHTML = `<div class="wiz">
       <div class="wiz-head">
         <img src="logo-blanc.png" alt="Eligi" style="height:30px">
-        <div><b>Proposition d'investissement</b><div class="small" style="opacity:.75">${esc(d.nomClient)} · ${esc(consName(p.conseiller_id))} · ${esc(p.statut)}</div></div>
+        <div><b>Proposition d'investissement</b><div class="small" style="opacity:.75">${esc(nomAffiche(normName(d.nomClient), d.nomClient))} · ${esc(consName(p.conseiller_id))} · ${esc(p.statut)}</div></div>
         <span style="flex:1"></span>
         <button class="btn secondary small" id="wiz-save">Enregistrer</button>
         <button class="btn secondary small" id="wiz-close">${ICONS.close} Fermer</button>
@@ -3957,7 +3957,7 @@ function propoDoc(p){
         <img src="logo-teal.png" alt="Eligi">
         <div class="pd-title"><b>Proposition d'investissement</b><span>Le pourquoi avant le produit</span></div>
       </div>
-      <div class="pd-meta">Établie pour <b>${esc(d.nomClient)}</b> · ${fdate(d.dateEntretien)} · ${esc(consName(p.conseiller_id))}</div>
+      <div class="pd-meta">Établie pour <b>${esc(nomAffiche(normName(d.nomClient), d.nomClient))}</b> · ${fdate(d.dateEntretien)} · ${esc(consName(p.conseiller_id))}</div>
       ${synthese}
       ${dossier}
       <div class="pd-mentions">${esc(PROPO_MENTIONS)}</div>
@@ -4012,7 +4012,7 @@ function propoClientPicker(){
   back.innerHTML = `<div class="modal" style="width:480px">
     <h3>Nouvelle proposition</h3>
     <p class="small muted" style="margin-top:0">Une proposition part toujours d'un client du pipeline — c'est lui qui porte le suivi. Client absent ? Crée d'abord son opportunité dans le Pipeline.</p>
-    <label class="fld"><span>Client</span><select id="pk-client">${list.map(x=>`<option value="${x.id}">${esc((x.client||"").trim())} — ${esc(consName(x.conseiller_id))}</option>`).join("")}</select></label>
+    <label class="fld"><span>Client</span><select id="pk-client">${list.map(x=>`<option value="${x.id}">${esc(cliAff(x.client))} — ${esc(consName(x.conseiller_id))}</option>`).join("")}</select></label>
     <div class="modal-actions">
       <button class="btn secondary" id="pk-cancel">Annuler</button>
       <button class="btn" id="pk-ok">Commencer</button>
@@ -4031,7 +4031,7 @@ function propoClientPicker(){
 function propoRowsHTML(props, showClient){
   return props.map(pr=>{
     return `<tr class="clickable propo-row" data-id="${pr.id}">
-      ${showClient? `<td><b>${esc(pr.data?.nomClient||pr.client_key)}</b></td>`:""}
+      ${showClient? `<td><b>${esc(nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key))}</b></td>`:""}
       <td>${new Date(pr.updated_at||pr.created_at).toLocaleDateString("fr-FR")}${pr.statut==="Envoyée" && propoJours(pr)>=PROPO_RELANCE_J? ` <span class="ksleep">💤 ${propoJours(pr)} j</span>`:""}</td>
       <td><span class="cdot" style="background:${consColor(pr.conseiller_id)}"></span>${esc(consName(pr.conseiller_id))}</td>
       <td class="num"><b>${eur(+pr.data?.montant||0)}</b></td>
@@ -4075,7 +4075,8 @@ function bindPropoRows(scope, refresh){
 function viewPropositions(root){
   const q = (state._propSearch||"").toLowerCase();
   let list = state.propositions.slice();
-  if (q) list = list.filter(pr=>String(pr.data?.nomClient||pr.client_key).toLowerCase().includes(q));
+  if (q) list = list.filter(pr=>String(pr.data?.nomClient||pr.client_key).toLowerCase().includes(q)
+    || nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key).toLowerCase().includes(q));
   const enCours = list.filter(pr=>pr.statut==="Brouillon"||pr.statut==="Envoyée").length;
   const acceptees = list.filter(pr=>pr.statut==="Acceptée");
   const relanceN = state.propositions.filter(pr=>pr.statut==="Envoyée" && propoJours(pr)>=PROPO_RELANCE_J).length;
@@ -4161,13 +4162,13 @@ function viewRapport(root){
     <div class="card grow">
       <h3 class="mt0">✍ Signatures probables annoncées</h3>
       ${sig.length? `<table class="tbl"><tbody>${sig.map(x=>`<tr><td>${esc(consName(x.conseiller_id))}</td>
-        <td><b>${esc(x.client)}</b></td><td>${esc(x.support)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>`
+        <td><b>${esc(cliAff(x.client))}</b></td><td>${esc(x.support)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>`
         : `<div class="empty">Aucune signature marquée « probable »</div>`}
     </div>
     <div class="card grow">
       <h3 class="mt0">🔥 Pipeline à relancer</h3>
       ${relance.length? `<table class="tbl"><tbody>${relance.slice(0,8).map(x=>`<tr><td>${esc(consName(x.conseiller_id))}</td>
-        <td><b>${esc(x.client)}</b></td><td>${isOverdue(x)? "⏰ closing dépassé" : `💤 ${staleDays(x)} j`}</td>
+        <td><b>${esc(cliAff(x.client))}</b></td><td>${isOverdue(x)? "⏰ closing dépassé" : `💤 ${staleDays(x)} j`}</td>
         <td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>`
         : `<div class="empty">Rien à relancer — pipeline vivant ✓</div>`}
     </div>
@@ -4275,6 +4276,11 @@ function nomAffiche(key, fallback){
   if (ci && ((ci.nom_famille||"").trim() || (ci.prenom||"").trim()))
     return [ci.nom_famille, ci.prenom].map(s=>String(s||"").trim()).filter(Boolean).join(" ");
   return fallback;
+}
+function cliAff(brut){
+  /* nom d'affichage depuis un libellé brut de dossier (pipeline/proposition) */
+  const b = String(brut||"").trim();
+  return nomAffiche(normName(b), b || "(sans nom)");
 }
 function miClientNom(key){
   const p = state.pipeline.find(x=>normName(x.client)===key);
@@ -4868,7 +4874,7 @@ function gsIndex(){
              setTimeout(()=>{ try{ document.querySelector(`.cli-row[data-key="${CSS.escape(g.key)}"]`)?.scrollIntoView({block:"center"}); }catch(e){} }, 60); }});
   }
   for (const p of state.pipeline){
-    items.push({cat:"Opportunit\u00e9s (pipeline)", ico:"\uD83D\uDCC8", label:`${(p.client||"(sans nom)").trim()} \u2014 ${p.support||""}`,
+    items.push({cat:"Opportunit\u00e9s (pipeline)", ico:"\uD83D\uDCC8", label:`${cliAff(p.client)} \u2014 ${p.support||""}`,
       sub:[p.etape, eur(+p.collecte_potentielle||0), consName(p.conseiller_id)].filter(Boolean).join(" \u00b7 "),
       text:GS_NORM([p.client, p.support, p.etape, p.prochaine_action].filter(Boolean).join(" ")),
       run(){ go("pipeline"); setTimeout(()=>pipeModal(p), 60); }});
@@ -4880,7 +4886,7 @@ function gsIndex(){
       run(){ go("missions"); setTimeout(()=>missionModal(m), 60); }});
   }
   for (const pr of ((isSuivi() && !suiviVues().includes("propositions"))? [] : state.propositions)){
-    const nom = String(pr.data?.nomClient || pr.client_key || "");
+    const nom = nomAffiche(pr.client_key, String(pr.data?.nomClient || pr.client_key || ""));
     items.push({cat:"Propositions", ico:"\uD83D\uDCC4", label:nom,
       sub:[pr.statut, pr.updated_at? new Date(pr.updated_at).toLocaleDateString("fr-FR") : ""].filter(Boolean).join(" \u00b7 "),
       text:GS_NORM([nom, pr.statut].filter(Boolean).join(" ")),
