@@ -3299,6 +3299,7 @@ function propoParamsDefaults(){
       ["Diversification","Private equity (UC/FCPR), or (ETC), structurés","Décorrélation, prime d'illiquidité","1,0–2,0 %"],
     ],
     honoraires: {mise:3000, retro:.009, suivi:1200},
+    fraisClassique: .025,   // fonds actifs classiques (jusqu'à 2,5 %/an), pour le comparatif du document
   };
 }
 function propoParams(){    // défauts + surcharges cabinet enregistrées
@@ -3380,6 +3381,10 @@ function propoCompute(d){
   const envTotal = env.reduce((a,e)=>a+e.part,0);
   const frais = env.reduce((a,e)=>a+e.cout,0);
   const tfa = M? frais/M : 0;
+  const feMoy = envTotal? env.reduce((a,e)=>a+e.part*(+e.fe||0),0)/envTotal : 0;   // frais de contrat moyens
+  const fsMoy = envTotal? env.reduce((a,e)=>a+e.part*(+e.fs||0),0)/envTotal : 0;   // frais des supports (ETF) moyens
+  const fClassique = P.fraisClassique ?? .025;
+  const ecartHorizon = M * (Math.pow(1+mu-tfa, Math.max(1,H)) - Math.pow(1+mu-fClassique, Math.max(1,H)));
   const muNet = mu - tfa;
   const perMt = env.find(e=>e.per)?.mt || 0;
   const ecoPER = perMt * (+d.tmi||0);
@@ -3440,6 +3445,7 @@ function propoCompute(d){
   return {P, M, H, hPond, liqBesoin, niv, cible, montants, mu, sigma, volPond, sriPort, sriCoherent, sharpe,
           env, envTotal, frais, tfa, muNet, perMt, ecoPER, hono, coutEligiAn1, coutEligiRec, coutDistribAn1, coutDistribRec,
           medBrut, medNet, favNet, defNet, coutFraisHorizon, an1, btAns, btR, btVals, btCumul, btAnnu,
+          feMoy, fsMoy, fClassique, ecartHorizon,
           quest, controles, verdict, justification, objPrincipal, plaf};
 }
 
@@ -3512,27 +3518,26 @@ function propoBarsAnnees(c, w=460, h=150){
 }
 function propoFraisCompare(c, w=460, h=190){
   const nH = Math.max(1, Math.round(c.H));
+  const pctTxt = v => (v*100).toFixed(2).replace(".",",").replace(/,?0+$/,"") + " %";
   const rows = [
-    {lab:"Année 1", eligi:c.coutEligiAn1, dist:c.coutDistribAn1},
-    {lab:"Années suivantes (/an)", eligi:c.coutEligiRec, dist:c.coutDistribRec},
-    {lab:`Cumul sur ${nH} ans`, eligi:c.coutEligiAn1 + c.coutEligiRec*(nH-1), dist:c.coutDistribAn1 + c.coutDistribRec*(nH-1)},
+    {lab:"Portefeuille ELIGI (ETF)", sub:`contrat ${pctTxt(c.feMoy)} + supports ${pctTxt(c.fsMoy)} = ${pctTxt(c.tfa)}/an`, eligi:c.frais, dist:null},
+    {lab:"Fonds classiques (gestion active)", sub:`frais de gestion jusqu'à ${pctTxt(c.fClassique)}/an, rétrocessions incluses`, eligi:null, dist:c.M*c.fClassique},
+    {lab:`Écart de capital à ${nH} ans`, sub:"à rendement brut identique, capitalisation comprise", eligi:c.ecartHorizon, dist:null, gain:true},
   ];
-  const vmax = Math.max(1, ...rows.flatMap(r=>[r.eligi, r.dist]));
-  const bx = 168, bw = w-bx-78, bh = 15, gap = 7;
+  const vmax = Math.max(1, ...rows.flatMap(r=>[r.eligi||0, r.dist||0]));
+  const bx = 236, bw = w-bx-96, bh = 16;
   let g = "";
   rows.forEach((r,i)=>{
-    const y = 26 + i*(bh*2+gap+20);
-    const we = Math.max(2, r.eligi/vmax*bw), wd = Math.max(2, r.dist/vmax*bw);
-    g += `<text x="${bx-8}" y="${y+bh-3}" font-size="10.5" font-weight="700" fill="#20211e" text-anchor="end">${r.lab}</text>
-      <rect x="${bx}" y="${y}" width="${we.toFixed(1)}" height="${bh}" rx="3" fill="#1b7a72"/>
-      <text x="${bx+we+6}" y="${y+bh-3}" font-size="10.5" font-weight="700" fill="#1b7a72">${eur(r.eligi)}</text>
-      <rect x="${bx}" y="${y+bh+4}" width="${wd.toFixed(1)}" height="${bh}" rx="3" fill="${DOC_MUT}" opacity=".55"/>
-      <text x="${bx+wd+6}" y="${y+2*bh+1}" font-size="10.5" fill="${DOC_MUT}">${eur(r.dist)}</text>`;
+    const y = 30 + i*48;
+    const v = r.eligi ?? r.dist;
+    const wv = Math.max(2, v/vmax*bw);
+    const col = r.gain? DOC_GOOD : (r.eligi!=null? "#1b7a72" : DOC_MUT);
+    g += `<text x="${bx-8}" y="${y+bh-4}" font-size="10.5" font-weight="700" fill="#20211e" text-anchor="end">${r.lab}</text>
+      <text x="${bx-8}" y="${y+bh+9}" font-size="8.8" fill="${DOC_MUT}" text-anchor="end">${r.sub}</text>
+      <rect x="${bx}" y="${y}" width="${wv.toFixed(1)}" height="${bh}" rx="3" fill="${col}" opacity="${r.eligi!=null?".92":".55"}"/>
+      <text x="${bx+wv+6}" y="${y+bh-3}" font-size="11" font-weight="700" fill="${col}">${r.gain? "+ " : ""}${eur(v)}${r.gain? "" : " /an"}</text>`;
   });
-  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%">
-    <text x="${bx}" y="14" font-size="10"><tspan font-weight="700" fill="#1b7a72">&#9632; ELIGI (honoraires)</tspan><tspan fill="${DOC_MUT}">&#160;&#160;&#9632; distribution classique (commissions)</tspan></text>
-    ${g}
-  </svg>`;
+  return `<svg viewBox="0 0 ${w} ${h}" style="width:100%">${g}</svg>`;
 }
 function propoObjTimeline(d, w=640){
   /* v27.1 : une ligne par objectif — lisible quel que soit leur nombre */
@@ -3926,7 +3931,7 @@ function propoDoc(p){
       <p class="pd-note">« Net de frais » = ce qu'il vous reste vraiment une fois les frais payés. « Défavorable » = si les marchés vont mal.</p></div>
     <div class="pd-sec"><h3>6 · Transparence des frais & fiscalité</h3>
       ${propoFraisCompare(c, 640, 190)}
-      <p class="pd-note" style="margin-top:2px">Comparaison à portefeuille équivalent : honoraires ELIGI vs frais usuels d'un circuit de distribution commandé par commissions.</p>
+      <p class="pd-note" style="margin-top:2px">À portefeuille et rendement brut identiques : l'architecture ETF d'ELIGI coûte chaque année moins de la moitié des fonds classiques — et l'écart, capitalisé sur votre horizon, reste dans votre poche.</p>
       <p>Frais totaux estimés : <b>${(c.tfa*100).toFixed(2).replace(".",",")} % / an</b> (${eur(c.frais)}). Honoraires de mise en œuvre : ${eur(c.hono.mise)} (HT) — séparés de tout support.
       Économie d'impôt liée au PER : ${eur(c.ecoPER)} (versement PER × votre TMI).</p></div>
     <div class="pd-sec"><h3>7 · Votre accompagnement dans le temps</h3>
@@ -4579,6 +4584,7 @@ function propoParamsEditorHTML(){
           <label class="fld" style="min-width:135px"><span>Mise en place (€)</span><input type="number" id="ppar-mise" value="${P.honoraires.mise}"></label>
           <label class="fld" style="min-width:125px"><span>Suivi annuel (€)</span><input type="number" id="ppar-suivi" value="${P.honoraires.suivi}"></label>
           <label class="fld" style="min-width:140px"><span>Rétrocessions (%)</span><input type="number" id="ppar-retro" value="${pc(P.honoraires.retro)}" step="0.05"></label>
+          <label class="fld" style="min-width:170px" title="Frais annuels des fonds actifs classiques, pour le comparatif du document"><span>Fonds classiques (%/an)</span><input type="number" id="ppar-fcl" value="${pc(P.fraisClassique ?? .025)}" step="0.05"></label>
         </div>
       </div>
       <div class="card grow" style="min-width:430px">
@@ -4635,6 +4641,7 @@ function bindPropoParamsEditor(root){
       honoraires:{mise:+card.querySelector("#ppar-mise").value||0,
                   suivi:+card.querySelector("#ppar-suivi").value||0,
                   retro:(+card.querySelector("#ppar-retro").value||0)/100},
+      fraisClassique:(+card.querySelector("#ppar-fcl").value||2.5)/100,
     };
     try{ await state.db.saveParamsCabinet(data); await state.db.loadAll(); toast("Paramètres du cabinet enregistrés ✓"); render(); }
     catch(err){ toast("Erreur : "+(err.message||err)); }
