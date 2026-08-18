@@ -2862,12 +2862,16 @@ function clientModal(afterSave){
     <h3>Nouveau client</h3>
     <p class="small muted" style="margin-top:0">Crée une fiche client sans passer par le pipeline : connaissance client, suivi (appels, RDV, notes, tâches) — l'opportunité pipeline pourra venir plus tard.</p>
     <div class="form-grid">
-      <label class="fld full"><span>Nom du client</span><input type="text" id="cm-nom" placeholder="ex : DURAND Marie" autocomplete="off"></label>
+      <label class="fld"><span>Nom *</span><input type="text" id="cm-nomf" placeholder="DURAND" autocomplete="off" style="text-transform:uppercase"></label>
+      <label class="fld"><span>Prénom *</span><input type="text" id="cm-prenom" placeholder="Marie" autocomplete="off"></label>
       <label class="fld"><span>Statut</span><select id="cm-statut">${STATUTS.map(s=>`<option>${s}</option>`).join("")}</select></label>
-      <label class="fld"><span>Origine du contact</span><select id="cm-origine">${ORIGINES.map(o=>`<option value="${o}">${o||"—"}</option>`).join("")}</select></label>
-      <label class="fld"><span>Téléphone (facultatif)</span><input type="tel" id="cm-tel" placeholder="06 …"></label>
-      <label class="fld"><span>Email (facultatif)</span><input type="email" id="cm-email" placeholder="client@…"></label>
+      <label class="fld"><span>Origine du contact *</span><select id="cm-origine">${ORIGINES.map(o=>`<option value="${o}">${o||"—"}</option>`).join("")}</select></label>
+      <label class="fld"><span>Téléphone *</span><input type="tel" id="cm-tel" placeholder="06 …"></label>
+      <label class="fld"><span>Email *</span><input type="email" id="cm-email" placeholder="client@…"></label>
+      <label class="fld"><span>Date de naissance (facultatif)</span><input type="date" id="cm-nais"></label>
+      <label class="fld"><span>Profession (facultatif)</span><input type="text" id="cm-prof" placeholder="dirigeant, cadre…"></label>
       <label class="fld full"><span>Notes du cabinet (facultatif)</span><textarea id="cm-notes" rows="2" placeholder="contexte, famille, préférences…"></textarea></label>
+      <p class="small muted full" style="margin:0">* requis — au moins un moyen de contact (téléphone ou e-mail) et l'origine, pour une fiche exploitable dès le départ.</p>
       <div class="dup-warn" id="cm-dup" style="display:none"></div>
     </div>
     <div class="modal-actions">
@@ -2876,35 +2880,43 @@ function clientModal(afterSave){
     </div>
   </div>`;
   document.body.appendChild(back);
-  const nomEl = back.querySelector("#cm-nom");
+  const nomfEl = back.querySelector("#cm-nomf"), prenomEl = back.querySelector("#cm-prenom");
+  const composeNom = ()=> (nomfEl.value.trim().toUpperCase() + " " + prenomEl.value.trim()).trim();
   const updDup = ()=>{
     const box = back.querySelector("#cm-dup");
-    const k = normName(nomEl.value);
+    const k = normName(composeNom());
     if (k && existing.has(k)){
       box.innerHTML = `⚠️ Une fiche existe déjà pour <b>${esc(existing.get(k))}</b> — « Créer » ouvrira cette fiche au lieu d'en créer une deuxième.`;
       box.style.display = "";
     } else box.style.display = "none";
   };
-  nomEl.addEventListener("input", updDup);
-  nomEl.focus();
+  nomfEl.addEventListener("input", updDup);
+  prenomEl.addEventListener("input", updDup);
+  nomfEl.focus();
   back.querySelector("#cm-cancel").addEventListener("click", ()=>back.remove());
   back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
   back.querySelector("#cm-save").addEventListener("click", async ()=>{
-    const nom = nomEl.value.trim();
-    if (!nom){ toast("Indique le nom du client"); return; }
+    const nomf = nomfEl.value.trim().toUpperCase(), prenom = prenomEl.value.trim();
+    const nom = composeNom();
     const key = normName(nom);
-    if (!existing.has(key) && !nomPrenomOk(nom)){ toast(MSG_NOM_PRENOM); return; }
+    const tel = back.querySelector("#cm-tel").value.trim(), email = back.querySelector("#cm-email").value.trim();
+    if (existing.has(key)){
+      back.remove(); state._cliOpen = key; state._cliSearch = ""; afterSave(key); toast("Fiche existante ouverte");
+      return;
+    }
+    if (nomf.length < 2 || prenom.length < 2){ toast("Nom ET prénom sont requis (2 caractères minimum chacun)"); return; }
+    if (!tel && !email){ toast("Indique au moins un moyen de contact : téléphone ou e-mail"); return; }
+    if (!back.querySelector("#cm-origine").value){ toast("Indique l'origine du contact — précieuse pour piloter d'où viennent les clients"); return; }
+    if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast("L'adresse e-mail ne semble pas valide"); return; }
     try{
-      if (existing.has(key)){
-        back.remove(); state._cliOpen = key; state._cliSearch = ""; afterSave(key); toast("Fiche existante ouverte");
-        return;
-      }
       await state.db.saveClientInfo({client_key:key, nom,
+        nom_famille:nomf, prenom,
         statut:back.querySelector("#cm-statut").value,
         origine:back.querySelector("#cm-origine").value,
         notes:back.querySelector("#cm-notes").value.trim(),
-        tel:back.querySelector("#cm-tel").value.trim(),
-        email:back.querySelector("#cm-email").value.trim()});
+        tel, email,
+        date_naissance:back.querySelector("#cm-nais").value || null,
+        profession:back.querySelector("#cm-prof").value.trim()});
       await state.db.loadAll();
       back.remove(); state._cliOpen = key; state._cliSearch = "";
       toast("Fiche client créée ✓"); afterSave(key);
