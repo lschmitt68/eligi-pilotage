@@ -251,6 +251,23 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .meeting-nav .mn-pos{font-size:12.5px; color:var(--muted); font-weight:600; min-width:60px; text-align:center}
 .meeting .bigtiles{display:grid; grid-template-columns:repeat(auto-fit,minmax(200px,1fr)); gap:14px; margin:18px 0}
 .meeting .bigtiles .t-value{font-size:34px}
+.meeting .card{min-width:0}
+.meeting .jr-wrap{overflow-x:auto}
+.meeting .tbl{min-width:420px}
+.mrace{display:flex; flex-direction:column; gap:9px; margin:6px 0 2px}
+.mrace .rrow{display:grid; grid-template-columns:120px 1fr 170px; gap:12px; align-items:center; font-size:14px}
+.mrace .rname{font-weight:650; display:flex; align-items:center; gap:8px; overflow:hidden; white-space:nowrap; text-overflow:ellipsis}
+.mrace .rtrack{height:20px; background:var(--surface-2); border-radius:6px; position:relative; overflow:hidden}
+.mrace .rfill{position:absolute; inset:0 auto 0 0; border-radius:6px; min-width:2px; opacity:.9}
+.mrace .robj{position:absolute; top:-3px; bottom:-3px; width:2.5px; background:var(--ink); opacity:.55}
+.mrace .rval{text-align:right; font-variant-numeric:tabular-nums; white-space:nowrap}
+.mrace .rval b{font-size:14.5px}
+.mstages{display:flex; gap:8px; margin:6px 0 2px; align-items:flex-end}
+.mstage{flex:1; text-align:center; min-width:0}
+.mstage .sbar{background:var(--surface-2); border-radius:6px 6px 0 0; position:relative; height:74px; display:flex; align-items:flex-end}
+.mstage .sfill{width:100%; border-radius:6px 6px 0 0; background:var(--s1); opacity:.85}
+.mstage .scount{font-weight:700; font-size:13px; margin-top:4px}
+.mstage .slab{font-size:10px; color:var(--muted); white-space:nowrap; overflow:hidden; text-overflow:ellipsis}
 .meeting-close{margin-left:auto}
 
 /* ============ Divers ============ */
@@ -1716,6 +1733,35 @@ function viewDashboard(root){
   root.querySelectorAll("[data-saisie]").forEach(b=>b.addEventListener("click", ()=>{ state.saisieConseillerId = +b.dataset.saisie; go("saisie"); }));
 }
 
+/* ---------------- Mode réunion : graphiques ---------------- */
+function meetRaceHTML(rows){
+  /* course à l'objectif : une barre par conseiller, trait = objectif */
+  const max = Math.max(1, ...rows.map(r=>Math.max(r.w.ca_total, r.ow?.ca||0)));
+  return `<div class="mrace">${rows.map(r=>{
+    const obj = r.ow?.ca||0, pct = obj? r.w.ca_total/obj : null;
+    return `<div class="rrow">
+      <span class="rname"><span class="cdot" style="background:${consColor(r.c.id)}"></span>${esc(r.c.nom)}</span>
+      <span class="rtrack"><span class="rfill" style="width:${Math.min(100, r.w.ca_total/max*100).toFixed(1)}%;background:${consColor(r.c.id)}"></span>
+        ${obj? `<span class="robj" style="left:${Math.min(99.5, obj/max*100).toFixed(1)}%"></span>`:""}</span>
+      <span class="rval"><b>${eur(r.w.ca_total)}</b> <span class="small muted">${obj? "/ "+eur(obj)+" · "+fmtPct(pct) : "· pas d'objectif"}</span></span>
+    </div>`; }).join("")}</div>`;
+}
+function meetStagesHTML(consId){
+  /* pipeline par étape : hauteur = valeur pondérée, compte au-dessus */
+  const rows = state.pipeline.filter(x=>(!consId || x.conseiller_id===consId));
+  const per = ETAPES.map(et=>{
+    const list = rows.filter(x=>x.etape===et);
+    return {et, n:list.length, pond:list.reduce((a,x)=>a+pondere(x),0)};
+  });
+  const max = Math.max(1, ...per.map(s=>s.pond));
+  return `<div class="mstages">${per.map((s,i)=>`<div class="mstage">
+    <div class="sbar"><div class="sfill" style="height:${Math.max(s.pond? 8:2, s.pond/max*100).toFixed(1)}%;background:${MIX_COLORS[i%MIX_COLORS.length]}"></div></div>
+    <div class="scount">${s.n? s.n : "·"}</div>
+    <div class="slab" title="${esc(s.et)}">${esc(s.et)}</div>
+  </div>`).join("")}</div>
+  <p class="small muted" style="margin:4px 0 0">hauteur = valeur pondérée · chiffre = nombre de dossiers</p>`;
+}
+
 /* ---------------- Mode réunion ---------------- */
 function meetingMode(){
   const cons = activeConseillers();
@@ -1730,14 +1776,21 @@ function meetingMode(){
       return {c, w, p, proj, al: alerteFor(c.id, state.week, proj, objFor(c.id, state.week).ca)}; });
     const caEq = rows.reduce((a,r)=>a+r.w.ca_total,0), collEq = rows.reduce((a,r)=>a+r.w.collecte_totale,0);
     const projEq = rows.reduce((a,r)=>a+r.proj,0), objEq = cons.reduce((a,c)=>a+objFor(c.id, state.week).ca,0);
-    return `<h1>Point équipe</h1>
+    rows.forEach(r=>r.ow = objFor(r.c.id, state.week));
+    return `<h1>Point équipe <span class="small muted" style="font-weight:500">· ${esc(weekDates(state.week))}</span></h1>
     <div class="bigtiles tiles">
       ${tile("CA équipe", eur(caEq), `Objectif ${eur(objEq)}`, objEq?caEq/objEq:0)}
       ${tile("Collecte", eur(collEq))}
       ${tile("Projection", eur(projEq))}
       ${tile("RDV", fmtNum.format(rows.reduce((a,r)=>a+(r.w.rdv||0),0)))}
     </div>
-    <div class="card tbl-scroll"><table class="tbl">
+    <div class="row">
+      <div class="card grow" style="min-width:min(460px,100%)"><h3 class="mt0">🏁 Course à l'objectif de la semaine</h3>${meetRaceHTML(rows)}</div>
+      <div class="card grow" style="min-width:min(380px,100%)"><h3 class="mt0">Entonnoir équipe</h3>${meetStagesHTML(null)}</div>
+    </div>
+    ${(()=>{ const cs = campagnesActives().sort((a,b)=>String(a.date_fin).localeCompare(String(b.date_fin)));
+      return cs.length? `<div class="row" style="margin-top:14px">${cs.map(c=>campagneCardHTML(c)).join("")}</div>` : ""; })()}
+    <div class="card tbl-scroll" style="margin-top:14px"><table class="tbl">
       <thead><tr><th>Conseiller</th><th class="num">CA</th><th class="num">Collecte</th><th class="num">Pipeline</th><th class="num">Projection</th><th>Alerte</th></tr></thead>
       <tbody>${rows.map(r=>`<tr><td><span class="cdot" style="background:${consColor(r.c.id)}"></span><b>${esc(r.c.nom)}</b></td>
         <td class="num">${eur(r.w.ca_total)}</td><td class="num">${eur(r.w.collecte_totale)}</td>
@@ -1753,7 +1806,7 @@ function meetingMode(){
     const cu = cumul(c.id, state.week);
     const top = state.pipeline.filter(x=>x.conseiller_id===c.id && (x.etape||"").toLowerCase()!=="signé")
       .sort((a,b)=>pondere(b)-pondere(a)).slice(0,5);
-    return `<h1><span class="cdot" style="background:${consColor(c.id)};width:14px;height:14px"></span> ${esc(c.nom)} &nbsp;${badgeHTML(al)}</h1>
+    return `<h1><span class="cdot" style="background:${consColor(c.id)};width:14px;height:14px"></span> ${esc(c.nom)} &nbsp;${badgeHTML(al)} <span class="small muted" style="font-weight:500">· ${esc(weekDates(state.week))}</span></h1>
     ${conge? `<p class="muted" style="margin:8px 0 0">✈ En congés cette semaine — pas d'objectif ni d'alerte.</p>`:""}
     <div class="bigtiles tiles">
       ${tile("CA semaine", eur(w.ca_total), `Objectif ${eur(ow.ca)}`, ow.ca? w.ca_total/ow.ca:0)}
@@ -1763,12 +1816,15 @@ function meetingMode(){
       ${tile("CA cumulé", eur(cu.ca), `${cu.objCA?fmtPct(cu.ca/cu.objCA):"—"} de l'objectif`)}
     </div>
     <div class="row">
+      <div class="card grow" style="min-width:min(420px,100%)"><h3 class="mt0">Son entonnoir</h3>${meetStagesHTML(c.id)}</div>
       <div class="card grow"><h3 class="mt0">Top pipeline en cours</h3>
-        ${top.length? `<table class="tbl"><tbody>${top.map(x=>`<tr>
-          <td><b>${esc(cliAff(x.client))}</b></td><td>${esc(x.support)}</td><td>${esc(x.etape)}</td>
+        ${top.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${top.map(x=>`<tr>
+          <td><b>${esc(cliAff(x.client))}</b></td><td class="small">${esc(x.support)}</td><td class="small">${esc(x.etape)}</td>
           <td class="num">${fmtPct(x.probabilite||0)}</td><td class="num"><b>${eur(pondere(x))}</b></td>
-          <td>${x.signature_probable?'<span class="ksig">SIGNATURE ?</span>':""}</td></tr>`).join("")}</tbody></table>` : `<div class="empty">Aucune opportunité en cours</div>`}
+          <td>${x.signature_probable?'<span class="ksig">SIGNATURE ?</span>':""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Aucune opportunité en cours</div>`}
       </div>
+    </div>
+    <div class="row" style="margin-top:14px">
       <div class="card" style="width:340px;max-width:100%"><h3 class="mt0">Points à challenger</h3>
         <ol class="challenge"><li>Quels dossiers doivent signer cette semaine ?</li>
         <li>Quel blocage empêche la signature ?</li><li>Quelle action concrète d'ici la prochaine réunion ?</li></ol></div>
@@ -1781,17 +1837,17 @@ function meetingMode(){
     return `<h1>Signatures & priorités</h1>
     <div class="row" style="margin-top:16px">
       <div class="card grow"><h3 class="mt0">Signatures probables cette semaine</h3>
-        ${sig.length? `<table class="tbl"><tbody>${sig.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
-          <td><b>${esc(cliAff(x.client))}</b></td><td>${esc(x.support)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>` : `<div class="empty">Aucune signature marquée « probable » — à challenger !</div>`}
+        ${sig.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${sig.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
+          <td><b>${esc(cliAff(x.client))}</b></td><td class="small">${esc(x.support)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Aucune signature marquée « probable » — à challenger !</div>`}
       </div>
       <div class="card grow"><h3 class="mt0">Plus grosses opportunités en cours</h3>
-        <table class="tbl"><tbody>${top.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
-          <td><b>${esc(cliAff(x.client))}</b></td><td>${esc(x.etape)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>
+        <div class="jr-wrap"><table class="tbl dense"><tbody>${top.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
+          <td><b>${esc(cliAff(x.client))}</b></td><td class="small">${esc(x.etape)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table></div>
       </div>
       <div class="card grow"><h3 class="mt0">🔥 À relancer (pipeline endormi)</h3>
         ${(()=>{ const st = aRelancer(state.pipeline).sort((a,b)=>pondere(b)-pondere(a)).slice(0,6);
-          return st.length? `<table class="tbl"><tbody>${st.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
-            <td><b>${esc(cliAff(x.client))}</b></td><td>${isOverdue(x)? "⏰ closing dépassé" : `💤 ${staleDays(x)} j`}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table>`
+          return st.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${st.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
+            <td><b>${esc(cliAff(x.client))}</b></td><td class="small">${isOverdue(x)? "⏰ closing dépassé" : `💤 ${staleDays(x)} j`}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table></div>`
           : `<div class="empty">Rien à relancer — pipeline vivant ✓</div>`; })()}
       </div>
     </div>`;
