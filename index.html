@@ -1009,6 +1009,7 @@ class DemoDB {
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
       ...this.conseillers.map(c=>({email:c.nom.toLowerCase().normalize("NFD").replace(/[^a-z]/g,"")+"@demo.fr", role:"conseiller", conseiller_id:c.id})),
       {email:"lina@demo.fr", role:"suivi", conseiller_id:null},
+      {email:"malay@demo.fr", role:"suivi", conseiller_id:null, vues:["dashboard","pipeline","clients","propositions","missions","rapport"]},
     ];
   }
   _mine(consId){ // cloisonnement identique aux règles RLS
@@ -1017,17 +1018,17 @@ class DemoDB {
   async loadAll(){
     state.conseillers = this.conseillers.filter(c=>voitTout()||c.id===state.profile.conseiller_id);
     state.semaines = [...this.semaines];
-    state.saisies = isSuivi()? [] : this.saisies.filter(s=>this._mine(s.conseiller_id)).map(s=>({...s}));
+    state.saisies = this.saisies.filter(s=>this._mine(s.conseiller_id)).map(s=>({...s}));
     state.pipeline = this.pipeline.filter(p=>this._mine(p.conseiller_id)).map(p=>({...p}));
     state.profiles = isManager()? [...this.profiles] : this.profiles.filter(p=>p.email===state.profile.email);
-    state.absences = isSuivi()? [] : this.absences.filter(a=>this._mine(a.conseiller_id)).map(a=>({...a}));
+    state.absences = this.absences.filter(a=>this._mine(a.conseiller_id)).map(a=>({...a}));
     state.objSemaine = this.objSemaine.filter(o=>this._mine(o.conseiller_id)).map(o=>({...o}));
     state.actions = this.actions.filter(a=>this._mine(a.conseiller_id)).map(a=>({...a}));
     state.validations = this.validations.map(v=>({...v}));
     state.pipeEvents = this.pipeEvents.filter(e=>this._mine(e.conseiller_id)).map(e=>({...e}));
     state.clientsInfos = this.clientsInfos.map(c=>({...c}));
     state.interactions = this.interactions.map(i=>({...i}));
-    state.propositions = isSuivi()? [] : (this.propositions||[]).filter(p=>this._mine(p.conseiller_id)).map(p=>({...p}));
+    state.propositions = (this.propositions||[]).filter(p=>this._mine(p.conseiller_id)).map(p=>({...p}));
     state.paramsCabinet = this.paramsCabinet || {};
     state.connexions = (this.connexions||[]).filter(cx=>isManager() || cx.email===state.profile?.email).map(c=>({...c}));
     state.missions = (this.missions||[]).map(m=>({...m, etapes:(m.etapes||[]).map(e=>({...e})), journal:(m.journal||[]).map(j=>({...j}))}));
@@ -1336,7 +1337,13 @@ function consColor(id){
 function normName(s){
   return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim().replace(/\s+/g," ");
 }
+const SUIVI_VUES_DEFAUT = ["clients","pipeline","missions"];
+const SUIVI_VUES_ETENDU = ["dashboard","pipeline","clients","propositions","missions","rapport"];
 function isSuivi(){ return state.profile?.role === "suivi"; }
+function suiviVues(){
+  const v = state.profile?.vues;
+  return (Array.isArray(v) && v.length)? v.filter(k=>SUIVI_VUES_ETENDU.includes(k)) : SUIVI_VUES_DEFAUT;
+}
 function voitTout(){ return isManager() || isSuivi(); }   // visibilité étendue (manager + profil suivi)
 const initials = nom => String(nom||"?").trim().split(/\s+/).map(w=>w[0]).join("").slice(0,2).toUpperCase();
 
@@ -1636,7 +1643,7 @@ function viewDashboard(root){
   ${(()=>{ const cs = state.campagnes.filter(c=>campagneJoursRestants(c) >= -14).sort((a,b)=>String(a.date_fin).localeCompare(String(b.date_fin)));
     return (cs.length || isManager())? `<div class="sect sect-head"><h2>Campagnes produit</h2>
       <span class="sub">fenêtres de commercialisation en cours</span>
-      <span style="flex:1"></span><button class="btn secondary small" id="camp-add">+ Campagne</button></div>
+      <span style="flex:1"></span>${isManager()? `<button class="btn secondary small" id="camp-add">+ Campagne</button>`:""}</div>
     ${cs.length? `<div class="row sect">${cs.map(c=>campagneCardHTML(c)).join("")}</div>` : ""}` : ""; })()}
   <div class="sect sect-head"><h2>Conseillers — ${esc(perLabel)}</h2>${annee? `<span class="sub">cumul de l'année civile · objectif annuel = somme des objectifs hebdo (congés déduits) · Projection = tendance fin d'année + pipeline pondéré − signé</span>` : mois? `<span class="sub">cumul des ${nSemMois} semaines du mois · objectifs mensuels = somme des objectifs hebdo (congés déduits)</span>`:""}</div>
   <div class="card tbl-scroll">
@@ -3907,10 +3914,10 @@ function propoRowsHTML(props, showClient){
       <td class="num"><b>${eur(+pr.data?.montant||0)}</b></td>
       <td>${esc(PROPO_PROFILS[(+pr.data?.profil||3)-1])}</td>
       <td>${esc(pr.mode)}</td>
-      <td><select class="propo-statut" data-id="${pr.id}">${PROPO_STATUTS.map(s=>`<option ${s===pr.statut?"selected":""}>${s}</option>`).join("")}</select></td>
+      <td>${isSuivi()? esc(pr.statut) : `<select class="propo-statut" data-id="${pr.id}">${PROPO_STATUTS.map(s=>`<option ${s===pr.statut?"selected":""}>${s}</option>`).join("")}</select>`}</td>
       <td style="white-space:nowrap">
         <button class="btn secondary small propo-doc" data-id="${pr.id}">${ICONS.doc} Document</button>
-        <button class="btn danger small propo-del" data-id="${pr.id}">✕</button>
+        ${isSuivi()? "" : `<button class="btn danger small propo-del" data-id="${pr.id}">✕</button>`}
       </td></tr>`;
   }).join("");
 }
@@ -3919,7 +3926,8 @@ function bindPropoRows(scope, refresh){
     if (e.target.closest("select,button")) return;
     e.stopPropagation();
     const pr = state.propositions.find(x=>x.id===+r.dataset.id);
-    if (pr) propoWizard(JSON.parse(JSON.stringify(pr)));
+    if (!pr) return;
+    if (isSuivi()) propoDoc(pr); else propoWizard(JSON.parse(JSON.stringify(pr)));
   }));
   scope.querySelectorAll(".propo-statut").forEach(sel=>sel.addEventListener("click", e=>e.stopPropagation()));
   scope.querySelectorAll(".propo-statut").forEach(sel=>sel.addEventListener("change", async e=>{
@@ -3949,7 +3957,7 @@ function viewPropositions(root){
   const acceptees = list.filter(pr=>pr.statut==="Acceptée");
   root.innerHTML = `
   ${vhead("Propositions de placement", `${list.length} proposition(s) — méthode ELIGI : objectifs → profil → allocation → enveloppes → document`,
-    `<button class="btn" id="prop-new">＋ Nouvelle proposition</button>`)}
+    isSuivi()? "" : `<button class="btn" id="prop-new">＋ Nouvelle proposition</button>`)}
   <div class="tiles">
     ${tile("En cours", enCours, "brouillons + envoyées")}
     ${tile("Acceptées", acceptees.length, eur(acceptees.reduce((a,pr)=>a+(+pr.data?.montant||0),0)) + " placés")}
@@ -3963,7 +3971,7 @@ function viewPropositions(root){
     <thead><tr><th>Client</th><th>Mise à jour</th><th>Conseiller</th><th class="num">Montant</th><th>Profil</th><th>Stade</th><th>Statut</th><th></th></tr></thead>
     <tbody>${propoRowsHTML(list, true) || `<tr><td colspan="8" class="empty">Aucune proposition — clique sur « Nouvelle proposition » pour démarrer depuis un client du pipeline</td></tr>`}</tbody>
   </table></div>`;
-  $("#prop-new").addEventListener("click", propoClientPicker);
+  $("#prop-new")?.addEventListener("click", propoClientPicker);
   $("#prop-search").addEventListener("input", e=>{ state._propSearch = e.target.value; viewPropositions(root); });
   bindPropoRows(root, ()=>viewPropositions(root));
 }
@@ -3996,8 +4004,8 @@ function viewRapport(root){
     <div><b>Rapport commercial hebdomadaire</b><br><span class="small muted">Édité le ${new Date().toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span></div></div>
   ${vhead("Rapport hebdomadaire", `semaine ${esc(week)}${lundi? ` — du ${fdate(lundi)} au ${fdate(dimanche)}`:""}${isLocked(week)? " · ✔ validée en réunion":""}`, `
     ${weekNavHTML()}
-    ${isLocked(week)? `<button class="btn secondary" id="rp-unlock">🔓 Rouvrir</button>`
-      : `<button class="btn" id="rp-lock">✔ Valider la semaine</button>`}
+    ${isManager()? (isLocked(week)? `<button class="btn secondary" id="rp-unlock">🔓 Rouvrir</button>`
+      : `<button class="btn" id="rp-lock">✔ Valider la semaine</button>`) : ""}
     <button class="btn secondary" id="rp-print">${ICONS.doc} Imprimer / PDF</button>
     <button class="btn secondary" id="rm-open" title="Rapport mensuel PDF par collaborateur">\uD83D\uDCC5 Rapport mensuel</button>
     <button class="btn secondary" id="rp-export">${ICONS.dl} Exporter</button>`)}
@@ -4584,7 +4592,10 @@ function viewParam(root){
         <td><input type="email" class="pp-email" value="${esc(pr.email)}" style="width:230px"></td>
         <td><select class="pp-role"><option value="manager" ${pr.role==="manager"?"selected":""}>Manager</option>
             <option value="conseiller" ${pr.role==="conseiller"?"selected":""}>Conseiller</option>
-            <option value="suivi" ${pr.role==="suivi"?"selected":""}>Suivi (sans objectifs)</option></select></td>
+            <option value="suivi" ${pr.role==="suivi"?"selected":""}>Suivi (sans objectifs)</option></select>
+            ${pr.role==="suivi"? `<br><select class="pp-scope small" style="margin-top:4px" title="Périmètre du profil Suivi">
+              <option value="" ${!(pr.vues&&pr.vues.length)?"selected":""}>Standard — clients, pipeline, missions</option>
+              <option value="etendu" ${(pr.vues&&pr.vues.length)?"selected":""}>Étendu — + dashboard, propositions, rapport</option></select>`:""}</td>
         <td><select class="pp-cons"><option value="">—</option>
           ${state.conseillers.map(c=>`<option value="${c.id}" ${c.id===pr.conseiller_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></td>
         <td class="small">${lastCx(pr.email)}</td>
@@ -4672,10 +4683,13 @@ function viewParam(root){
   root.querySelectorAll(".pp-save").forEach(b=>b.addEventListener("click", async ()=>{
     const tr = b.closest("tr");
     try{
+      const roleSel = tr.querySelector(".pp-role").value;
+      const scope = tr.querySelector(".pp-scope")?.value || "";
       await state.db.saveProfile({
         email:tr.querySelector(".pp-email").value.trim().toLowerCase(),
-        role:tr.querySelector(".pp-role").value,
+        role:roleSel,
         conseiller_id:tr.querySelector(".pp-cons").value? +tr.querySelector(".pp-cons").value : null,
+        vues: roleSel==="suivi" && scope==="etendu"? SUIVI_VUES_ETENDU : null,
       }, tr.dataset.email);
       await state.db.loadAll(); toast("Accès enregistré ✓"); render();
     }catch(err){ toast("Erreur : "+(err.message||err)); }
@@ -4732,7 +4746,7 @@ function gsIndex(){
       text:GS_NORM([miClientNom(m.client_key), m.titre, m.type, m.statut].filter(Boolean).join(" ")),
       run(){ go("missions"); setTimeout(()=>missionModal(m), 60); }});
   }
-  for (const pr of (isSuivi()? [] : state.propositions)){
+  for (const pr of ((isSuivi() && !suiviVues().includes("propositions"))? [] : state.propositions)){
     const nom = String(pr.data?.nomClient || pr.client_key || "");
     items.push({cat:"Propositions", ico:"\uD83D\uDCC4", label:nom,
       sub:[pr.statut, pr.updated_at? new Date(pr.updated_at).toLocaleDateString("fr-FR") : ""].filter(Boolean).join(" \u00b7 "),
@@ -4924,7 +4938,7 @@ const VIEWS = {
   param:{label:"Paramétrage", icon:ICONS.gear, fn:viewParam, manager:true},
 };
 function allowedViews(){
-  if (isSuivi()) return ["clients","pipeline","missions"].map(k=>[k, VIEWS[k]]);
+  if (isSuivi()) return suiviVues().filter(k=>VIEWS[k]).map(k=>[k, VIEWS[k]]);
   return Object.entries(VIEWS).filter(([k,v]) => isManager() || !v.manager)
     .map(([k,v]) => [k, k==="fiche" && !isManager() ? {...v, label:"Ma semaine"}
                        : k==="jour" && isManager() ? {...v, label:"Aujourd'hui"} : v]);
@@ -4990,7 +5004,8 @@ function renderLogin(app){
       const b = document.createElement("button");
       b.className = pr.role==="manager"? "btn" : "btn secondary";
       b.style.justifyContent = "center";
-      const nom = db.conseillers.find(c=>c.id===pr.conseiller_id)?.nom || (pr.role==="suivi"? "Lina" : pr.email);
+      const nom = db.conseillers.find(c=>c.id===pr.conseiller_id)?.nom
+        || (pr.role==="suivi"? pr.email.split("@")[0].replace(/^./, ch=>ch.toUpperCase()) : pr.email);
       b.textContent = pr.role==="manager"? `${nom} — Manager` : pr.role==="suivi"? `${nom} — Suivi` : `${nom} — Conseiller`;
       b.addEventListener("click", async ()=>{
         state.profile = {...pr};
