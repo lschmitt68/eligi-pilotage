@@ -882,6 +882,7 @@ class SupaDB {
     for (const k of ["tel","email","adresse","profession","situation","groupe","nom_famille","prenom","lien_onedrive","lien_must"])
       if (info[k] !== undefined) row[k] = info[k] || "";
     if (info.date_naissance !== undefined) row.date_naissance = info.date_naissance || null;
+    if (info.conseiller_id !== undefined) row.conseiller_id = info.conseiller_id || null;
     const {error} = await this.c.from("clients_infos").upsert(row, {onConflict:"client_key"});
     if (error) throw error;
   }
@@ -1101,6 +1102,7 @@ class DemoDB {
     for (const k of ["tel","email","adresse","profession","situation","groupe","nom_famille","prenom","lien_onedrive","lien_must"])
       if (info[k] !== undefined) row[k] = info[k] || "";
     if (info.date_naissance !== undefined) row.date_naissance = info.date_naissance || null;
+    if (info.conseiller_id !== undefined) row.conseiller_id = info.conseiller_id || null;
     if (i>=0) Object.assign(this.clientsInfos[i], row);
     else this.clientsInfos.push({id:this._id++, ...row});
   }
@@ -2845,6 +2847,8 @@ function revueEchue(info){
 }
 function clientConseillers(key){
   const ids = new Set();
+  const ref = state.clientsInfos.find(ci=>ci.client_key===key)?.conseiller_id;
+  if (ref) ids.add(ref);
   for (const p of state.pipeline) if (normName(p.client)===key) ids.add(p.conseiller_id);
   for (const i of state.interactions) if (i.client_key===key && i.conseiller_id) ids.add(i.conseiller_id);
   for (const a of state.actions) if (a.client_key===key) ids.add(a.conseiller_id);
@@ -2865,13 +2869,16 @@ function clientModal(afterSave){
       <label class="fld"><span>Nom *</span><input type="text" id="cm-nomf" placeholder="DURAND" autocomplete="off" style="text-transform:uppercase"></label>
       <label class="fld"><span>Prénom *</span><input type="text" id="cm-prenom" placeholder="Marie" autocomplete="off"></label>
       <label class="fld"><span>Statut</span><select id="cm-statut">${STATUTS.map(s=>`<option>${s}</option>`).join("")}</select></label>
-      <label class="fld"><span>Origine du contact *</span><select id="cm-origine">${ORIGINES.map(o=>`<option value="${o}">${o||"—"}</option>`).join("")}</select></label>
+      <label class="fld"><span>Conseiller référent *</span><select id="cm-cons">
+        ${voitTout()? `<option value="">— choisir —</option>`:""}
+        ${activeConseillers().map(c=>`<option value="${c.id}" ${!voitTout() && c.id===state.profile.conseiller_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>
+      <label class="fld"><span>Origine du contact</span><select id="cm-origine">${ORIGINES.map(o=>`<option value="${o}">${o||"—"}</option>`).join("")}</select></label>
       <label class="fld"><span>Téléphone *</span><input type="tel" id="cm-tel" placeholder="06 …"></label>
       <label class="fld"><span>Email *</span><input type="email" id="cm-email" placeholder="client@…"></label>
       <label class="fld"><span>Date de naissance (facultatif)</span><input type="date" id="cm-nais"></label>
       <label class="fld"><span>Profession (facultatif)</span><input type="text" id="cm-prof" placeholder="dirigeant, cadre…"></label>
       <label class="fld full"><span>Notes du cabinet (facultatif)</span><textarea id="cm-notes" rows="2" placeholder="contexte, famille, préférences…"></textarea></label>
-      <p class="small muted full" style="margin:0">* requis — au moins un moyen de contact (téléphone ou e-mail) et l'origine, pour une fiche exploitable dès le départ.</p>
+      <p class="small muted full" style="margin:0">* requis — un conseiller référent et au moins un moyen de contact (téléphone ou e-mail), pour une fiche exploitable dès le départ.</p>
       <div class="dup-warn" id="cm-dup" style="display:none"></div>
     </div>
     <div class="modal-actions">
@@ -2906,7 +2913,7 @@ function clientModal(afterSave){
     }
     if (nomf.length < 2 || prenom.length < 2){ toast("Nom ET prénom sont requis (2 caractères minimum chacun)"); return; }
     if (!tel && !email){ toast("Indique au moins un moyen de contact : téléphone ou e-mail"); return; }
-    if (!back.querySelector("#cm-origine").value){ toast("Indique l'origine du contact — précieuse pour piloter d'où viennent les clients"); return; }
+    if (!back.querySelector("#cm-cons").value){ toast("Choisis le conseiller référent de ce client"); return; }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast("L'adresse e-mail ne semble pas valide"); return; }
     try{
       await state.db.saveClientInfo({client_key:key, nom,
@@ -2916,7 +2923,8 @@ function clientModal(afterSave){
         notes:back.querySelector("#cm-notes").value.trim(),
         tel, email,
         date_naissance:back.querySelector("#cm-nais").value || null,
-        profession:back.querySelector("#cm-prof").value.trim()});
+        profession:back.querySelector("#cm-prof").value.trim(),
+        conseiller_id:+back.querySelector("#cm-cons").value || null});
       await state.db.loadAll();
       back.remove(); state._cliOpen = key; state._cliSearch = "";
       toast("Fiche client créée ✓"); afterSave(key);
@@ -2977,7 +2985,7 @@ function viewClients(root){
       <tr class="clickable cli-row" data-key="${esc(g.key)}" title="Ouvrir la fiche client">
         <td><b>${esc(g.disp)}</b></td>
         <td>${statutBadge(g.info.statut)}${revueEchue(g.info)? ` <span class="badge watch" title="Revue annuelle à programmer (dernière : ${g.info.derniere_revue? new Date(g.info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "jamais"})"><span class="dot"></span>Revue due</span>`:""}</td>
-        <td>${g.cons.map(id=>`<span class="cdot" style="background:${consColor(id)}" title="${esc(consName(id))}"></span>`).join("")}</td>
+        <td>${(g.cons.length? g.cons : (g.info.conseiller_id? [g.info.conseiller_id] : [])).map(id=>`<span class="cdot" style="background:${consColor(id)}" title="${esc(consName(id))}"></span>`).join("") || "—"}</td>
         <td class="num">${g.rows.length}</td>
         <td class="num">${eur(g.coll)}</td>
         <td class="num"><b>${eur(g.pond)}</b></td>
@@ -3022,6 +3030,9 @@ function viewClients(root){
               <label class="fld" style="flex:1;min-width:200px"><span>⚖️ Lien fiche MustCompliance</span><input type="url" class="ci-must" value="${esc(g.info.lien_must||"")}" placeholder="coller l'URL de la fiche conformité…"></label>
             </div>
             <div class="inline-controls">
+              <label class="fld"><span>Conseiller référent</span><select class="ci-referent">
+                <option value="">—</option>
+                ${activeConseillers().map(c=>`<option value="${c.id}" ${c.id===g.info.conseiller_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>
               <label class="fld"><span>Statut</span><select class="ci-statut">${STATUTS.map(s=>`<option ${s===g.info.statut?"selected":""}>${s}</option>`).join("")}</select></label>
               <label class="fld"><span>Origine du contact</span><select class="ci-origine">${ORIGINES.map(o=>`<option value="${o}" ${o===g.info.origine?"selected":""}>${o||"—"}</option>`).join("")}</select></label>
               <label class="fld"><span>Dernière revue annuelle</span><input type="date" class="ci-revue" value="${g.info.derniere_revue||""}"></label>
@@ -3225,6 +3236,7 @@ function viewClients(root){
         origine: det.querySelector(".ci-origine").value,
         notes: det.querySelector(".ci-notes").value.trim(),
         derniere_revue: det.querySelector(".ci-revue").value || null,
+        conseiller_id: +det.querySelector(".ci-referent").value || null,
         tel: det.querySelector(".ci-tel").value.trim(),
         email: det.querySelector(".ci-email").value.trim(),
         adresse: det.querySelector(".ci-adresse").value.trim(),
