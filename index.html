@@ -960,6 +960,7 @@ class SupaDB {
       if (info[k] !== undefined) row[k] = info[k] || "";
     if (info.date_naissance !== undefined) row.date_naissance = info.date_naissance || null;
     if (info.conseiller_id !== undefined) row.conseiller_id = info.conseiller_id || null;
+    if (info.conformite !== undefined) row.conformite = info.conformite || {};
     const {error} = await this.c.from("clients_infos").upsert(row, {onConflict:"client_key"});
     if (error) throw error;
   }
@@ -1087,12 +1088,13 @@ class DemoDB {
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
       ...this.conseillers.map(c=>({email:c.nom.toLowerCase().normalize("NFD").replace(/[^a-z]/g,"")+"@demo.fr", role:"conseiller", conseiller_id:c.id})),
-      {email:"lina@demo.fr", role:"suivi", conseiller_id:null},
+      {email:"lina@demo.fr", role:"ingenieur", conseiller_id:null},
+      {email:"stephanie@demo.fr", role:"suivi", conseiller_id:null},
       {email:"malay@demo.fr", role:"suivi", conseiller_id:null, vues:["dashboard","pipeline","clients","propositions","missions","rapport"]},
     ];
   }
   _mine(consId){ // cloisonnement identique aux règles RLS
-    return isManager() || isSuivi() || consId === state.profile.conseiller_id;
+    return isManager() || isSuivi() || isIngenieur() || consId === state.profile.conseiller_id;
   }
   async loadAll(){
     state.conseillers = this.conseillers.filter(c=>voitTout()||c.id===state.profile.conseiller_id);
@@ -1195,6 +1197,7 @@ class DemoDB {
       if (info[k] !== undefined) row[k] = info[k] || "";
     if (info.date_naissance !== undefined) row.date_naissance = info.date_naissance || null;
     if (info.conseiller_id !== undefined) row.conseiller_id = info.conseiller_id || null;
+    if (info.conformite !== undefined) row.conformite = info.conformite || {};
     if (i>=0) Object.assign(this.clientsInfos[i], row);
     else this.clientsInfos.push({id:this._id++, ...row});
   }
@@ -1440,7 +1443,8 @@ function suiviVues(){
   const base = (Array.isArray(v) && v.length)? v.filter(k=>SUIVI_VUES_ETENDU.includes(k)) : SUIVI_VUES_DEFAUT;
   return base.includes("backoffice")? base : [...base, "backoffice"];   /* v37 : le back-office concerne toute l'équipe */
 }
-function voitTout(){ return isManager() || isSuivi(); }   // visibilité étendue (manager + profil suivi)
+function isIngenieur(){ return state.profile?.role === "ingenieur"; }   /* v38 : ingénieur patrimonial (Lina) */
+function voitTout(){ return isManager() || isSuivi() || isIngenieur(); }   // visibilité étendue (manager + suivi + ingénieur)
 function monNom(){
   /* nom d'affichage de la personne connectée : conseiller lié, sinon dérivé de l'e-mail */
   const c = myConseiller(); if (c) return c.nom;
@@ -1571,6 +1575,23 @@ function bindActionsCards(scope, refresh){
       }catch(err){ toast("Erreur : "+(err.message||err)); }
     });
   });
+}
+
+/* v38 : une signature pipeline crée l'opération back-office « Souscription » */
+async function boDepuisSignature(p){
+  try{
+    const key = normName(p.client||"");
+    if (!key) return;
+    const titre = ("Souscription — " + (p.support||"")).replace(/—\s*$/,"").trim();
+    if (state.operations.some(o=>o.client_key===key && o.statut!=="Terminé" && normName(o.titre)===normName(titre))) return;
+    const mod = boModeles().find(m=>O2S_NORM(m.nom).startsWith("souscription"));
+    await state.db.saveOperation({client_key:key, titre, statut:"À faire",
+      assureur:p.support||"", responsable:monNom(), conseiller_id:p.conseiller_id||null,
+      description:"Créée automatiquement à la signature de l'opportunité pipeline.",
+      etapes:(mod?.items||[]).map(t=>({t, done:false})), journal:[], echeance:null, trello_id:""});
+    await state.db.loadAll();
+    toast(`📥 Opération back-office « ${titre} » créée pour ${cliAff(p.client)}`);
+  }catch(e){ /* silencieux : table operations peut-être absente (migration v37) */ }
 }
 
 /* ---------------- Signature → saisie (modale) ---------------- */
@@ -2409,7 +2430,7 @@ function renderKanban(body, rows){
         if (devientSigne) upd.probabilite = 1;
         await state.db.savePipeline(upd);
         await state.db.loadAll(); toast(`${p.client||"Opportunité"} → ${newEtape} ✓`); render();
-        if (devientSigne) signatureModal(upd);
+        if (devientSigne){ signatureModal(upd); boDepuisSignature(upd); }
       }catch(err){ toast("Erreur : "+(err.message||err)); }
     });
   });
@@ -2559,7 +2580,7 @@ function pipeModal(p, etapeInit){
         collecte_potentielle: +back.querySelector("#pm-coll").value||0,
       };
       back.remove(); await state.db.loadAll(); toast("Opportunité enregistrée ✓"); render();
-      if (!etaitSigne && nouvelleEtape === "Signé") signatureModal(opData);
+      if (!etaitSigne && nouvelleEtape === "Signé"){ signatureModal(opData); boDepuisSignature(opData); }
     }catch(err){ toast("Erreur : " + (err.message||err)); }
   });
 }
@@ -2775,8 +2796,59 @@ function bilanCardHTML(consId, week){
   </div>`;
 }
 
+/* v38 : cockpit « Ma journée » de l'ingénieur patrimonial — centré missions */
+function viewJourIngenieur(root){
+  const in14 = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
+  const ouvertes = state.missions.filter(miOuverte);
+  const aSuivre = state.missions.filter(miASuivre);
+  const proches = ouvertes.filter(m=>m.echeance && String(m.echeance).slice(0,10) <= in14 && !miEcheanceDepassee(m))
+    .sort((a,b)=>String(a.echeance).localeCompare(String(b.echeance)));
+  const retard = state.missions.filter(miEcheanceDepassee);
+  const bo = state.operations.filter(o=>o.statut!=="Terminé")
+    .sort((a,b)=>String(a.echeance||"9999").localeCompare(String(b.echeance||"9999")));
+  const aEncaisser = state.missions.reduce((a,m)=>a+Math.max(0, (+m.hono_facture||0)-(+m.hono_encaisse||0)), 0);
+  const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
+  const miRow = m => `<tr class="clickable ji-mi" data-mid="${m.id}">
+    <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
+    <td class="small">${esc(m.statut)}</td><td class="num">${miEcheanceHTML(m)}</td></tr>`;
+  root.innerHTML = `
+  ${vhead("Ma journée — missions", dateStr.charAt(0).toUpperCase()+dateStr.slice(1), `<button class="btn" id="ji-new">＋ Mission</button>`)}
+  <div class="tiles">
+    ${tile("Missions en cours", ouvertes.length)}
+    ${tile("Échéances dépassées", retard.length, retard.length? "à traiter en priorité" : "rien en retard ✓")}
+    ${tile("Échéances sous 14 jours", proches.length)}
+    ${tile("À encaisser", eur(aEncaisser), "honoraires facturés non encaissés")}
+    ${tile("Back-office ouvert", bo.length, "opérations sur contrats")}
+  </div>
+  <div class="row sect">
+    <div class="card grow">
+      <h3 class="mt0">⏰ Échéances dépassées ou absentes</h3>
+      ${aSuivre.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${aSuivre.slice(0,8).map(miRow).join("")}</tbody></table></div>
+        ${aSuivre.length>8? `<p class="small muted" style="margin-bottom:0">le reste dans la vue Missions</p>`:""}`
+        : `<div class="empty">Toutes les missions ont une échéance à venir ✓</div>`}
+    </div>
+    <div class="card grow">
+      <h3 class="mt0">📅 Prochaines échéances (14 jours)</h3>
+      ${proches.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${proches.slice(0,8).map(miRow).join("")}</tbody></table></div>`
+        : `<div class="empty">Aucune échéance sous 14 jours</div>`}
+    </div>
+    <div class="card grow">
+      <h3 class="mt0">📥 Back-office en cours</h3>
+      ${bo.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${bo.slice(0,8).map(o=>`<tr class="clickable ji-bo" data-oid="${o.id}">
+        <td><b>${esc(o.client_key? nomAffiche(o.client_key, o.client_key) : "à rattacher")}</b></td>
+        <td class="small">${esc(o.titre)}</td><td class="small">${esc(o.statut)}</td></tr>`).join("")}</tbody></table></div>
+        ${bo.length>8? `<p class="small muted" style="margin-bottom:0">le reste dans la vue Back-office</p>`:""}`
+        : `<div class="empty">Rien d'ouvert au back-office ✓</div>`}
+    </div>
+  </div>`;
+  $("#ji-new").addEventListener("click", ()=>missionModal(null));
+  root.querySelectorAll(".ji-mi").forEach(r=>r.addEventListener("click", ()=>{ const m = state.missions.find(x=>x.id===+r.dataset.mid); if (m) missionModal(m); }));
+  root.querySelectorAll(".ji-bo").forEach(r=>r.addEventListener("click", ()=>{ const o = state.operations.find(x=>x.id===+r.dataset.oid); if (o) boModal(o); }));
+}
+
 /* ---------------- Cockpit « Ma journée » ---------------- */
 function viewJour(root){
+  if (isIngenieur()) return viewJourIngenieur(root);
   const mgr = isManager();
   const meId = state.profile.conseiller_id;
   const scope = mgr? activeConseillers().map(c=>c.id) : [meId];
@@ -3054,6 +3126,9 @@ function revueEchue(info){
   if (!info.derniere_revue) return true;
   return (Date.now() - new Date(info.derniere_revue + "T00:00:00").getTime())/86400000 >= 365;
 }
+/* v38 : suivi de conformité par coches datées — MustCompliance reste la référence documentaire */
+const CONF_ITEMS = [["der","DER"],["dcc","DCC"],["profil","Profil investisseur"],["lm","Lettre de mission"],["ra","Rapport d'adéquation"]];
+function confEtat(info){ const c = info?.conformite||{}; return {faits:CONF_ITEMS.filter(([k])=>c[k]).length, total:CONF_ITEMS.length}; }
 function clientConseillers(key){
   const ids = new Set();
   const ref = state.clientsInfos.find(ci=>ci.client_key===key)?.conseiller_id;
@@ -3320,6 +3395,13 @@ function viewClients(root){
               <label class="fld"><span>Dernière revue annuelle</span><input type="date" class="ci-revue" value="${g.info.derniere_revue||""}"></label>
               <span class="small muted" style="padding-bottom:9px">Dernier mouvement : ${g.dernier? new Date(g.dernier).toLocaleDateString("fr-FR"):"—"}${g.info.maj_le? ` · fiche mise à jour le ${new Date(g.info.maj_le).toLocaleDateString("fr-FR")}`:""}</span>
             </div>
+            <div style="margin:2px 0 6px">
+              <span class="small muted" style="font-weight:700">⚖️ Conformité ${(()=>{ const e = confEtat(g.info); return `<b style="color:${e.faits===e.total? "var(--ok,#2e9e63)" : "inherit"}">${e.faits}/${e.total}</b>`; })()} <span style="font-weight:400">— coche = fait, daté automatiquement (documents dans MustCompliance)</span></span>
+              <div class="inline-controls" style="gap:12px;flex-wrap:wrap;margin-top:3px">
+                ${CONF_ITEMS.map(([k,l])=>{ const d = (g.info.conformite||{})[k];
+                  return `<label class="small" style="display:flex;align-items:center;gap:5px;cursor:pointer;margin:0"><input type="checkbox" class="ci-conf" data-k="${k}" data-key="${esc(g.key)}" ${d?"checked":""} style="width:auto">${l}${d? ` <span class="muted">(${new Date(String(d).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR")})</span>`:""}</label>`; }).join("")}
+              </div>
+            </div>
             <label class="fld"><span>Notes du cabinet (visibles par toute l'équipe)</span>
               <textarea class="ci-notes" rows="3" placeholder="contexte, famille, préférences, points d'attention…">${esc(g.info.notes||"")}</textarea></label>
             <div style="display:flex;gap:8px;flex-wrap:wrap">
@@ -3546,6 +3628,17 @@ function viewClients(root){
   }));
   root.querySelectorAll(".tl-f").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation(); state._tlF = b.dataset.f; viewClients(root);
+  }));
+  root.querySelectorAll(".ci-conf").forEach(c=>c.addEventListener("change", async e=>{
+    e.stopPropagation();
+    const key = c.dataset.key, k = c.dataset.k;
+    const info = state.clientsInfos.find(x=>x.client_key===key) || {client_key:key, statut:"Prospect", origine:"", notes:""};
+    const conf = {...(info.conformite||{})};
+    if (c.checked) conf[k] = new Date().toISOString().slice(0,10); else delete conf[k];
+    try{
+      await state.db.saveClientInfo({...info, client_key:key, conformite:conf});
+      await state.db.loadAll(); viewClients(root);
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
   root.querySelectorAll(".ci-save").forEach(b=>b.addEventListener("click", async e=>{
     e.stopPropagation();
@@ -4964,6 +5057,19 @@ function o2sCol(o, ...cands){
    v37 — BACK-OFFICE : opérations sur contrats (ex-tableau Trello)
    ================================================================ */
 const BO_STATUTS = ["À faire","Attente retour client","En cours","En cours partenaire","Relance","Terminé"];
+function boModelesDefaults(){
+  return [
+    {nom:"Souscription", items:["CNI","Justificatif de domicile","RIB","Profil investisseur / DER à jour","Origine des fonds (LCB-FT)","Bulletin de souscription signé","Versement reçu","Confirmation assureur reçue","Mise à jour O2S","Classement OneDrive"]},
+    {nom:"Arbitrage", items:["Demande client tracée (mail / RDV)","Contrôle d'adéquation au profil","Bulletin d'arbitrage signé","Envoi assureur / plateforme","Confirmation d'exécution","Mise à jour O2S","Information client"]},
+    {nom:"Rachat", items:["Demande signée du client","CNI","RIB","Option fiscale choisie","Envoi assureur","Fonds reçus par le client","Mise à jour O2S"]},
+    {nom:"Versement libre", items:["Origine des fonds (LCB-FT)","Bulletin de versement signé","Virement reçu","Contrôle d'adéquation","Confirmation assureur","Mise à jour O2S"]},
+    {nom:"Avenant / modification", items:["Demande client tracée","Document d'avenant signé","Envoi assureur","Confirmation reçue","Classement OneDrive"]},
+  ];
+}
+function boModeles(){
+  const m = state.paramsCabinet?.bo_modeles;
+  return (Array.isArray(m) && m.length)? m : boModelesDefaults();
+}
 function boProgress(o){ const et = o.etapes||[]; const done = et.filter(e=>e.done).length; return {done, total:et.length}; }
 function boClientDisp(o){ return o.client_key? nomAffiche(o.client_key, o.client_key) : ""; }
 function boCardHTML(o){
@@ -5068,6 +5174,8 @@ function boModal(o, statutInitial){
         <label class="fld"><span>Échéance</span><input type="date" id="bo-ech" value="${o.echeance? String(o.echeance).slice(0,10):""}"></label>
         <label class="fld full"><span>Description</span><textarea id="bo-desc" rows="2">${esc(o.description)}</textarea></label>
         <div class="full"><span class="small muted" style="font-weight:600">Check-list</span>
+          ${!o.etapes.length? `<select id="bo-modele" class="small" style="max-width:260px;display:block;margin:3px 0"><option value="">Appliquer un modèle… (comme les cartes modèles Trello)</option>
+            ${boModeles().map((m,i)=>`<option value="${i}">${esc(m.nom)} (${m.items.length} étapes)</option>`).join("")}</select>`:""}
           ${o.etapes.map((e,i)=>`<div class="inline-controls" style="gap:6px;margin:2px 0"><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span><button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune étape</p>`}
           <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newet" placeholder="nouvelle étape… (CNI, RIB, bulletin signé…)" style="flex:1"><button class="btn secondary small" id="bo-addet">Ajouter</button></div>
         </div>
@@ -5086,6 +5194,14 @@ function boModal(o, statutInitial){
     back.querySelector("#bo-cancel").addEventListener("click", ()=>back.remove());
     const addEt = ()=>{ const t = back.querySelector("#bo-newet").value.trim(); if (!t) return; lireForm(); o.etapes.push({t, done:false}); rendre(); };
     back.querySelector("#bo-addet").addEventListener("click", addEt);
+    back.querySelector("#bo-modele")?.addEventListener("change", e=>{
+      const m = boModeles()[+e.target.value];
+      if (!m) return;
+      lireForm();
+      o.etapes = m.items.map(t=>({t, done:false}));
+      if (!o.titre) o.titre = m.nom;
+      rendre();
+    });
     back.querySelector("#bo-newet").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addEt(); } });
     const addNote = ()=>{ const el = back.querySelector("#bo-newnote"); const n = el.value.trim(); if (!n) return; lireForm(); o.journal.push({q:new Date().toISOString(), n:monNom()+" — "+n}); rendre(); };
     back.querySelector("#bo-addnote").addEventListener("click", addNote);
@@ -5168,6 +5284,12 @@ function trelloAnalyse(d){
       n:"💬 "+(a.memberCreator?.fullName? (splitNomPrenom(a.memberCreator.fullName).prenom||a.memberCreator.fullName)+" — " : "")+String(a.data.text).replace(/\s*\n\s*/g," · ").slice(0,300)});
   const idx = trelloIndexClients();
   const dejaT = new Set(state.operations.map(o=>o.trello_id).filter(Boolean));
+  const modeles = [];
+  for (const c of d.cards){
+    if (c.closed || !O2S_NORM(listName[c.idList]||"").startsWith("model")) continue;
+    const items = (clByCard[c.id]||[]).flatMap(cl=>(cl.checkItems||[]).map(i=>i.name)).filter(Boolean);
+    if (items.length) modeles.push({nom:String(c.name).trim(), items});
+  }
   const ops = [], nonRattachees = [], arch = [];
   let dejaImportees = 0, archIgnorees = 0, archDoublons = 0;
   const archVues = new Set();
@@ -5199,7 +5321,7 @@ function trelloAnalyse(d){
       journal:(comByCard[c.id]||[]).sort((a,b)=>a.q<b.q? -1 : 1)});
     if (!m) nonRattachees.push(String(c.name).trim());
   }
-  return {ops, nonRattachees, arch, archDoublons, archIgnorees, dejaImportees};
+  return {ops, nonRattachees, arch, archDoublons, archIgnorees, dejaImportees, modeles};
 }
 async function trelloImporter(an){
   const connues = new Set(state.clientsInfos.map(ci=>ci.client_key));
@@ -5217,7 +5339,14 @@ async function trelloImporter(an){
   for (const n of an.arch) if (n.creer) await creerFiche(n.client_key, n.creer);
   await state.db.addOperationsBulk(an.ops.map(({creer, ...o})=>o));
   await state.db.addInteractionsBulk(an.arch.map(({creer, ...n})=>n));
-  return {fichesCreees};
+  let modelesRepris = 0;
+  if (an.modeles?.length && isManager()){
+    /* fusion : les modèles Trello remplacent ceux de même nom, les autres restent */
+    const parNom = new Map(boModeles().map(m=>[O2S_NORM(m.nom), m]));
+    for (const m of an.modeles){ parNom.set(O2S_NORM(m.nom), m); modelesRepris++; }
+    try{ await state.db.saveParamsCabinet({...(state.paramsCabinet||{}), bo_modeles:[...parNom.values()]}); }catch(e){}
+  }
+  return {fichesCreees, modelesRepris};
 }
 function trelloApercu(an){
   const ratt = an.ops.filter(o=>o.client_key).length;
@@ -5661,7 +5790,8 @@ function viewParam(root){
         <td><input type="email" class="pp-email" value="${esc(pr.email)}" style="width:230px"></td>
         <td><select class="pp-role"><option value="manager" ${pr.role==="manager"?"selected":""}>Manager</option>
             <option value="conseiller" ${pr.role==="conseiller"?"selected":""}>Conseiller</option>
-            <option value="suivi" ${pr.role==="suivi"?"selected":""}>Suivi (sans objectifs)</option></select>
+            <option value="suivi" ${pr.role==="suivi"?"selected":""}>Suivi (sans objectifs)</option>
+            <option value="ingenieur" ${pr.role==="ingenieur"?"selected":""}>Ingénieur patrimonial (missions)</option></select>
             ${pr.role==="suivi"? `<br><select class="pp-scope small" style="margin-top:4px" title="Périmètre du profil Suivi">
               <option value="" ${!(pr.vues&&pr.vues.length)?"selected":""}>Standard — clients, pipeline, missions</option>
               <option value="etendu" ${(pr.vues&&pr.vues.length)?"selected":""}>Étendu — + dashboard, propositions, rapport</option></select>`:""}</td>
@@ -5850,7 +5980,7 @@ function viewParam(root){
     try{
       const r = await trelloImporter(an);
       await state.db.loadAll();
-      toast(`Import Trello ✓ — ${an.ops.length} opération(s), ${an.arch.length} carte(s) archivée(s) en mémoire client${r.fichesCreees? `, ${r.fichesCreees} fiche(s) créée(s)`:""}`);
+      toast(`Import Trello ✓ — ${an.ops.length} opération(s), ${an.arch.length} carte(s) archivée(s) en mémoire client${r.fichesCreees? `, ${r.fichesCreees} fiche(s) créée(s)`:""}${r.modelesRepris? `, ${r.modelesRepris} modèle(s) repris`:""}`);
       state._trello = null; render();
     }catch(err){ toast("Erreur d'import : "+(err.message||err)); btn.disabled = false; btn.textContent = "Importer"; }
   });
@@ -6102,6 +6232,7 @@ const VIEWS = {
   param:{label:"Paramétrage", icon:ICONS.gear, fn:viewParam, manager:true},
 };
 function allowedViews(){
+  if (isIngenieur()) return ["jour","clients","pipeline","missions","backoffice"].map(k=>[k, k==="jour"? {...VIEWS.jour, label:"Ma journée"} : VIEWS[k]]);
   if (isSuivi()) return suiviVues().filter(k=>VIEWS[k]).map(k=>[k, VIEWS[k]]);
   return Object.entries(VIEWS).filter(([k,v]) => isManager() || !v.manager)
     .map(([k,v]) => [k, k==="fiche" && !isManager() ? {...v, label:"Ma semaine"}
@@ -6128,7 +6259,7 @@ function render(){
         <button class="theme-btn" id="theme-toggle" title="Changer de thème">${ICONS.sun}<span class="nav-label">Thème</span></button>
         <div class="user-mini">
           <b>${esc(myConseiller()?.nom || state.profile.email)}</b>
-          <span>${state.profile.role==="manager"?"Manager":state.profile.role==="suivi"?"Suivi":"Conseiller"}</span><br>
+          <span>${state.profile.role==="manager"?"Manager":state.profile.role==="suivi"?"Suivi":state.profile.role==="ingenieur"?"Ingénieur patrimonial":"Conseiller"}</span><br>
           <button id="logout">Déconnexion</button>
         </div>
       </div>
@@ -6176,8 +6307,8 @@ function renderLogin(app){
       b.className = pr.role==="manager"? "btn" : "btn secondary";
       b.style.justifyContent = "center";
       const nom = db.conseillers.find(c=>c.id===pr.conseiller_id)?.nom
-        || (pr.role==="suivi"? pr.email.split("@")[0].replace(/^./, ch=>ch.toUpperCase()) : pr.email);
-      b.textContent = pr.role==="manager"? `${nom} — Manager` : pr.role==="suivi"? `${nom} — Suivi` : `${nom} — Conseiller`;
+        || ((pr.role==="suivi"||pr.role==="ingenieur")? pr.email.split("@")[0].replace(/^./, ch=>ch.toUpperCase()) : pr.email);
+      b.textContent = pr.role==="manager"? `${nom} — Manager` : pr.role==="suivi"? `${nom} — Suivi` : pr.role==="ingenieur"? `${nom} — Ingénieur patrimonial` : `${nom} — Conseiller`;
       b.addEventListener("click", async ()=>{
         state.profile = {...pr};
         try{ await state.db.logConnexion(pr); }catch(e){}
