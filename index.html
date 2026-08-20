@@ -1115,9 +1115,9 @@ class DemoDB {
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
       ...this.conseillers.map(c=>({email:c.nom.toLowerCase().normalize("NFD").replace(/[^a-z]/g,"")+"@demo.fr", role:"conseiller", conseiller_id:c.id})),
-      {email:"lina@demo.fr", role:"ingenieur", conseiller_id:null},
-      {email:"stephanie@demo.fr", role:"suivi", conseiller_id:null},
-      {email:"malay@demo.fr", role:"suivi", conseiller_id:null, vues:["dashboard","pipeline","clients","propositions","missions","rapport"]},
+      {email:"lina@demo.fr", role:"ingenieur", conseiller_id:null, nom_affichage:"Lina"},
+      {email:"stephanie@demo.fr", role:"suivi", conseiller_id:null, nom_affichage:"Stéphanie"},
+      {email:"malay@demo.fr", role:"suivi", conseiller_id:null, nom_affichage:"Malay", vues:["dashboard","pipeline","clients","propositions","missions","rapport"]},
     ];
   }
   _mine(consId){ // cloisonnement identique aux règles RLS
@@ -1473,7 +1473,9 @@ function suiviVues(){
 function isIngenieur(){ return state.profile?.role === "ingenieur"; }   /* v38 : ingénieur patrimonial (Lina) */
 function voitTout(){ return isManager() || isSuivi() || isIngenieur(); }   // visibilité étendue (manager + suivi + ingénieur)
 function monNom(){
-  /* nom d'affichage de la personne connectée : conseiller lié, sinon dérivé de l'e-mail */
+  /* nom de la personne connectée : nom d'affichage choisi, sinon conseiller lié, sinon dérivé de l'e-mail */
+  const na = String(state.profile?.nom_affichage||"").trim();
+  if (na) return na;
   const c = myConseiller(); if (c) return c.nom;
   const base = String(state.profile?.email||"").split("@")[0];
   const joli = base.split(/[._-]+/).filter(Boolean).map(s=>s[0].toUpperCase()+s.slice(1)).join(" ");
@@ -5862,10 +5864,11 @@ function viewParam(root){
       et à sa fiche conseiller — c'est lui qui décide de ce que la personne voit.
     </div>
     <div class="tbl-scroll"><table class="tbl">
-      <thead><tr><th>Email de connexion</th><th>Rôle</th><th>Conseiller associé</th><th>Dernière connexion</th><th></th></tr></thead>
+      <thead><tr><th>Email de connexion</th><th>Nom d'affichage</th><th>Rôle</th><th>Conseiller associé</th><th>Dernière connexion</th><th></th></tr></thead>
       <tbody>
       ${state.profiles.map(pr=>`<tr data-email="${esc(pr.email)}">
         <td><input type="email" class="pp-email" value="${esc(pr.email)}" style="width:230px"></td>
+        <td><input type="text" class="pp-nom" value="${esc(pr.nom_affichage||"")}" placeholder="ex : Lina" style="width:110px" title="Signe les échanges et s'affiche dans l'application — laisser vide pour utiliser le nom du conseiller associé ou l'e-mail"></td>
         <td><select class="pp-role"><option value="manager" ${pr.role==="manager"?"selected":""}>Manager</option>
             <option value="conseiller" ${pr.role==="conseiller"?"selected":""}>Conseiller</option>
             <option value="suivi" ${pr.role==="suivi"?"selected":""}>Suivi (sans objectifs)</option>
@@ -6000,6 +6003,7 @@ function viewParam(root){
       const scope = tr.querySelector(".pp-scope")?.value || "";
       await state.db.saveProfile({
         email:tr.querySelector(".pp-email").value.trim().toLowerCase(),
+        nom_affichage:tr.querySelector(".pp-nom").value.trim(),
         role:roleSel,
         conseiller_id:tr.querySelector(".pp-cons").value? +tr.querySelector(".pp-cons").value : null,
         vues: roleSel==="suivi" && scope==="etendu"? SUIVI_VUES_ETENDU : null,
@@ -6336,7 +6340,7 @@ function render(){
       <div class="side-bottom">
         <button class="theme-btn" id="theme-toggle" title="Changer de thème">${ICONS.sun}<span class="nav-label">Thème</span></button>
         <div class="user-mini">
-          <b>${esc(myConseiller()?.nom || state.profile.email)}</b>
+          <b>${esc(String(state.profile.nom_affichage||"").trim() || myConseiller()?.nom || state.profile.email)}</b>
           <span>${state.profile.role==="manager"?"Manager":state.profile.role==="suivi"?"Suivi":state.profile.role==="ingenieur"?"Ingénieur patrimonial":"Conseiller"}</span><br>
           <button id="logout">Déconnexion</button>
         </div>
