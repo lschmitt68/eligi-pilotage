@@ -1747,6 +1747,7 @@ function viewDashboard(root){
         const rel = aRelancer(state.pipeline).length;
         const props = propoARelancer().length;
         const revs = state.clientsInfos.filter(ci=>revueEchue(ci)).length;
+        const scx = sansContact().length;
         const miss = state.missions.filter(m=>miEcheanceDepassee(m)).length + state.missions.filter(m=>miSansEcheance(m)).length;
         const mj = macroJours();
         const items = [
@@ -1754,6 +1755,7 @@ function viewDashboard(root){
           rel? {ico:"🔥", txt:`${rel} dossier(s) pipeline à relancer`, nav:"pipeline"} : null,
           props? {ico:"📄", txt:`${props} proposition(s) envoyée(s) sans réponse ≥ ${PROPO_RELANCE_J} j`, nav:"propositions"} : null,
           revs? {ico:"📆", txt:`${revs} revue(s) annuelle(s) à programmer`, nav:"clients"} : null,
+          scx? {ico:"💤", txt:`${scx} client(s) sans contact depuis ≥ ${contactAlerteJ()} j — reprendre le lien`, nav:"clients"} : null,
           miss? {ico:"🧰", txt:`${miss} mission(s) à suivre (échéance dépassée ou absente)`, nav:"missions"} : null,
           (mj===null || mj>30)? {ico:"📈", txt:`Contexte macro ${mj===null? "jamais actualisé" : "actualisé il y a "+mj+" jours"}`, nav:"param"} : null,
         ].filter(Boolean);
@@ -2730,6 +2732,7 @@ function viewJour(root){
     .sort((a,b)=>String(a.last||"").localeCompare(String(b.last||"")));
   const cur = weekCodes().includes(todayWeekCode())? todayWeekCode() : state.week;
   const noSaisie = mgr? activeConseillers().filter(c=>!isConge(c.id,cur) && !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===cur)) : [];
+  const sansCx = sansContact().filter(x=>{ if (mgr) return true; const cc = clientConseillers(x.key); return !cc.length || cc.includes(meId); });
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const opRow = (p, extra="") => `<tr class="clickable jr-op" data-id="${p.id}">
     ${mgr? `<td><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span></td>`:""}
@@ -2753,6 +2756,7 @@ function viewJour(root){
     ${tile("Closings sous 14 jours", closings.length)}
     ${tile("Signatures probables", sig.length, eur(sig.reduce((a,p)=>a+pondere(p),0)) + " pondérés")}
     ${tile("Revues annuelles", revues.length, revues.length? "clients à revoir (conformité)" : "à jour ✓")}
+    ${tile("Clients sans contact", sansCx.length, sansCx.length? `aucun échange depuis ≥ ${contactAlerteJ()} j` : "relation suivie ✓")}
     ${(()=>{ const pr = propoARelancer(); return tile("Propositions sans réponse", pr.length,
       pr.length? `envoyées depuis ≥ ${PROPO_RELANCE_J} j — à relancer` : "aucune en attente ✓"); })()}
     ${tile("Missions à suivre", missTard.length + missSans.length,
@@ -2814,6 +2818,15 @@ function viewJour(root){
         ${revues.length>6? `<p class="small muted" style="margin-bottom:0">+ ${revues.length-6} autres — ouvre la vue Clients</p>`:""}`
         : `<div class="empty">Aucune revue annuelle en retard ✓</div>`}
     </div>
+    <div class="card grow">
+      <h3 class="mt0">💤 Clients sans nouvelles</h3>
+      ${sansCx.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${sansCx.slice(0,6).map(x=>`<tr class="clickable jr-sc" data-key="${esc(x.key)}">
+        <td><b>${esc(x.name)}</b></td>
+        <td class="num small muted">${x.j===null? "aucun échange enregistré" : `dernier contact il y a <b>${x.j} j</b>`}</td></tr>`).join("")}</tbody></table></div>
+        ${sansCx.length>6? `<p class="small muted" style="margin-bottom:0">+ ${sansCx.length-6} autres — ouvre la vue Clients</p>`:""}
+        <p class="small muted" style="margin-bottom:0">Un appel de courtoisie suffit souvent — pense à le noter dans la fiche pour lever l'alerte.</p>`
+        : `<div class="empty">Tous les clients ont eu un contact récent (&lt; ${contactAlerteJ()} j) ✓</div>`}
+    </div>
     ${!mgr && meId? bilanCardHTML(meId, cur) : ""}
   </div>`;
 
@@ -2831,7 +2844,7 @@ function viewJour(root){
     const p = state.pipeline.find(x=>x.id===+r.dataset.id);
     if (p) pipeModal(p);
   }));
-  root.querySelectorAll(".jr-rev").forEach(r=>r.addEventListener("click", ()=>{
+  root.querySelectorAll(".jr-rev, .jr-sc").forEach(r=>r.addEventListener("click", ()=>{
     state._cliOpen = r.dataset.key; state._cliSearch = "";
     go("clients");
   }));
@@ -3107,7 +3120,11 @@ function viewClients(root){
     <tbody>${list.map((g,i)=>`
       <tr class="clickable cli-row" data-key="${esc(g.key)}" title="Ouvrir la fiche client">
         <td><b>${esc(g.disp)}</b></td>
-        <td>${statutBadge(g.info.statut)}${revueEchue(g.info)? ` <span class="badge watch" title="Revue annuelle à programmer (dernière : ${g.info.derniere_revue? new Date(g.info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "jamais"})"><span class="dot"></span>Revue due</span>`:""}</td>
+        <td>${statutBadge(g.info.statut)}${revueEchue(g.info)? ` <span class="badge watch" title="Revue annuelle à programmer (dernière : ${g.info.derniere_revue? new Date(g.info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "jamais"})"><span class="dot"></span>Revue due</span>`:""}${(()=>{
+          if (g.info.statut!=="Client") return "";
+          const j = contactJours(g.key);
+          return (j===null || j>=contactAlerteJ())? ` <span class="badge watch" title="Aucun échange enregistré ${j===null? "sur cette fiche" : "depuis "+j+" jours"} — programmer une prise de contact">💤 ${j===null? "jamais contacté" : j+" j"}</span>` : "";
+        })()}</td>
         <td>${(g.cons.length? g.cons : (g.info.conseiller_id? [g.info.conseiller_id] : [])).map(id=>`<span class="cdot" style="background:${consColor(id)}" title="${esc(consName(id))}"></span>`).join("") || "—"}</td>
         <td class="num">${g.rows.length}</td>
         <td class="num">${eur(g.coll)}</td>
@@ -4443,6 +4460,31 @@ function miSansEcheance(m){
   return miOuverte(m) && m.statut !== "À démarrer" && !m.echeance;
 }
 const miASuivre = m => miEcheanceDepassee(m) || miSansEcheance(m);
+/* v32 : relance des clients sans contact */
+const CONTACT_ALERTE_J_DEF = 90;
+function contactAlerteJ(){ const v = +state.paramsCabinet?.contact_alerte_j; return v>0? v : CONTACT_ALERTE_J_DEF; }
+function dernierContactT(key){
+  /* dernier signe de vie du dossier : échange saisi, mouvement pipeline, mission (création + journal), revue */
+  let t = 0;
+  for (const i of state.interactions) if (i.client_key===key) t = Math.max(t, new Date(i.quand||0).getTime());
+  for (const p of state.pipeline) if (normName(p.client||"")===key) t = Math.max(t, new Date(p.updated_at||p.created_at||0).getTime());
+  for (const m of state.missions) if (m.client_key===key){
+    t = Math.max(t, new Date(m.created_at||0).getTime());
+    for (const j of (m.journal||[])) t = Math.max(t, new Date(j.q||0).getTime());
+  }
+  const ci = state.clientsInfos.find(x=>x.client_key===key);
+  if (ci?.derniere_revue) t = Math.max(t, new Date(ci.derniere_revue+"T12:00:00").getTime());
+  if (!t && ci?.maj_le) t = new Date(ci.maj_le).getTime();
+  return t;
+}
+function contactJours(key){ const t = dernierContactT(key); return t? Math.floor((Date.now()-t)/86400000) : null; }
+function sansContact(){
+  const seuil = contactAlerteJ();
+  return state.clientsInfos.filter(ci=>ci.statut==="Client")
+    .map(ci=>({key:ci.client_key, name:nomAffiche(ci.client_key, ci.nom||ci.client_key), j:contactJours(ci.client_key)}))
+    .filter(x=>x.j===null || x.j>=seuil)
+    .sort((a,b)=>(b.j??99999)-(a.j??99999));
+}
 function miProgress(m){
   const et = m.etapes||[]; const done = et.filter(e=>e.done).length;
   return {done, total:et.length, pct: et.length? done/et.length : 0};
@@ -4769,6 +4811,11 @@ function propoParamsEditorHTML(){
           <label class="fld" style="min-width:140px"><span>Rétrocessions (%)</span><input type="number" id="ppar-retro" value="${pc(P.honoraires.retro)}" step="0.05"></label>
           <label class="fld" style="min-width:170px" title="Frais annuels des fonds actifs classiques, pour le comparatif du document"><span>Fonds classiques (%/an)</span><input type="number" id="ppar-fcl" value="${pc(P.fraisClassique ?? .025)}" step="0.05"></label>
         </div>
+        <h3>Suivi relation client</h3>
+        <div class="inline-controls">
+          <label class="fld" style="min-width:230px" title="Un client (statut Client) sans aucun échange ni mouvement depuis ce nombre de jours remonte en alerte : cockpit, dashboard et liste clients"><span>Alerte « sans contact » (jours)</span><input type="number" id="ppar-scj" value="${contactAlerteJ()}" min="7" step="1"></label>
+          <span class="small muted" style="padding-bottom:9px">90 j par défaut — comptés depuis le dernier échange, mouvement pipeline, mission ou revue.</span>
+        </div>
       </div>
       <div class="card grow" style="min-width:430px">
         <h3 class="mt0">Grille d'allocation cible (%) par profil</h3>
@@ -4825,6 +4872,7 @@ function bindPropoParamsEditor(root){
                   suivi:+card.querySelector("#ppar-suivi").value||0,
                   retro:(+card.querySelector("#ppar-retro").value||0)/100},
       fraisClassique:(+card.querySelector("#ppar-fcl").value||2.5)/100,
+      contact_alerte_j: Math.max(7, Math.round(+card.querySelector("#ppar-scj").value||CONTACT_ALERTE_J_DEF)),
     };
     try{ await state.db.saveParamsCabinet(data); await state.db.loadAll(); toast("Paramètres du cabinet enregistrés ✓"); render(); }
     catch(err){ toast("Erreur : "+(err.message||err)); }
