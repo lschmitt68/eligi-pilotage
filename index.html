@@ -2244,8 +2244,12 @@ function viewPipeline(root){
   const q = (state._pipeSearch||"").toLowerCase();
   const fEtape = state._pipeEtape || "";
   const fCons = voitTout()? (state._pipeCons ?? "") : String(state.profile.conseiller_id);
+  /* v33 : campagnes filtrables — actives + celles encore référencées par des dossiers */
+  const campOpts = [...new Map([...campagnesActives(), ...state.campagnes.filter(c=>state.pipeline.some(p=>p.campagne_id===c.id))].map(c=>[c.id,c])).values()];
+  const fCamp = (state._pipeCamp && campOpts.some(c=>String(c.id)===String(state._pipeCamp)))? String(state._pipeCamp) : "";
   let rows = state.pipeline.filter(p =>
     (!fCons || p.conseiller_id===+fCons) &&
+    (!fCamp || String(p.campagne_id)===fCamp) &&
     (!q || (p.client||"").toLowerCase().includes(q) || (p.prochaine_action||"").toLowerCase().includes(q)));
   const nRelance = aRelancer(rows).length;
   if (state._pipeStale) rows = aRelancer(rows);
@@ -2266,6 +2270,9 @@ function viewPipeline(root){
       <input type="search" id="pi-search" placeholder="ex : Nectoux…" value="${esc(state._pipeSearch||"")}"></label>
     ${voitTout()? `<label class="fld"><span>Conseiller</span><select id="pi-cons"><option value="">Tous</option>
       ${activeConseillers().map(c=>`<option value="${c.id}" ${String(c.id)===String(fCons)?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`:""}
+    ${campOpts.length? `<label class="fld"><span>Campagne</span><select id="pi-camp"><option value="">Toutes</option>
+      ${campOpts.map(c=>{ const j = campagneJoursRestants(c);
+        return `<option value="${c.id}" ${String(c.id)===fCamp?"selected":""}>🚀 ${esc(c.nom)}${j>=0? ` (J-${j})` : " (terminée)"}</option>`; }).join("")}</select></label>`:""}
     ${state._pipeView==="table"? `<label class="fld"><span>Étape</span><select id="pi-etape"><option value="">Toutes</option>
       ${ETAPES.map(e=>`<option ${e===fEtape?"selected":""}>${e}</option>`).join("")}</select></label>`:""}
     ${nRelance? `<button class="chip ${state._pipeStale?"warn":""}" id="pi-stale" style="margin-bottom:8px" title="Sans mouvement depuis ${STALE_JOURS} j ou closing dépassé">🔥 À relancer (${nRelance})</button>`:""}
@@ -2273,6 +2280,8 @@ function viewPipeline(root){
     <div class="small muted" style="padding-bottom:8px">
       <b>${rows.length}</b> opportunités · pondéré <b>${eur(pond)}</b> · dont signé <b>${eur(signe)}</b></div>
   </div>
+  ${fCamp? (()=>{ const cp = state.campagnes.find(c=>String(c.id)===fCamp);
+    return cp? `<div class="row" style="margin-bottom:12px">${campagneCardHTML(cp, fCons? +fCons : null)}</div>` : ""; })() : ""}
   <div id="pi-body"></div>
 
   <div class="sect sect-head"><h2>Entonnoir de conversion</h2>
@@ -2290,11 +2299,14 @@ function viewPipeline(root){
     state._pipeSearch = e.target.value;
     const q2 = e.target.value.toLowerCase();
     let r2 = state.pipeline.filter(p => (!fCons || p.conseiller_id===+fCons) &&
+      (!fCamp || String(p.campagne_id)===fCamp) &&
       (!q2 || (p.client||"").toLowerCase().includes(q2) || (p.prochaine_action||"").toLowerCase().includes(q2)));
     if (state._pipeView === "kanban") renderKanban(body, r2);
     else renderPipeTable(body, r2.filter(p=>!state._pipeEtape || p.etape===state._pipeEtape).sort((a,b)=>pondere(b)-pondere(a)));
   });
   if (voitTout()) $("#pi-cons")?.addEventListener("change", e=>{ state._pipeCons = e.target.value; render(); });
+  $("#pi-camp")?.addEventListener("change", e=>{ state._pipeCamp = e.target.value; render(); });
+  bindCampagnes(root);
   $("#pi-etape")?.addEventListener("change", e=>{ state._pipeEtape = e.target.value; render(); });
 }
 
@@ -2304,6 +2316,7 @@ function kcardHTML(p){
       <span class="kc-name">${esc(cliAff(p.client))}</span>
       <span class="kpond">${eur(pondere(p))}</span></div>
     <div class="kmeta"><span class="tag">${esc(p.support)}</span><span>${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</span>
+      ${p.campagne_id? `<span class="tag" title="Campagne : ${esc(state.campagnes.find(c=>c.id===p.campagne_id)?.nom||"")}">🚀</span>`:""}
       ${p.signature_probable? `<span class="ksig">SIGNATURE ?</span>`:""}
       ${isOverdue(p)? `<span class="ksig">⏰ CLOSING DÉPASSÉ</span>` : isStale(p)? `<span class="ksleep">💤 ${staleDays(p)} j sans mouvement</span>`:""}</div>
     ${p.prochaine_action? `<div class="kmeta" style="margin-top:4px">→ ${esc(p.prochaine_action)}</div>`:""}
