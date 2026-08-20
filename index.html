@@ -3495,7 +3495,7 @@ function viewClients(root){
               const dj = g.dernier? Math.floor((Date.now()-g.dernier)/86400000) : null;
               return `<div class="ci-stats">📞 ${nApp} · 🤝 ${nRdv} · ${ixAn.length} échange(s) cette année${dj!==null? ` · dernier contact <b>${dj===0? "aujourd'hui" : "il y a "+dj+" j"}</b>`:""}</div>`; })()}
             ${(()=>{ const rows = [...g.rows].sort((a,b)=>pondere(b)-pondere(a));
-              return `<div class="tl-subhead" style="display:flex;justify-content:space-between;align-items:center">🧭 Dossiers en cours (${rows.length})
+              return `<div class="tl-subhead" style="display:flex;justify-content:space-between;align-items:center">🧭 Dossiers pipeline (${rows.length})
                 <button class="btn secondary small cli-op-add" data-nom="${esc(g.name)}">＋ Opportunité</button></div>` +
               (rows.length? `<div class="tbl-scroll" style="margin-bottom:2px"><table class="tbl dense"><tbody>${rows.slice(0,4).map(p=>`
                 <tr class="clickable cli-op" data-id="${p.id}">
