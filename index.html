@@ -4832,16 +4832,65 @@ function o2sCol(o, ...cands){
   for (const k of Object.keys(o)) for (const c of cands) if (O2S_NORM(k).includes(O2S_NORM(c))) return o[k];
   return undefined;
 }
+function o2sTokEq(s){ return normName(s).split(" ").filter(Boolean).sort().join("|"); }
+function o2sClesExistantes(){
+  const m = new Map();
+  for (const ci of state.clientsInfos) if (!m.has(ci.client_key)) m.set(ci.client_key, nomAffiche(ci.client_key, ci.nom||ci.client_key));
+  for (const p of state.pipeline){ const k = normName(p.client||""); if (k && !m.has(k)) m.set(k, (p.client||"").trim()); }
+  return m;
+}
+function o2sResolutionMap(noms){
+  /* pour chaque nom O2S : la clé de fiche à utiliser (existante si rapprochable) + les cas incertains */
+  const cles = o2sClesExistantes();
+  const res = new Map(); const incertains = []; const restants = [];
+  for (const brut of [...new Set(noms)]){
+    const spl = splitNomPrenom(brut);
+    const key = normName(brut);
+    if (cles.has(key)){ res.set(brut, {key, mode:"exact", label:cles.get(key)}); continue; }
+    const inv = normName((spl.prenom+" "+spl.nom).trim());
+    if (inv && cles.has(inv)){ res.set(brut, {key:inv, mode:"ordre inversé", label:cles.get(inv)}); continue; }
+    const cible = o2sTokEq(brut);
+    let hit = null;
+    for (const [k, lbl] of cles) if (o2sTokEq(k) === cible){ hit = {key:k, mode:"mêmes mots", label:lbl}; break; }
+    if (hit){ res.set(brut, hit); continue; }
+    restants.push(brut);
+  }
+  for (const brut of restants){
+    const toks = normName(brut).split(" ").filter(Boolean);
+    const tokSet = new Set(toks);
+    const cands = [];
+    for (const [k, lbl] of cles){
+      const kt = normName(k).split(" ").filter(Boolean);
+      if (kt.length && kt.length < toks.length && kt.every(t=>tokSet.has(t))) cands.push([k, lbl]);
+    }
+    if (!cands.length){ res.set(brut, {key:normName(brut), mode:"nouveau", label:""}); continue; }
+    const partage = k => restants.filter(b2=>{
+      const s2 = new Set(normName(b2).split(" ").filter(Boolean));
+      return normName(k).split(" ").filter(Boolean).every(t=>s2.has(t));
+    }).length;
+    if (cands.length === 1 && partage(cands[0][0]) === 1)
+      res.set(brut, {key:cands[0][0], mode:"rapproché", label:cands[0][1]});
+    else {
+      res.set(brut, {key:normName(brut), mode:"nouveau", label:""});
+      incertains.push({nom:brut, proches:cands.map(c=>c[1])});
+    }
+  }
+  return {res, incertains};
+}
 function o2sAnalyseClients(objs){
   const lignes = objs.filter(o=>String(o["Nom"]||"").trim() && !/^total$/i.test(String(o["Titre"]||"").trim()));
   /* groupes familiaux suggérés : premier mot du nom partagé par ≥ 2 lignes */
   const parNom = {};
   for (const o of lignes){ const t = O2S_NORM(String(o["Nom"]).split(/\s+/)[0]); (parNom[t] = parNom[t]||[]).push(o); }
-  const out = [];
+  const {res, incertains} = o2sResolutionMap(lignes.map(o=>String(o["Nom + Prénom"]||`${String(o["Nom"]).trim()} ${String(o["Prénom"]||"").trim()}`).trim()));
+  const out = []; const vusCles = new Set();
   for (const o of lignes){
     const nomF = String(o["Nom"]).trim(), pre = String(o["Prénom"]||"").trim();
     const brut = String(o["Nom + Prénom"]||`${nomF} ${pre}`).trim();
-    const key = normName(brut);
+    const r = res.get(brut) || {key:normName(brut), mode:"nouveau", label:""};
+    const key = r.key;
+    if (vusCles.has(key)) continue;
+    vusCles.add(key);
     const exist = state.clientsInfos.find(ci=>ci.client_key===key) || null;
     const cons = o2sMatchConseiller(o["Conseiller principal"]);
     const tok = O2S_NORM(nomF.split(/\s+/)[0]);
@@ -4858,9 +4907,10 @@ function o2sAnalyseClients(objs){
       dossier: String(o["Code dossier"]||"").trim(),
       cons_id: cons?.id || null,
       groupe: (parNom[tok]||[]).length >= 2? "Famille " + nomF.split(/\s+/)[0] : "",
+      match: r.mode, matchLabel: r.label,
     });
   }
-  return out;
+  return {items:out, incertains};
 }
 async function o2sImporterClients(items){
   let crees = 0, maj = 0;
@@ -4892,12 +4942,13 @@ async function o2sImporterClients(items){
 const O2S_MODES = {email:"Email", "téléphone":"Appel", telephone:"Appel", "rendez-vous":"RDV", rdv:"RDV"};
 function o2sAnalyseSuivis(objs){
   const today = new Date().toISOString().slice(0,10);
-  const vus = new Set(); const out = {suivis:[], doublons:0, revues:{}, relances:[], fiches:new Set()};
+  const {res, incertains} = o2sResolutionMap(objs.map(o=>String(o["Client"]||"").trim()).filter(Boolean));
+  const vus = new Set(); const out = {suivis:[], doublons:0, revues:{}, relances:[], fiches:new Set(), incertains};
   for (const o of objs){
     const brut = String(o["Client"]||"").trim();
     const date = o2sParseDate(o["Date du suivi"]) || o2sParseDate(o["Date de création"]);
     if (!brut || !date) continue;
-    const key = normName(brut);
+    const key = (res.get(brut)?.key) || normName(brut);
     const objet = O2S_VIDE(o["Objet du suivi"])? "" : String(o["Objet du suivi"]).trim();
     const noteC = O2S_VIDE(o["Note"])? "" : String(o["Note"]).replace(/\s*\n\s*/g," · ").trim().slice(0,400);
     const note = [objet, noteC].filter(Boolean).join(" — ") || String(o["Type du suivi"]||"Suivi O2S").trim();
@@ -4910,7 +4961,7 @@ function o2sAnalyseSuivis(objs){
     const mode = O2S_NORM(o["Mode de suivi"]);
     out.suivis.push({client_key:key, client:brut, conseiller_id:cons?.id||null, auteur,
       type:O2S_MODES[mode] || "Note", note, quand:date+"T12:00:00"});
-    out.fiches.add(brut);
+    out.fiches.add(JSON.stringify([key, brut]));
     if (/adequation|adéquation|revue/i.test(O2S_NORM(o["Type du suivi"])+" "+O2S_NORM(objet)))
       out.revues[key] = (out.revues[key]||"") < date? date : out.revues[key];
     const dRel = o2sParseDate(o["Date de relance"]);
@@ -4925,8 +4976,8 @@ function o2sAnalyseSuivis(objs){
 async function o2sImporterSuivis(an){
   let fichesCreees = 0;
   const connues = new Map(state.clientsInfos.map(ci=>[ci.client_key, ci]));
-  for (const brut of an.fiches){
-    const key = normName(brut);
+  for (const f of an.fiches){
+    const [key, brut] = JSON.parse(f);
     if (!connues.has(key)){
       const spl = splitNomPrenom(brut);
       const info = {client_key:key, nom:brut, statut:"Client", origine:"", notes:"", nom_famille:spl.nom, prenom:spl.prenom};
@@ -4944,16 +4995,26 @@ async function o2sImporterSuivis(an){
   for (const a of an.relances) await state.db.saveAction(a);
   return {fichesCreees};
 }
+function o2sIncertainsHTML(incertains){
+  if (!incertains?.length) return "";
+  return `<div class="helpbox" style="border-left:3px solid var(--warn);margin:6px 0">⚠️ <b>${incertains.length} rapprochement(s) incertain(s)</b> — une fiche distincte sera créée ; vérifiez après import et fusionnez si besoin (fiche → « Renommer / fusionner ») :
+    <ul class="small" style="margin:4px 0 0 18px">${incertains.slice(0,6).map(x=>`<li><b>${esc(x.nom)}</b> ressemble à : ${x.proches.map(esc).join(", ")}</li>`).join("")}</ul>
+    ${incertains.length>6? `<p class="small muted" style="margin:2px 0 0">… et ${incertains.length-6} autres</p>`:""}</div>`;
+}
 function o2sApercu(type, data){
   if (type === "clients"){
-    const nv = data.filter(x=>!x.exist).length;
-    return `<p class="small" style="margin:8px 0 4px"><b>${data.length}</b> client(s) reconnus — <b>${nv}</b> à créer, <b>${data.length-nv}</b> fiche(s) existante(s) à compléter (sans écraser l'existant).</p>
-      <ul class="small muted" style="margin:0 0 4px 18px">${data.slice(0,8).map(x=>`<li><b>${esc(x.nom)}</b> — ${x.exist? "existant" : "nouveau"}${x.cons_id? " · référent "+esc(consName(x.cons_id)) : ""}${x.naissance? " · né(e) "+new Date(x.naissance+"T00:00:00").toLocaleDateString("fr-FR") : ""}${x.groupe? " · "+esc(x.groupe) : ""}</li>`).join("")}</ul>
-      ${data.length>8? `<p class="small muted">… et ${data.length-8} autres</p>`:""}`;
+    const items = data.items;
+    const nv = items.filter(x=>!x.exist && x.match==="nouveau").length;
+    const rap = items.filter(x=>x.match!=="exact" && x.match!=="nouveau").length;
+    return `<p class="small" style="margin:8px 0 4px"><b>${items.length}</b> client(s) reconnus — <b>${nv}</b> à créer, <b>${items.length-nv}</b> rattachés à une fiche ou un dossier existants${rap? ` (dont <b>${rap}</b> rapprochés malgré une écriture différente)`:""} — aucun champ existant n'est écrasé.</p>
+      <ul class="small muted" style="margin:0 0 4px 18px">${items.slice(0,8).map(x=>`<li><b>${esc(x.nom)}</b> — ${x.match==="nouveau"? (x.exist? "existant" : "nouveau") : (x.match==="exact"? "existant" : `↪ rattaché à « ${esc(x.matchLabel)} » (${esc(x.match)})`)}${x.cons_id? " · référent "+esc(consName(x.cons_id)) : ""}${x.naissance? " · né(e) "+new Date(x.naissance+"T00:00:00").toLocaleDateString("fr-FR") : ""}${x.groupe? " · "+esc(x.groupe) : ""}</li>`).join("")}</ul>
+      ${items.length>8? `<p class="small muted">… et ${items.length-8} autres</p>`:""}
+      ${o2sIncertainsHTML(data.incertains)}`;
   }
   return `<p class="small" style="margin:8px 0 4px"><b>${data.suivis.length}</b> suivi(s) à importer · <b>${data.doublons}</b> doublon(s) ignoré(s) · <b>${Object.keys(data.revues).length}</b> revue(s) d'adéquation · <b>${data.relances.length}</b> relance(s) à venir → tâches.</p>
     <ul class="small muted" style="margin:0 0 4px 18px">${data.suivis.slice(0,8).map(s=>`<li>${new Date(s.quand).toLocaleDateString("fr-FR")} — <b>${esc(s.client)}</b> · ${esc(s.type)} · ${esc(s.auteur)} : ${esc(s.note.slice(0,70))}${s.note.length>70?"…":""}</li>`).join("")}</ul>
-    ${data.suivis.length>8? `<p class="small muted">… et ${data.suivis.length-8} autres</p>`:""}`;
+    ${data.suivis.length>8? `<p class="small muted">… et ${data.suivis.length-8} autres</p>`:""}
+    ${o2sIncertainsHTML(data.incertains)}`;
 }
 
 /* v34 : sauvegarde complète des données — photo indépendante de Supabase */
@@ -5329,7 +5390,7 @@ function viewParam(root){
     const btn = $("#o2s-go"); btn.disabled = true; btn.textContent = "Import en cours…";
     try{
       if (job.type === "clients"){
-        const r = await o2sImporterClients(job.data);
+        const r = await o2sImporterClients(job.data.items);
         await state.db.loadAll();
         toast(`Import O2S ✓ — ${r.crees} fiche(s) créée(s), ${r.maj} complétée(s)`);
       } else {
