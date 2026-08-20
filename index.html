@@ -4788,6 +4788,37 @@ function missionModal(m, opts={}){
   renderModal();
 }
 
+/* v34 : sauvegarde complète des données — photo indépendante de Supabase */
+const BACKUP_TABLES = ["conseillers","semaines","saisies","pipeline","profiles","absences","objSemaine","actions","validations","pipeEvents","clientsInfos","interactions","propositions","connexions","missions","campagnes"];
+function backupData(){
+  const d = {app:"ELIGI Pilotage", exporte_le:new Date().toISOString(), par:state.profile?.email||"", paramsCabinet:state.paramsCabinet||{}};
+  for (const t of BACKUP_TABLES) d[t] = state[t]||[];
+  return d;
+}
+function telechargerFichier(nom, contenu, type){
+  const a = document.createElement("a");
+  a.href = URL.createObjectURL(new Blob([contenu], {type}));
+  a.download = nom; document.body.appendChild(a); a.click(); a.remove();
+  setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
+}
+function backupJSON(){
+  telechargerFichier(`eligi-sauvegarde-${new Date().toISOString().slice(0,10)}.json`,
+    JSON.stringify(backupData(), null, 1), "application/json");
+  toast("Sauvegarde JSON téléchargée ✓ — à conserver hors ligne (OneDrive, disque…)");
+}
+function backupXLSX(){
+  if (!window.XLSX){ toast("Librairie Excel non chargée — sauvegarde JSON téléchargée à la place"); backupJSON(); return; }
+  const wb = XLSX.utils.book_new();
+  const plat = r => { const o = {}; for (const [k,v] of Object.entries(r||{})) o[k] = (v && typeof v === "object")? JSON.stringify(v) : v; return o; };
+  for (const t of BACKUP_TABLES){
+    const rows = (state[t]||[]).map(plat);
+    XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet(rows.length? rows : [{vide:""}]), t.slice(0,31));
+  }
+  XLSX.utils.book_append_sheet(wb, XLSX.utils.json_to_sheet([plat(state.paramsCabinet||{})]), "paramsCabinet");
+  XLSX.writeFile(wb, `eligi-sauvegarde-${new Date().toISOString().slice(0,10)}.xlsx`);
+  toast("Sauvegarde Excel téléchargée ✓ — un onglet par table");
+}
+
 /* ---------------- Paramétrage (manager) ---------------- */
 function propoParamsEditorHTML(){
   const P = propoParams();
@@ -4999,6 +5030,17 @@ function viewParam(root){
     : `<div class="empty">Aucune connexion enregistrée pour l'instant — le journal démarre avec cette version.</div>`}
   </div>
 
+  <div class="sect sect-head"><h2>Sauvegarde des données</h2>
+    <span class="sub">photo complète de la base, indépendante de Supabase — un réflexe hebdomadaire (le vendredi par exemple), à conserver hors ligne</span></div>
+  <div class="card" id="bkp-card">
+    <p class="small muted" style="margin-top:0">Supabase conserve automatiquement <b>7 jours</b> de sauvegardes quotidiennes (restauration depuis son tableau de bord).
+      Ces exports ajoutent des photos durables : <b>JSON</b> = copie fidèle de toutes les tables (réimportable en cas de coup dur), <b>Excel</b> = un onglet par table, lisible par tous.</p>
+    <div class="modal-actions" style="justify-content:flex-start;margin-top:4px">
+      <button class="btn" id="bkp-json">💾 Sauvegarde complète (JSON)</button>
+      <button class="btn secondary" id="bkp-xlsx">📊 Export Excel (un onglet par table)</button>
+    </div>
+  </div>
+
   <div class="sect sect-head"><h2>Moteur de propositions</h2>
     <span class="sub">hypothèses de rendement, grilles d'allocation et honoraires utilisés par l'assistant — à ajuster quand les convictions de marché évoluent</span></div>
   ${propoParamsEditorHTML()}`;
@@ -5084,6 +5126,8 @@ function viewParam(root){
       await state.db.loadAll(); toast("Accès ajouté — pense à créer le compte dans Supabase"); render(); }
     catch(err){ toast("Erreur : "+(err.message||err)); }
   });
+  $("#bkp-json")?.addEventListener("click", backupJSON);
+  $("#bkp-xlsx")?.addEventListener("click", backupXLSX);
   bindPropoParamsEditor(root);
 }
 
