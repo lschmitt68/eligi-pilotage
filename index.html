@@ -420,6 +420,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .cli-detail > .row > .card:nth-child(2){grid-area:suivi}
 .cli-detail .tl{max-height:46vh}
 .tl-subhead .btn{text-transform:none; letter-spacing:0}
+/* v46 — clic sur une priorité du cockpit : la carte visée est surlignée */
+.flash-cible{outline:2px solid var(--s1); outline-offset:3px}
 .tl-item.tl-lien{cursor:pointer; border-radius:8px}
 .tl-item.tl-lien:hover{background:var(--surface-2)}
 @media (max-width:1100px){
@@ -2931,6 +2933,7 @@ function viewJour(root){
   const cur = weekCodes().includes(todayWeekCode())? todayWeekCode() : state.week;
   const noSaisie = mgr? activeConseillers().filter(c=>!isConge(c.id,cur) && !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===cur)) : [];
   const sansCx = sansContact().filter(x=>{ if (mgr) return true; const cc = clientConseillers(x.key); return !cc.length || cc.includes(meId); });
+  const props = propoARelancer().sort((a,b)=>propoJours(b)-propoJours(a));
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const opRow = (p, extra="") => `<tr class="clickable jr-op" data-id="${p.id}">
     ${mgr? `<td><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span></td>`:""}
@@ -2942,92 +2945,96 @@ function viewJour(root){
     ${(isManager() && meId)? `<div class="seg" id="jr-seg"><button data-v="" class="${perso? "":"active"}">Équipe</button><button data-v="moi" class="${perso? "active":""}">Ma journée</button></div>` : ""}
     <button class="btn secondary" id="jr-saisie">${ICONS.edit} Saisie hebdo</button>
     <button class="btn" id="jr-newop">＋ Opportunité</button>`)}
-  ${mgr && noSaisie.length? `<div class="card reminder" style="border-left-color:var(--warn)">📝 <b>Saisies manquantes ${esc(cur)} :</b>
-    ${noSaisie.map(c=>`<span class="chip warn"><span class="cdot" style="background:${consColor(c.id)};margin:0"></span>${esc(c.nom)}</span>`).join("")}</div>`:""}
-  ${mgr && (()=>{ const j = macroJours();
-    return (j===null || j>30)? `<div class="card reminder" style="border-left-color:var(--s1)">📈 <b>Contexte macro des propositions ${j===null? "jamais actualisé" : `actualisé il y a ${j} jours`}</b>
-      <span class="muted small">— un point par mois : régime de marché, inflation, taux, commentaire repris dans les documents</span>
-      <span style="flex:1"></span><button class="btn small" id="jr-macro">Mettre à jour</button></div>` : ""; })() || ""}
-
-  <div class="tiles">
-    ${tile("Tâches en retard", tRetard, tRetard? "à traiter en priorité":"tout est à jour ✓")}
-    ${tile("À relancer", relance.length, "dossiers sans mouvement / closing dépassé")}
-    ${tile("Closings sous 14 jours", closings.length)}
-    ${tile("Signatures probables", sig.length, eur(sig.reduce((a,p)=>a+pondere(p),0)) + " pondérés")}
-    ${tile("Revues annuelles", revues.length, revues.length? "clients à revoir (conformité)" : "à jour ✓")}
-    ${tile("Clients sans contact", sansCx.length, sansCx.length? `aucun échange depuis ≥ ${contactAlerteJ()} j` : "relation suivie ✓")}
-    ${(()=>{ const pr = propoARelancer(); return tile("Propositions sans réponse", pr.length,
-      pr.length? `envoyées depuis ≥ ${PROPO_RELANCE_J} j — à relancer` : "aucune en attente ✓"); })()}
-    ${tile("Missions à suivre", missTard.length + missSans.length,
-      missTard.length? "échéance de dossier dépassée" : missSans.length? "sans prochaine échéance" : "dossiers sous contrôle ✓")}
-  </div>
+  ${(()=>{ /* v46 : la liste des priorités — l'endroit unique où regarder */
+    const maSaisieOk = mgr? true : (!meId || state.saisies.some(s=>s.conseiller_id===meId && s.semaine===cur));
+    const mj = mgr? macroJours() : 0;
+    const items = [
+      (mgr && noSaisie.length)? {ico:"📝", txt:`${noSaisie.length} saisie(s) hebdo manquante(s) ${esc(cur)} — ${noSaisie.map(c=>esc(c.nom)).join(", ")}`, nav:"saisie"} : null,
+      (!mgr && !maSaisieOk)? {ico:"📝", txt:`Ta saisie hebdo ${esc(cur)} n'est pas faite`, nav:"saisie"} : null,
+      tRetard? {ico:"☑️", txt:`${tRetard} tâche(s) en retard`, sc:"#jr-actions"} : null,
+      relance.length? {ico:"🔥", txt:`${relance.length} dossier(s) pipeline à relancer`, sc:"#jr-relance"} : null,
+      closings.length? {ico:"📅", txt:`${closings.length} closing(s) sous 14 jours`, sc:"#jr-closings"} : null,
+      props.length? {ico:"📄", txt:`${props.length} proposition(s) sans réponse ≥ ${PROPO_RELANCE_J} j`, sc:"#jr-props"} : null,
+      (missTard.length + missSans.length)? {ico:"🧰", txt:`${missTard.length + missSans.length} mission(s) à suivre (échéance dépassée ou absente)`, sc:"#jr-missions"} : null,
+      revues.length? {ico:"📆", txt:`${revues.length} revue(s) annuelle(s) à programmer`, sc:"#jr-revues"} : null,
+      sansCx.length? {ico:"💤", txt:`${sansCx.length} client(s) sans contact depuis ≥ ${contactAlerteJ()} j`, sc:"#jr-sanscx"} : null,
+      (mgr && (mj===null || mj>30))? {ico:"📈", txt:`Contexte macro ${mj===null? "jamais actualisé" : "actualisé il y a "+mj+" jours"} — un point par mois`, nav:"param"} : null,
+    ].filter(Boolean);
+    return `<div class="row sect">
+      <div class="card grow" style="min-width:360px">
+        <h3 class="mt0">🚨 À traiter ${mgr? "— équipe" : "aujourd'hui"}${items.length? ` <span class="small muted" style="font-weight:400">(${items.length})</span>`:""}</h3>
+        ${items.length? `<table class="tbl dense"><tbody>${items.map(it=>`
+          <tr class="clickable jr-go" ${it.nav? `data-nav2="${it.nav}"` : `data-sc="${it.sc}"`}><td style="width:26px">${it.ico}</td><td>${it.txt}</td><td class="num muted">›</td></tr>`).join("")}</tbody></table>
+          <p class="small muted" style="margin:8px 0 0">Traite de haut en bas — un clic descend sur le détail.</p>`
+        : `<div class="empty">Rien en souffrance — belle journée ✓</div>`}
+      </div>
+      <div id="jr-actions" style="display:flex;flex:1;min-width:320px;border-radius:14px">${actionsCardHTML(mgr? null : meId, mgr? "Actions de l'équipe" : "Mes tâches")}</div>
+      ${!mgr && meId? bilanCardHTML(meId, cur) : ""}
+    </div>`; })()}
   ${(()=>{ const cs = campagnesActives().sort((a,b)=>String(a.date_fin).localeCompare(String(b.date_fin)));
     return cs.length? `<div class="row sect">${cs.map(c=>campagneCardHTML(c, mgr? null : meId)).join("")}</div>` : ""; })()}
 
-  <div class="row sect">
-    ${actionsCardHTML(mgr? null : meId, mgr? "Actions de l'équipe" : "Mes tâches")}
-    <div class="card grow">
+  ${(relance.length || closings.length || sig.length)? `
+  <div class="sect sect-head"><h2>🔥 Pipeline — priorités</h2><span class="sub">à relancer d'abord, puis les closings proches et les signatures à concrétiser</span></div>
+  <div class="row">
+    ${relance.length? `<div class="card grow" id="jr-relance">
       <h3 class="mt0">🔥 À relancer en premier</h3>
-      ${relance.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${relance.slice(0,6).map(p=>opRow(p, isOverdue(p)? "⏰ dépassé" : `💤 ${staleDays(p)} j`)).join("")}</tbody></table></div>
-        ${relance.length>6? `<p class="small muted" style="margin-bottom:0">+ ${relance.length-6} autres dans le Pipeline (filtre « À relancer »)</p>`:""}`
-        : `<div class="empty">Rien à relancer — pipeline vivant ✓</div>`}
-    </div>
-  </div>
-  <div class="row sect">
-    <div class="card grow">
+      <div class="jr-wrap"><table class="tbl dense"><tbody>${relance.slice(0,6).map(p=>opRow(p, isOverdue(p)? "⏰ dépassé" : `💤 ${staleDays(p)} j`)).join("")}</tbody></table></div>
+      ${relance.length>6? `<p class="small muted" style="margin-bottom:0">+ ${relance.length-6} autres dans le Pipeline (filtre « À relancer »)</p>`:""}
+    </div>`:""}
+    ${closings.length? `<div class="card grow" id="jr-closings">
       <h3 class="mt0">📅 Closings à venir (14 jours)</h3>
-      ${closings.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${closings.slice(0,6).map(p=>opRow(p, new Date(String(p.closing_prevu).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}) + (String(p.closing_prevu).slice(0,10)<today? " ⚠":""))).join("")}</tbody></table></div>`
-        : `<div class="empty">Aucun closing prévu sous 14 jours</div>`}
-    </div>
-    <div class="card grow">
-      <h3 class="mt0">✍ Signatures à concrétiser</h3>
-      ${sig.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${sig.slice(0,6).map(p=>opRow(p, esc(p.prochaine_action||""))).join("")}</tbody></table></div>`
-        : `<div class="empty">Aucune signature marquée « probable »</div>`}
-    </div>
-    <div class="card grow">
+      <div class="jr-wrap"><table class="tbl dense"><tbody>${closings.slice(0,6).map(p=>opRow(p, new Date(String(p.closing_prevu).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}) + (String(p.closing_prevu).slice(0,10)<today? " ⚠":""))).join("")}</tbody></table></div>
+    </div>`:""}
+    ${sig.length? `<div class="card grow" id="jr-sig">
+      <h3 class="mt0">✍ Signatures à concrétiser <span class="small muted" style="font-weight:400">${eur(sig.reduce((a,p)=>a+pondere(p),0))} pondérés</span></h3>
+      <div class="jr-wrap"><table class="tbl dense"><tbody>${sig.slice(0,6).map(p=>opRow(p, esc(p.prochaine_action||""))).join("")}</tbody></table></div>
+    </div>`:""}
+  </div>` : `
+  <div class="sect sect-head"><h2>🔥 Pipeline — priorités</h2><span class="sub">rien à relancer, aucun closing sous 14 jours, pas de signature en attente — pipeline vivant ✓</span></div>`}
+
+  ${(props.length || missTard.length || missSans.length || revues.length || sansCx.length)? `
+  <div class="sect sect-head"><h2>🗂 Relation & suivi</h2><span class="sub">propositions envoyées, missions, revues annuelles, clients sans nouvelles</span></div>
+  <div class="row">
+    ${props.length? `<div class="card grow" id="jr-props">
+      <h3 class="mt0">📄 Propositions à relancer</h3>
+      <div class="jr-wrap"><table class="tbl dense"><tbody>${props.slice(0,6).map(pr=>`
+        <tr class="clickable jr-prop" data-id="${pr.id}">
+          ${mgr? `<td><span class="cdot" style="background:${consColor(pr.conseiller_id)}" title="${esc(consName(pr.conseiller_id))}"></span></td>`:""}
+          <td><b>${esc(nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key))}</b></td>
+          <td class="num">${eur(+pr.data?.montant||0)}</td>
+          <td class="num"><span class="ksleep">💤 ${propoJours(pr)} j</span></td></tr>`).join("")}</tbody></table></div>
+      ${props.length>6? `<p class="small muted" style="margin-bottom:0">+ ${props.length-6} autres dans les Propositions</p>`:""}
+    </div>`:""}
+    ${(missTard.length || missSans.length)? `<div class="card grow" id="jr-missions">
       <h3 class="mt0">🧰 Missions à suivre</h3>
-      ${(missTard.length || missSans.length)? `<div class="jr-wrap"><table class="tbl dense"><tbody>
+      <div class="jr-wrap"><table class="tbl dense"><tbody>
         ${missTard.slice(0,5).map(m=>`<tr class="clickable jr-mi" data-mid="${m.id}">
           <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
           <td class="num">${miEcheanceHTML(m)}</td></tr>`).join("")}
         ${missSans.slice(0,3).map(m=>`<tr class="clickable jr-mi" data-mid="${m.id}">
           <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
           <td class="num">${miEcheanceHTML(m)}</td></tr>`).join("")}
-        </tbody></table></div>
-        ${(missTard.length>5 || missSans.length>3)? `<p class="small muted" style="margin-bottom:0">Le reste dans la vue Missions (filtre « À suivre »)</p>`:""}`
-        : `<div class="empty">Toutes les missions ont une prochaine échéance ✓</div>`}
-    </div>
-    <div class="card grow">
-      <h3 class="mt0">📄 Propositions à relancer</h3>
-      ${(()=>{ const prs = propoARelancer().sort((a,b)=>propoJours(b)-propoJours(a));
-        return prs.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${prs.slice(0,6).map(pr=>`
-          <tr class="clickable jr-prop" data-id="${pr.id}">
-            ${mgr? `<td><span class="cdot" style="background:${consColor(pr.conseiller_id)}" title="${esc(consName(pr.conseiller_id))}"></span></td>`:""}
-            <td><b>${esc(nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key))}</b></td>
-            <td class="num">${eur(+pr.data?.montant||0)}</td>
-            <td class="num"><span class="ksleep">💤 ${propoJours(pr)} j</span></td></tr>`).join("")}</tbody></table></div>
-          ${prs.length>6? `<p class="small muted" style="margin-bottom:0">+ ${prs.length-6} autres dans les Propositions</p>`:""}`
-        : `<div class="empty">Aucune proposition envoyée en attente ✓</div>`; })()}
-    </div>
-    <div class="card grow">
+      </tbody></table></div>
+      ${(missTard.length>5 || missSans.length>3)? `<p class="small muted" style="margin-bottom:0">Le reste dans la vue Missions (filtre « À suivre »)</p>`:""}
+    </div>`:""}
+    ${revues.length? `<div class="card grow" id="jr-revues">
       <h3 class="mt0">📆 Revues annuelles à programmer</h3>
-      ${revues.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${revues.slice(0,6).map(x=>`<tr class="clickable jr-rev" data-key="${esc(x.key)}">
+      <div class="jr-wrap"><table class="tbl dense"><tbody>${revues.slice(0,6).map(x=>`<tr class="clickable jr-rev" data-key="${esc(x.key)}">
         <td><b>${esc(x.name)}</b></td>
         <td class="num small muted">${x.last? "dernière : " + new Date(x.last+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}) : "jamais faite"}</td></tr>`).join("")}</tbody></table></div>
-        ${revues.length>6? `<p class="small muted" style="margin-bottom:0">+ ${revues.length-6} autres — ouvre la vue Clients</p>`:""}`
-        : `<div class="empty">Aucune revue annuelle en retard ✓</div>`}
-    </div>
-    <div class="card grow">
+      ${revues.length>6? `<p class="small muted" style="margin-bottom:0">+ ${revues.length-6} autres — ouvre la vue Clients</p>`:""}
+    </div>`:""}
+    ${sansCx.length? `<div class="card grow" id="jr-sanscx">
       <h3 class="mt0">💤 Clients sans nouvelles</h3>
-      ${sansCx.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${sansCx.slice(0,6).map(x=>`<tr class="clickable jr-sc" data-key="${esc(x.key)}">
+      <div class="jr-wrap"><table class="tbl dense"><tbody>${sansCx.slice(0,6).map(x=>`<tr class="clickable jr-sc" data-key="${esc(x.key)}">
         <td><b>${esc(x.name)}</b></td>
         <td class="num small muted">${x.j===null? "aucun échange enregistré" : `dernier contact il y a <b>${x.j} j</b>`}</td></tr>`).join("")}</tbody></table></div>
-        ${sansCx.length>6? `<p class="small muted" style="margin-bottom:0">+ ${sansCx.length-6} autres — ouvre la vue Clients</p>`:""}
-        <p class="small muted" style="margin-bottom:0">Un appel de courtoisie suffit souvent — pense à le noter dans la fiche pour lever l'alerte.</p>`
-        : `<div class="empty">Tous les clients ont eu un contact récent (&lt; ${contactAlerteJ()} j) ✓</div>`}
-    </div>
-    ${!mgr && meId? bilanCardHTML(meId, cur) : ""}
-  </div>`;
+      ${sansCx.length>6? `<p class="small muted" style="margin-bottom:0">+ ${sansCx.length-6} autres — ouvre la vue Clients</p>`:""}
+      <p class="small muted" style="margin-bottom:0">Un appel de courtoisie suffit souvent — pense à le noter dans la fiche pour lever l'alerte.</p>
+    </div>`:""}
+  </div>` : `
+  <div class="sect sect-head"><h2>🗂 Relation & suivi</h2><span class="sub">propositions, missions, revues, contacts : tout est suivi ✓</span></div>`}`;
 
   bindActionsCards(root, ()=>viewJour(root));
   root.querySelectorAll(".jr-prop").forEach(r=>r.addEventListener("click", ()=>{
@@ -3040,6 +3047,14 @@ function viewJour(root){
     state._jourMoi = b.dataset.v === "moi"; render();
   }));
   $("#jr-macro")?.addEventListener("click", ()=>go("param"));
+  root.querySelectorAll(".jr-go").forEach(r=>r.addEventListener("click", ()=>{
+    if (r.dataset.nav2){ go(r.dataset.nav2); return; }
+    const el = root.querySelector(r.dataset.sc);
+    if (!el) return;
+    el.scrollIntoView({behavior:"smooth", block:"center"});
+    el.classList.add("flash-cible");
+    setTimeout(()=>el.classList.remove("flash-cible"), 2000);
+  }));
   bindCampagnes(root);
   $("#jr-newop").addEventListener("click", ()=>pipeModal(null));
   root.querySelectorAll(".jr-op").forEach(r=>r.addEventListener("click", ()=>{
