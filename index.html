@@ -412,6 +412,19 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 
 /* ============ Suivi client (timeline CRM) ============ */
 .tl{max-height:280px; overflow:auto; margin-top:8px}
+/* v39.1 — fiche client pleine page : grille alignée (identité + dossiers | suivi) */
+.cli-detail > .row{display:grid; grid-template-columns:minmax(370px,2fr) minmax(430px,3fr);
+  grid-template-areas:"ident suivi" "doss suivi"; gap:14px; align-items:start; margin:0}
+.cli-detail > .row > .card{margin:0; width:auto; min-width:0; flex:none; box-sizing:border-box}
+.cli-detail > .row > .card:nth-child(1){grid-area:ident}
+.cli-detail > .row > .card:nth-child(2){grid-area:doss}
+.cli-detail > .row > .card:nth-child(3){grid-area:suivi}
+.cli-detail .tl{max-height:52vh}
+.tl-item.tl-lien{cursor:pointer; border-radius:8px}
+.tl-item.tl-lien:hover{background:var(--surface-2)}
+@media (max-width:1100px){
+  .cli-detail > .row{grid-template-columns:1fr; grid-template-areas:"ident" "suivi" "doss"}
+}
 .tl-composer{background:var(--surface-2); border-radius:10px; padding:7px 8px; margin-top:10px}
 .tl-seg{display:inline-flex; flex-wrap:wrap; max-width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:2px; gap:2px; margin-top:8px}
 .tl-seg button{background:none; border:0; border-radius:8px; padding:3px 10px; font-size:12px; cursor:pointer; color:var(--muted); font-weight:600; white-space:nowrap}
@@ -3453,11 +3466,11 @@ function viewClients(root){
             <div class="tl-seg">${TL_FILTRES.map(([v,l])=>`
               <button class="tl-f ${(state._tlF||"")===v? "on":""}" data-f="${v}">${l}</button>`).join("")}</div>
             <div class="tl">${g.suivi.filter(ev=>tlMatch(ev, state._tlF||"")).map(ev=> ev.kind==="op" ? `
-              <div class="tl-item"><span class="tl-ico">📥</span>
+              <div class="tl-item tl-lien tl-op" data-oid="${ev.o.id}" title="Ouvrir l'opération back-office"><span class="tl-ico">📥</span>
                 <div class="tl-body"><span>Opération back-office — ${esc(ev.o.titre)} · <b>${esc(ev.o.statut)}</b></span>
                   <div class="tl-meta">Back-office${ev.o.assureur? " · "+esc(ev.o.assureur):""}${ev.o.responsable? " · "+esc(ev.o.responsable):""} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
               </div>` : ev.kind==="oj" ? `
-              <div class="tl-item"><span class="tl-ico">🗒</span>
+              <div class="tl-item tl-lien tl-op" data-oid="${ev.o.id}" title="Ouvrir l'opération back-office"><span class="tl-ico">🗒</span>
                 <div class="tl-body"><span>${esc(ev.j.n)}</span>
                   <div class="tl-meta">Journal back-office · ${esc(ev.o.titre)} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
               </div>` : ev.kind==="pr" ? `
@@ -3487,7 +3500,7 @@ function viewClients(root){
                   <div class="tl-meta">Tâche · ${esc(consName(ev.a.conseiller_id))}${ev.a.echeance? ` · pour le ${new Date(ev.a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}`:""}${!ev.a.fait && ev.a.echeance && ev.a.echeance < new Date().toISOString().slice(0,10)? ` · <b style="color:var(--bad)">en retard</b>`:""}</div></div>
                 <input type="checkbox" class="ix-ac-done" data-id="${ev.a.id}" ${ev.a.fait?"checked":""} style="width:auto;flex:none" title="Fait">
               </div>` : `
-              <div class="tl-item"><span class="tl-ico">${ev.e.vers_etape==="Perdu"? "❌" : ev.e.de_etape? "🧭":"✨"}</span>
+              <div class="tl-item tl-lien tl-pipe" data-cli="${esc(ev.e.client||"")}" title="Voir dans le pipeline"><span class="tl-ico">${ev.e.vers_etape==="Perdu"? "❌" : ev.e.de_etape? "🧭":"✨"}</span>
                 <div class="tl-body"><span>${ev.e.de_etape? `${esc(ev.e.de_etape)} → <b>${esc(ev.e.vers_etape)}</b>` : `Nouveau dossier — <b>${esc(ev.e.vers_etape)}</b>`}${ev.e.raison? ` <span class="small muted">(${esc(ev.e.raison)})</span>`:""}</span>
                   <div class="tl-meta">Pipeline · ${esc(consName(ev.e.conseiller_id))} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
               </div>`).join("") || `<div class="empty">Aucun événement pour l'instant — ajoute un appel, un RDV ou une note ci-dessus</div>`}</div>
@@ -3671,6 +3684,16 @@ function viewClients(root){
   }));
   root.querySelectorAll(".tl-f").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation(); state._tlF = b.dataset.f; viewClients(root);
+  }));
+  root.querySelectorAll(".tl-op").forEach(el=>el.addEventListener("click", e=>{
+    e.stopPropagation();
+    const o = state.operations.find(x=>x.id===+el.dataset.oid);
+    if (o) boModal(o);
+  }));
+  root.querySelectorAll(".tl-pipe").forEach(el=>el.addEventListener("click", e=>{
+    e.stopPropagation();
+    state._pipeSearch = el.dataset.cli || ""; state._pipeStale = false;
+    go("pipeline");
   }));
   root.querySelectorAll(".ci-conf").forEach(c=>c.addEventListener("change", async e=>{
     e.stopPropagation();
@@ -6321,7 +6344,10 @@ function render(){
     </aside>
     <main class="main" id="view"></main>
   </div>`;
-  app.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click", ()=>go(b.dataset.nav)));
+  app.querySelectorAll("[data-nav]").forEach(b=>b.addEventListener("click", ()=>{
+    if (b.dataset.nav === "clients") state._cliOpen = null;   /* v39.2 : le menu ramène à la liste */
+    go(b.dataset.nav);
+  }));
   $("#gs-open").addEventListener("click", globalSearchModal);
   $("#logout").addEventListener("click", logout);
   $("#theme-toggle").addEventListener("click", cycleTheme);
