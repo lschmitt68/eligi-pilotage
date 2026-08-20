@@ -531,7 +531,7 @@ const pondere = p => (p.ca_potentiel||0) * (p.probabilite||0);
 /* ---------------- État global ---------------- */
 const state = {
   profile:null,       // {email, role, conseiller_id}
-  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[], clientsInfos:[], interactions:[], propositions:[], paramsCabinet:{}, connexions:[], missions:[], campagnes:[],
+  conseillers:[], semaines:[], saisies:[], pipeline:[], profiles:[], absences:[], objSemaine:[], actions:[], validations:[], pipeEvents:[], clientsInfos:[], interactions:[], propositions:[], paramsCabinet:{}, connexions:[], missions:[], campagnes:[], operations:[],
   week:null,          // semaine suivie (équivalent Dashboard!B3)
   view:null,
   ficheConseillerId:null,
@@ -827,6 +827,8 @@ class SupaDB {
     state.missions = mi.error? [] : (mi.data||[]);     // tolérant tant que la migration v15 n'est pas passée
     const cg = await this.c.from("campagnes").select("*").order("date_fin");
     state.campagnes = cg.error? [] : (cg.data||[]);    // tolérant tant que la migration v22 n'est pas passée
+    const op = await this.c.from("operations").select("*").order("id", {ascending:false});
+    state.operations = op.error? [] : (op.data||[]);   // tolérant tant que la migration v37 n'est pas passée
   }
   async saveCampagne(c){
     const row = {nom:c.nom, support:c.support||"", date_debut:c.date_debut||null, date_fin:c.date_fin,
@@ -860,6 +862,28 @@ class SupaDB {
   async deleteMission(id){
     const {error} = await this.c.from("missions").delete().eq("id", id);
     if (error) throw error;
+  }
+  _opRow(o){
+    return {client_key:o.client_key||"", titre:o.titre||"", statut:o.statut||"À faire",
+      assureur:o.assureur||"", responsable:o.responsable||"", conseiller_id:o.conseiller_id||null,
+      description:o.description||"", etapes:o.etapes||[], journal:o.journal||[],
+      echeance:o.echeance||null, trello_id:o.trello_id||""};
+  }
+  async saveOperation(o){
+    const row = this._opRow(o);
+    if (o.id){ const {error} = await this.c.from("operations").update(row).eq("id", o.id); if (error) throw error; return o.id; }
+    const {data, error} = await this.c.from("operations").insert(row).select().single();
+    if (error) throw error; return data.id;
+  }
+  async deleteOperation(id){
+    const {error} = await this.c.from("operations").delete().eq("id", id);
+    if (error) throw error;
+  }
+  async addOperationsBulk(rows){
+    for (let k = 0; k < rows.length; k += 100){
+      const {error} = await this.c.from("operations").insert(rows.slice(k, k+100).map(o=>this._opRow(o)));
+      if (error) throw error;
+    }
   }
   async logConnexion(prof){
     const {error} = await this.c.from("connexions").insert(
@@ -925,6 +949,8 @@ class SupaDB {
     if (e3) throw e3;
     const {error: e4} = await this.c.from("missions").update({client_key:newKey}).eq("client_key", oldKey);
     if (e4) throw e4;
+    const {error: e5} = await this.c.from("operations").update({client_key:newKey}).eq("client_key", oldKey);
+    if (e5 && !/exist/i.test(e5.message||"")) throw e5;   /* tolérant avant migration v37 */
   }
   async saveClientInfo(info){
     const row = {client_key:info.client_key, statut:info.statut, origine:info.origine, notes:info.notes, maj_le:new Date().toISOString()};
@@ -1056,7 +1082,7 @@ class DemoDB {
     this.objSemaine = []; this.actions = []; this.validations = [];
     this.pipeEvents = this.pipeline.map(p=>({id:this._id++, pipeline_id:p.id, conseiller_id:p.conseiller_id,
       client:p.client, de_etape:null, vers_etape:p.etape, quand:p.updated_at}));
-    this.clientsInfos = []; this.interactions = []; this.propositions = []; this.paramsCabinet = {}; this.connexions = []; this.missions = []; this.campagnes = [];
+    this.clientsInfos = []; this.interactions = []; this.propositions = []; this.paramsCabinet = {}; this.connexions = []; this.missions = []; this.campagnes = []; this.operations = [];
     this.absences = (D.absences||[]).map(a=>({id:this._id++, conseiller_id:byName[a.conseiller], semaine:wkey(a.semaine)}));
     this.profiles = [
       {email:"manager@demo.fr", role:"manager", conseiller_id:byName["Loïc"]},
@@ -1086,6 +1112,7 @@ class DemoDB {
     state.connexions = (this.connexions||[]).filter(cx=>isManager() || cx.email===state.profile?.email).map(c=>({...c}));
     state.missions = (this.missions||[]).map(m=>({...m, etapes:(m.etapes||[]).map(e=>({...e})), journal:(m.journal||[]).map(j=>({...j}))}));
     state.campagnes = (this.campagnes||[]).map(c=>({...c, objectifs:{...(c.objectifs||{})}}));
+    state.operations = (this.operations||[]).map(o=>({...o, etapes:(o.etapes||[]).map(e=>({...e})), journal:(o.journal||[]).map(j=>({...j}))}));
   }
   async saveCampagne(c){
     if (!isManager()) throw new Error("Réservé au manager");
@@ -1111,6 +1138,18 @@ class DemoDB {
     const i = this.missions.findIndex(x=>x.id===id);
     if (i>=0) this.missions.splice(i,1);
   }
+  async saveOperation(o){
+    const row = {...o, updated_at:new Date().toISOString()};
+    if (o.id){ Object.assign(this.operations.find(x=>x.id===o.id), row); return o.id; }
+    const id = this._id++;
+    this.operations.unshift({created_at:new Date().toISOString(), client_key:"", trello_id:"", ...row, id});
+    return id;
+  }
+  async deleteOperation(id){
+    const i = this.operations.findIndex(x=>x.id===id);
+    if (i>=0) this.operations.splice(i,1);
+  }
+  async addOperationsBulk(rows){ for (const o of rows) await this.saveOperation({...o}); }
   async logConnexion(prof){
     this.connexions.unshift({id:this._id++, email:prof.email, role:prof.role||"", conseiller_id:prof.conseiller_id||null, quand:new Date().toISOString()});
   }
@@ -1145,6 +1184,7 @@ class DemoDB {
     for (const a of this.actions) if (a.client_key===oldKey) a.client_key = newKey;
     for (const pr of this.propositions) if (pr.client_key===oldKey) pr.client_key = newKey;
     for (const mi of this.missions) if (mi.client_key===oldKey) mi.client_key = newKey;
+    for (const op of (this.operations||[])) if (op.client_key===oldKey) op.client_key = newKey;
   }
   async saveClientInfo(info){
     const i = this.clientsInfos.findIndex(c=>c.client_key===info.client_key);
@@ -1392,12 +1432,13 @@ function consColor(id){
 function normName(s){
   return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim().replace(/\s+/g," ");
 }
-const SUIVI_VUES_DEFAUT = ["clients","pipeline","missions"];
-const SUIVI_VUES_ETENDU = ["dashboard","pipeline","clients","propositions","missions","rapport"];
+const SUIVI_VUES_DEFAUT = ["clients","pipeline","missions","backoffice"];
+const SUIVI_VUES_ETENDU = ["dashboard","pipeline","clients","propositions","missions","backoffice","rapport"];
 function isSuivi(){ return state.profile?.role === "suivi"; }
 function suiviVues(){
   const v = state.profile?.vues;
-  return (Array.isArray(v) && v.length)? v.filter(k=>SUIVI_VUES_ETENDU.includes(k)) : SUIVI_VUES_DEFAUT;
+  const base = (Array.isArray(v) && v.length)? v.filter(k=>SUIVI_VUES_ETENDU.includes(k)) : SUIVI_VUES_DEFAUT;
+  return base.includes("backoffice")? base : [...base, "backoffice"];   /* v37 : le back-office concerne toute l'équipe */
 }
 function voitTout(){ return isManager() || isSuivi(); }   // visibilité étendue (manager + profil suivi)
 function monNom(){
@@ -2962,19 +3003,26 @@ function suiviClient(g){
     for (const j of (m.journal||[]))
       ev.push({kind:"mj", t:new Date(j.q||0).getTime(), m, j});
   }
+  /* v37 : opérations back-office (création + journal) */
+  for (const o of state.operations.filter(x=>x.client_key===g.key)){
+    ev.push({kind:"op", t:new Date(o.created_at||0).getTime(), o});
+    for (const j of (o.journal||[]))
+      ev.push({kind:"oj", t:new Date(j.q||0).getTime(), o, j});
+  }
   const ci = state.clientsInfos.find(x=>x.client_key===g.key);
   if (ci?.derniere_revue)
     ev.push({kind:"rv", t:new Date(ci.derniere_revue+"T12:00:00").getTime(), rv:ci.derniere_revue});
   ev.sort((x,y)=>y.t-x.t);
   return ev;
 }
-const TL_FILTRES = [["","Tout"],["echanges","📞 Échanges"],["pipe","🧭 Pipeline"],["prop","📄 Propositions"],["mi","🧰 Missions"]];
+const TL_FILTRES = [["","Tout"],["echanges","📞 Échanges"],["pipe","🧭 Pipeline"],["prop","📄 Propositions"],["mi","🧰 Missions"],["bo","📥 Back-office"]];
 function tlMatch(ev, f){
   if (!f) return true;
   if (f==="echanges") return ev.kind==="ix" || ev.kind==="ac";
   if (f==="pipe") return ev.kind==="ev";
   if (f==="prop") return ev.kind==="pr" || (ev.kind==="ix" && String(ev.i.note||"").startsWith("📄"));
   if (f==="mi") return ev.kind==="mi" || ev.kind==="mj";
+  if (f==="bo") return ev.kind==="op" || ev.kind==="oj";
   return true;
 }
 function ageDe(d){
@@ -3335,7 +3383,15 @@ function viewClients(root){
             </div>
             <div class="tl-seg">${TL_FILTRES.map(([v,l])=>`
               <button class="tl-f ${(state._tlF||"")===v? "on":""}" data-f="${v}">${l}</button>`).join("")}</div>
-            <div class="tl">${g.suivi.filter(ev=>tlMatch(ev, state._tlF||"")).map(ev=> ev.kind==="pr" ? `
+            <div class="tl">${g.suivi.filter(ev=>tlMatch(ev, state._tlF||"")).map(ev=> ev.kind==="op" ? `
+              <div class="tl-item"><span class="tl-ico">📥</span>
+                <div class="tl-body"><span>Opération back-office — ${esc(ev.o.titre)} · <b>${esc(ev.o.statut)}</b></span>
+                  <div class="tl-meta">Back-office${ev.o.assureur? " · "+esc(ev.o.assureur):""}${ev.o.responsable? " · "+esc(ev.o.responsable):""} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
+              </div>` : ev.kind==="oj" ? `
+              <div class="tl-item"><span class="tl-ico">🗒</span>
+                <div class="tl-body"><span>${esc(ev.j.n)}</span>
+                  <div class="tl-meta">Journal back-office · ${esc(ev.o.titre)} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
+              </div>` : ev.kind==="pr" ? `
               <div class="tl-item"><span class="tl-ico">📄</span>
                 <div class="tl-body"><span>Proposition créée — ${eur(+ev.pr.data?.montant||0)} · ${esc(ev.pr.mode)} · <b>${esc(ev.pr.statut)}</b></span>
                   <div class="tl-meta">Proposition · ${esc(consName(ev.pr.conseiller_id))} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
@@ -4904,6 +4960,275 @@ function o2sCol(o, ...cands){
   for (const k of Object.keys(o)) for (const c of cands) if (O2S_NORM(k).includes(O2S_NORM(c))) return o[k];
   return undefined;
 }
+/* ================================================================
+   v37 — BACK-OFFICE : opérations sur contrats (ex-tableau Trello)
+   ================================================================ */
+const BO_STATUTS = ["À faire","Attente retour client","En cours","En cours partenaire","Relance","Terminé"];
+function boProgress(o){ const et = o.etapes||[]; const done = et.filter(e=>e.done).length; return {done, total:et.length}; }
+function boClientDisp(o){ return o.client_key? nomAffiche(o.client_key, o.client_key) : ""; }
+function boCardHTML(o){
+  const pr = boProgress(o);
+  const today = new Date().toISOString().slice(0,10);
+  return `<div class="kcard" draggable="true" data-boid="${o.id}" title="Glisser pour changer d'étape — cliquer pour ouvrir">
+    <div class="kclient"><span class="kc-name">${esc(o.titre)}</span></div>
+    <div class="kmeta">${o.client_key? `<span class="tag">👤 ${esc(boClientDisp(o))}</span>` : `<span class="ksig">À RATTACHER</span>`}
+      ${o.assureur? `<span class="tag">${esc(o.assureur)}</span>`:""}
+      ${o.responsable? `<span>${esc(o.responsable)}</span>`:""}
+      ${pr.total? `<span>☑ ${pr.done}/${pr.total}</span>`:""}
+      ${o.echeance? `<span${String(o.echeance)<=today? ' style="color:var(--critical)"':''}>📅 ${new Date(String(o.echeance).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</span>`:""}</div>
+  </div>`;
+}
+function viewBackoffice(root){
+  const q = normName(state._boSearch||"");
+  const J30 = Date.now() - 30*86400000;
+  const visibles = state.operations.filter(o=>{
+    if (o.statut==="Terminé" && !state._boOld && new Date(o.updated_at||o.created_at||0).getTime() < J30) return false;
+    return !q || normName(o.titre).includes(q) || normName(boClientDisp(o)).includes(q) || normName(o.assureur||"").includes(q) || normName(o.responsable||"").includes(q);
+  });
+  const enCours = state.operations.filter(o=>o.statut!=="Terminé").length;
+  const aRatt = state.operations.filter(o=>!o.client_key && o.statut!=="Terminé").length;
+  root.innerHTML = `
+  ${vhead("Back-office", "opérations sur contrats : souscriptions, arbitrages, rachats, versements — rattachées à la fiche client", `
+    <button class="btn" id="bo-add">＋ Opération</button>`)}
+  <div class="inline-controls" style="margin-bottom:12px">
+    <label class="fld" style="min-width:230px"><span>Recherche</span>
+      <input type="search" id="bo-search" placeholder="client, opération, assureur…" value="${esc(state._boSearch||"")}"></label>
+    <button class="chip ${state._boOld? "warn":""}" id="bo-old" style="margin-bottom:8px" title="Les opérations terminées depuis plus de 30 jours sont masquées par défaut">${state._boOld? "Masquer" : "Voir"} les terminées &gt; 30 j</button>
+    <span style="flex:1"></span>
+    <div class="small muted" style="padding-bottom:8px"><b>${enCours}</b> opération(s) en cours${aRatt? ` · <b>${aRatt}</b> sans client rattaché`:""} · ${state.operations.length} au total</div>
+  </div>
+  <div class="kanban">${BO_STATUTS.map(st=>{
+    const items = visibles.filter(o=>o.statut===st);
+    return `<div class="kcol" data-bost="${esc(st)}">
+      <div class="kcol-head"><b>${esc(st)}</b><span class="kcount">${items.length}</span></div>
+      <div class="kcol-cards">${items.map(boCardHTML).join("")}</div>
+      <button class="kcol-add" data-boaddcol="${esc(st)}">+ ajouter ici</button>
+    </div>`;}).join("")}</div>
+  ${state.operations.length? "" : `<div class="empty" style="margin-top:14px">Aucune opération — crée la première avec « ＋ Opération », ou reprends ton tableau Trello depuis Paramétrage → Import Trello.</div>`}`;
+
+  $("#bo-add").addEventListener("click", ()=>boModal(null));
+  $("#bo-old").addEventListener("click", ()=>{ state._boOld = !state._boOld; render(); });
+  $("#bo-search").addEventListener("input", e=>{ state._boSearch = e.target.value; viewBackoffice(root); relanceFocus(root, "#bo-search"); });
+  root.querySelectorAll("[data-boaddcol]").forEach(b=>b.addEventListener("click", ()=>boModal(null, b.dataset.boaddcol)));
+  root.querySelectorAll(".kcard[data-boid]").forEach(card=>{
+    card.addEventListener("click", ()=>boModal(state.operations.find(o=>o.id===+card.dataset.boid)));
+    card.addEventListener("dragstart", e=>{ e.dataTransfer.setData("text/plain", card.dataset.boid); e.dataTransfer.effectAllowed = "move"; card.classList.add("dragging"); });
+    card.addEventListener("dragend", ()=>card.classList.remove("dragging"));
+  });
+  root.querySelectorAll(".kcol[data-bost]").forEach(col=>{
+    col.addEventListener("dragover", e=>{ e.preventDefault(); e.dataTransfer.dropEffect = "move"; col.classList.add("dragover"); });
+    col.addEventListener("dragleave", ()=>col.classList.remove("dragover"));
+    col.addEventListener("drop", async e=>{
+      e.preventDefault(); col.classList.remove("dragover");
+      const o = state.operations.find(x=>x.id===+e.dataTransfer.getData("text/plain"));
+      const st = col.dataset.bost;
+      if (!o || o.statut===st) return;
+      try{ await state.db.saveOperation({...o, statut:st}); await state.db.loadAll(); toast(`${o.titre} → ${st} ✓`); render(); }
+      catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+  });
+}
+function boResoudreClient(txt){
+  const t = normName(txt);
+  if (!t) return "";
+  const ci = state.clientsInfos.find(c=>c.client_key===t || normName(nomAffiche(c.client_key, c.nom||c.client_key))===t);
+  if (ci) return ci.client_key;
+  for (const p of state.pipeline) if (normName(p.client||"")===t) return normName(p.client);
+  return null;
+}
+function boModal(o, statutInitial){
+  const creation = !o;
+  o = o? {...o, etapes:(o.etapes||[]).map(e=>({...e})), journal:(o.journal||[]).map(j=>({...j}))}
+       : {titre:"", statut:statutInitial||"À faire", client_key:"", assureur:"", responsable:monNom(), conseiller_id:null,
+          description:"", etapes:[], journal:[], echeance:null, trello_id:""};
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  document.body.appendChild(back);
+  const fiches = [...new Map(state.clientsInfos.map(ci=>[ci.client_key, nomAffiche(ci.client_key, ci.nom||ci.client_key)])).values()].sort((a,b)=>a.localeCompare(b,"fr"));
+  const assureurs = [...new Set(state.operations.map(x=>x.assureur).filter(Boolean))].sort();
+  const resps = [...new Set([...state.conseillers.map(c=>c.nom), ...state.operations.map(x=>x.responsable)].filter(Boolean))].sort();
+  const lireForm = ()=>{
+    o.titre = back.querySelector("#bo-titre").value.trim();
+    o.statut = back.querySelector("#bo-statut").value;
+    o._clientTxt = back.querySelector("#bo-client").value.trim();
+    o.assureur = back.querySelector("#bo-assureur").value.trim();
+    o.responsable = back.querySelector("#bo-resp").value.trim();
+    o.echeance = back.querySelector("#bo-ech").value || null;
+    o.description = back.querySelector("#bo-desc").value.trim();
+  };
+  const rendre = ()=>{
+    back.innerHTML = `<div class="modal" style="width:640px">
+      <h3>${creation? "Nouvelle opération back-office" : "Opération back-office"}</h3>
+      <div class="form-grid">
+        <label class="fld full"><span>Opération *</span><input type="text" id="bo-titre" value="${esc(o.titre)}" placeholder="Arbitrage Himalia, Rachat partiel, Souscription SCPI…"></label>
+        <label class="fld"><span>Client</span><input type="text" id="bo-client" list="bo-fiches" autocomplete="off" value="${esc(o._clientTxt !== undefined? o._clientTxt : boClientDisp(o))}" placeholder="choisir dans la liste…"><datalist id="bo-fiches">${fiches.map(f=>`<option value="${esc(f)}">`).join("")}</datalist></label>
+        <label class="fld"><span>Statut</span><select id="bo-statut">${BO_STATUTS.map(s=>`<option ${s===o.statut?"selected":""}>${s}</option>`).join("")}</select></label>
+        <label class="fld"><span>Assureur / support</span><input type="text" id="bo-assureur" list="bo-asr" value="${esc(o.assureur)}"><datalist id="bo-asr">${assureurs.map(a=>`<option value="${esc(a)}">`).join("")}</datalist></label>
+        <label class="fld"><span>Responsable</span><input type="text" id="bo-resp" list="bo-resps" value="${esc(o.responsable)}"><datalist id="bo-resps">${resps.map(r=>`<option value="${esc(r)}">`).join("")}</datalist></label>
+        <label class="fld"><span>Échéance</span><input type="date" id="bo-ech" value="${o.echeance? String(o.echeance).slice(0,10):""}"></label>
+        <label class="fld full"><span>Description</span><textarea id="bo-desc" rows="2">${esc(o.description)}</textarea></label>
+        <div class="full"><span class="small muted" style="font-weight:600">Check-list</span>
+          ${o.etapes.map((e,i)=>`<div class="inline-controls" style="gap:6px;margin:2px 0"><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span><button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune étape</p>`}
+          <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newet" placeholder="nouvelle étape… (CNI, RIB, bulletin signé…)" style="flex:1"><button class="btn secondary small" id="bo-addet">Ajouter</button></div>
+        </div>
+        <div class="full"><span class="small muted" style="font-weight:600">Journal</span>
+          <div class="tl" style="max-height:150px">${(o.journal||[]).slice().reverse().map(j=>`<div class="tl-item"><span class="tl-ico">🗒</span><div class="tl-body"><span>${esc(j.n)}</span><div class="tl-meta">${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune note</p>`}</div>
+          <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newnote" placeholder="note d'avancement…" style="flex:1"><button class="btn secondary small" id="bo-addnote">Noter</button></div>
+        </div>
+      </div>
+      <div class="modal-actions">
+        ${!creation && isManager()? `<button class="btn danger" id="bo-del">Supprimer</button>`:""}
+        <span style="flex:1"></span>
+        <button class="btn secondary" id="bo-cancel">Annuler</button>
+        <button class="btn" id="bo-save">${creation? "Créer" : "Enregistrer"}</button>
+      </div>
+    </div>`;
+    back.querySelector("#bo-cancel").addEventListener("click", ()=>back.remove());
+    const addEt = ()=>{ const t = back.querySelector("#bo-newet").value.trim(); if (!t) return; lireForm(); o.etapes.push({t, done:false}); rendre(); };
+    back.querySelector("#bo-addet").addEventListener("click", addEt);
+    back.querySelector("#bo-newet").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addEt(); } });
+    const addNote = ()=>{ const el = back.querySelector("#bo-newnote"); const n = el.value.trim(); if (!n) return; lireForm(); o.journal.push({q:new Date().toISOString(), n:monNom()+" — "+n}); rendre(); };
+    back.querySelector("#bo-addnote").addEventListener("click", addNote);
+    back.querySelector("#bo-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
+    back.querySelectorAll(".bo-et-done").forEach(c=>c.addEventListener("change", ()=>{ lireForm(); o.etapes[+c.dataset.i].done = c.checked; rendre(); }));
+    back.querySelectorAll(".bo-et-del").forEach(b=>b.addEventListener("click", ()=>{ lireForm(); o.etapes.splice(+b.dataset.i,1); rendre(); }));
+    back.querySelector("#bo-del")?.addEventListener("click", async ()=>{
+      if (!confirm("Supprimer définitivement cette opération ?")) return;
+      try{ await state.db.deleteOperation(o.id); await state.db.loadAll(); back.remove(); toast("Opération supprimée"); render(); }
+      catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+    back.querySelector("#bo-save").addEventListener("click", async ()=>{
+      lireForm();
+      if (!o.titre){ toast("Donne un intitulé à l'opération"); return; }
+      const key = boResoudreClient(o._clientTxt);
+      if (key === null){ toast("Client inconnu — choisis-le dans la liste (ou laisse vide pour rattacher plus tard)"); return; }
+      o.client_key = key;
+      if (key) o.conseiller_id = state.clientsInfos.find(ci=>ci.client_key===key)?.conseiller_id || o.conseiller_id || null;
+      try{
+        const {_clientTxt, ...row} = o;
+        await state.db.saveOperation(row);
+        await state.db.loadAll(); back.remove(); toast(creation? "Opération créée ✓" : "Opération enregistrée ✓"); render();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+  };
+  back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
+  rendre();
+}
+
+/* ---------------- Import Trello ---------------- */
+function trelloIndexClients(){
+  const idx = []; const connues = new Set();
+  const push = (key, fam, pre, creer) => {
+    const f = normName(fam).split(" ").filter(Boolean);
+    if (f.length) idx.push({key, fam:f, pre:normName(pre), creer:creer||null});
+  };
+  for (const ci of state.clientsInfos){
+    connues.add(ci.client_key);
+    const spl = splitNomPrenom(ci.nom||ci.client_key);
+    push(ci.client_key, ci.nom_famille||spl.nom, ci.prenom||spl.prenom);
+  }
+  for (const p of state.pipeline){
+    const k = normName(p.client||"");
+    if (k && !connues.has(k)){ connues.add(k); const spl = splitNomPrenom(p.client); push(k, spl.nom||p.client, spl.prenom); }
+  }
+  const ref = o2sRefGet();
+  if (ref) for (const c of ref.clients){
+    const k = normName(c.brut);
+    if (!connues.has(k)){ connues.add(k); push(k, c.nomf, c.prenom, c); }
+  }
+  return idx;
+}
+function trelloMatchClient(titre, idx){
+  const toks = new Set(normName(titre).split(/[^\p{L}0-9']+/u).filter(Boolean));
+  const famOk = idx.filter(x=>x.fam.every(t=>toks.has(t)));
+  if (!famOk.length) return null;
+  const cles = [...new Set(famOk.map(x=>x.key))];
+  if (cles.length === 1) return famOk[0];
+  const avecPre = famOk.filter(x=>x.pre && x.pre.split(" ").filter(Boolean).every(t=>toks.has(t)));
+  const cles2 = [...new Set(avecPre.map(x=>x.key))];
+  return cles2.length === 1? avecPre[0] : null;
+}
+function trelloAnalyse(d){
+  if (!d || !Array.isArray(d.lists) || !Array.isArray(d.cards)) throw new Error("Ce fichier n'est pas un export JSON de tableau Trello");
+  const listName = Object.fromEntries(d.lists.map(l=>[l.id, l.name||""]));
+  const stMap = n => { n = O2S_NORM(n);
+    if (n.startsWith("termin")) return "Terminé";
+    if (n.includes("attente")) return "Attente retour client";
+    if (n.includes("partenaire")) return "En cours partenaire";
+    if (n.includes("relance")) return "Relance";
+    if (n.includes("faire")) return "À faire";
+    return "En cours"; };
+  const labels = Object.fromEntries((d.labels||[]).map(l=>[l.id, l.name||""]));
+  const membres = Object.fromEntries((d.members||[]).map(m=>[m.id, m.fullName||""]));
+  const clByCard = {};
+  for (const cl of (d.checklists||[])) (clByCard[cl.idCard] = clByCard[cl.idCard]||[]).push(cl);
+  const comByCard = {};
+  for (const a of (d.actions||[])) if (a.type==="commentCard" && a.data?.card?.id && a.data.text)
+    (comByCard[a.data.card.id] = comByCard[a.data.card.id]||[]).push({q:a.date,
+      n:"💬 "+(a.memberCreator?.fullName? (splitNomPrenom(a.memberCreator.fullName).prenom||a.memberCreator.fullName)+" — " : "")+String(a.data.text).replace(/\s*\n\s*/g," · ").slice(0,300)});
+  const idx = trelloIndexClients();
+  const dejaT = new Set(state.operations.map(o=>o.trello_id).filter(Boolean));
+  const ops = [], nonRattachees = [], arch = [];
+  let dejaImportees = 0, archIgnorees = 0, archDoublons = 0;
+  const archVues = new Set();
+  for (const c of d.cards){
+    const ln = listName[c.idList]||"";
+    if (O2S_NORM(ln).startsWith("model")) continue;
+    const m = trelloMatchClient(c.name||"", idx);
+    if (c.closed){
+      const quand = String(c.dateLastActivity||"").slice(0,10);
+      if (!m || !quand){ archIgnorees++; continue; }
+      const note = "[Trello] "+String(c.name).trim()+" ("+ln+")";
+      const sig = m.key+"|"+quand+"|"+note;
+      if (archVues.has(sig) || state.interactions.some(x=>x.client_key===m.key && String(x.quand||"").slice(0,10)===quand && x.note===note)){ archDoublons++; continue; }
+      archVues.add(sig);
+      arch.push({client_key:m.key, creer:m.creer, conseiller_id:null, type:"Note", auteur:"Trello", note, quand:quand+"T12:00:00"});
+      continue;
+    }
+    const tid = c.shortLink || c.id;
+    if (dejaT.has(tid)){ dejaImportees++; continue; }
+    const resp = (c.idMembers||[]).map(i=>membres[i]).filter(Boolean)[0]||"";
+    ops.push({trello_id:tid, titre:String(c.name).trim(), statut:stMap(ln),
+      client_key:m? m.key : "", creer:m?.creer||null,
+      assureur:(c.idLabels||[]).map(i=>labels[i]).filter(Boolean)[0]||"",
+      responsable: resp? (o2sMatchConseiller(resp)?.nom || splitNomPrenom(resp).prenom || resp) : "",
+      conseiller_id: m? (state.clientsInfos.find(ci=>ci.client_key===m.key)?.conseiller_id||null) : null,
+      description:String(c.desc||"").slice(0,2000),
+      echeance:String(c.due||"").slice(0,10)||null,
+      etapes:(clByCard[c.id]||[]).flatMap(cl=>(cl.checkItems||[]).map(i=>({t:i.name, done:i.state==="complete"}))),
+      journal:(comByCard[c.id]||[]).sort((a,b)=>a.q<b.q? -1 : 1)});
+    if (!m) nonRattachees.push(String(c.name).trim());
+  }
+  return {ops, nonRattachees, arch, archDoublons, archIgnorees, dejaImportees};
+}
+async function trelloImporter(an){
+  const connues = new Set(state.clientsInfos.map(ci=>ci.client_key));
+  let fichesCreees = 0;
+  const creerFiche = async (key, c) => {
+    if (connues.has(key)) return;
+    connues.add(key); fichesCreees++;
+    const spl = c? {nom:c.nomf, prenom:c.prenom} : splitNomPrenom(key);
+    await state.db.saveClientInfo({client_key:key, nom:c? c.brut : key, statut:c? c.statut : "Client",
+      origine:"", notes:c?.dossier? "Dossier O2S : "+c.dossier : "",
+      nom_famille:spl.nom, prenom:spl.prenom,
+      ...(c? {tel:c.tel, email:c.email, date_naissance:c.naissance, situation:c.situation, profession:c.profession, adresse:c.adresse} : {})});
+  };
+  for (const o of an.ops) if (o.client_key && o.creer) await creerFiche(o.client_key, o.creer);
+  for (const n of an.arch) if (n.creer) await creerFiche(n.client_key, n.creer);
+  await state.db.addOperationsBulk(an.ops.map(({creer, ...o})=>o));
+  await state.db.addInteractionsBulk(an.arch.map(({creer, ...n})=>n));
+  return {fichesCreees};
+}
+function trelloApercu(an){
+  const ratt = an.ops.filter(o=>o.client_key).length;
+  return `<p class="small" style="margin:8px 0 4px"><b>${an.ops.length}</b> opération(s) à reprendre dans le kanban — <b>${ratt}</b> rattachées à un client, <b>${an.nonRattachees.length}</b> à rattacher à la main${an.dejaImportees? ` · ${an.dejaImportees} déjà importée(s) (ignorées)`:""}.<br>
+    <b>${an.arch.length}</b> carte(s) archivée(s) → échanges « [Trello] » dans les chronologies clients${an.archDoublons? ` · ${an.archDoublons} doublon(s) ignoré(s)`:""} · ${an.archIgnorees} archivée(s) sans client identifiable (non reprises).</p>
+    <ul class="small muted" style="margin:0 0 4px 18px">${an.ops.slice(0,8).map(o=>`<li><b>${esc(o.titre)}</b>${o.client_key? " → "+esc(nomAffiche(o.client_key, o.client_key)) : ' <span style="color:var(--warn)">à rattacher</span>'} · ${esc(o.statut)}</li>`).join("")}</ul>
+    ${an.ops.length>8? `<p class="small muted">… et ${an.ops.length-8} autres</p>`:""}
+    ${an.nonRattachees.length? `<div class="helpbox" style="border-left:3px solid var(--warn);margin:6px 0">⚠️ À rattacher après import (badge « À RATTACHER » dans le kanban) :
+      <span class="small">${an.nonRattachees.slice(0,10).map(esc).join(" · ")}${an.nonRattachees.length>10? " · …" : ""}</span></div>`:""}`;
+}
+
 /* v36 : référentiel clients O2S mémorisé sur le poste (localStorage) pour l'import au compte-goutte */
 function o2sRefFromObjets(objs){
   return objs.filter(o=>String(o["Nom"]||"").trim() && !/^total$/i.test(String(o["Titre"]||"").trim())).map(o=>({
@@ -5389,6 +5714,19 @@ function viewParam(root){
     </div>
   </div>
 
+  <div class="sect sect-head"><h2>Import Trello (Back-office)</h2>
+    <span class="sub">reprise du tableau Trello : cartes ouvertes → kanban Back-office rattaché aux clients · cartes archivées → mémoire des fiches</span></div>
+  <div class="card" id="trl-card">
+    <p class="small muted" style="margin-top:0">Dans Trello : menu du tableau → Imprimer et exporter → <b>Exporter en JSON</b>, puis déposez le fichier ici.
+      Le rattachement client s'appuie sur vos fiches et sur le référentiel O2S (chargez-le d'abord pour un meilleur taux). Dédoublonné : réimporter ne crée rien en double.</p>
+    <input type="file" id="trl-file" accept=".json,application/json" style="margin-bottom:6px">
+    <div id="trl-apercu"></div>
+    <div class="modal-actions" style="justify-content:flex-start;margin-top:4px;display:none" id="trl-actions">
+      <button class="btn" id="trl-go">Importer</button>
+      <button class="btn secondary" id="trl-cancel">Annuler</button>
+    </div>
+  </div>
+
   <div class="sect sect-head"><h2>Moteur de propositions</h2>
     <span class="sub">hypothèses de rendement, grilles d'allocation et honoraires utilisés par l'assistant — à ajuster quand les convictions de marché évoluent</span></div>
   ${propoParamsEditorHTML()}`;
@@ -5493,6 +5831,29 @@ function viewParam(root){
     }catch(err){ toast("Lecture impossible : "+(err.message||err)); }
   });
   $("#o2s-cancel")?.addEventListener("click", ()=>{ state._o2s = null; render(); });
+  $("#trl-file")?.addEventListener("change", async e=>{
+    const f = e.target.files[0]; if (!f) return;
+    try{
+      const d = JSON.parse(await f.text());
+      state._trello = trelloAnalyse(d);
+      $("#trl-apercu").innerHTML = `<p class="small"><b>📥 Tableau « ${esc(d.name||"Trello")} »</b> reconnu.</p>` + trelloApercu(state._trello);
+      $("#trl-actions").style.display = "";
+    }catch(err){
+      $("#trl-apercu").innerHTML = `<p class="small" style="color:var(--critical)">${esc(err.message||String(err))}</p>`;
+      $("#trl-actions").style.display = "none";
+    }
+  });
+  $("#trl-cancel")?.addEventListener("click", ()=>{ state._trello = null; render(); });
+  $("#trl-go")?.addEventListener("click", async ()=>{
+    const an = state._trello; if (!an) return;
+    const btn = $("#trl-go"); btn.disabled = true; btn.textContent = "Import en cours…";
+    try{
+      const r = await trelloImporter(an);
+      await state.db.loadAll();
+      toast(`Import Trello ✓ — ${an.ops.length} opération(s), ${an.arch.length} carte(s) archivée(s) en mémoire client${r.fichesCreees? `, ${r.fichesCreees} fiche(s) créée(s)`:""}`);
+      state._trello = null; render();
+    }catch(err){ toast("Erreur d'import : "+(err.message||err)); btn.disabled = false; btn.textContent = "Importer"; }
+  });
   $("#o2s-go")?.addEventListener("click", async ()=>{
     const job = state._o2s; if (!job) return;
     const btn = $("#o2s-go"); btn.disabled = true; btn.textContent = "Import en cours…";
@@ -5734,6 +6095,7 @@ const VIEWS = {
   clients:{label:"Clients", icon:ICONS.people, fn:viewClients},
   propositions:{label:"Propositions", icon:ICONS.pie, fn:viewPropositions},
   missions:{label:"Missions", icon:ICONS.kit, fn:viewMissions},
+  backoffice:{label:"Back-office", icon:"📥", fn:viewBackoffice},
   fiche:{label:"Fiches", icon:ICONS.user, fn:viewFiche},
   rapport:{label:"Rapport hebdo", icon:ICONS.doc, fn:viewRapport, manager:true},
   progression:{label:"Progression", icon:ICONS.chart, fn:viewProgression, manager:true},
