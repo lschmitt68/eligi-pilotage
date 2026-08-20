@@ -3015,6 +3015,14 @@ function clientConseillers(key){
   for (const a of state.actions) if (a.client_key===key) ids.add(a.conseiller_id);
   return [...ids];
 }
+/* v36 : recherche vivante sans perte de focus (le re-rendu reconstruit l'input) */
+function relanceFocus(root, sel){
+  const inp = root.querySelector(sel);
+  if (!inp) return;
+  inp.focus();
+  const n = inp.value.length;
+  try{ inp.setSelectionRange(n, n); }catch(e){}
+}
 function clientModal(afterSave){
   const STATUTS = ["Prospect","Client","Inactif"];
   const ORIGINES = ["","Recommandation","Famille / proche","Partenaire","Salon / événement","Site web","Autre"];
@@ -3026,6 +3034,7 @@ function clientModal(afterSave){
   back.innerHTML = `<div class="modal" style="width:520px">
     <h3>Nouveau client</h3>
     <p class="small muted" style="margin-top:0">Crée une fiche client sans passer par le pipeline : connaissance client, suivi (appels, RDV, notes, tâches) — l'opportunité pipeline pourra venir plus tard.</p>
+    <div class="helpbox" id="cm-o2s" style="margin:0 0 10px"></div>
     <div class="form-grid">
       <label class="fld"><span>Nom *</span><input type="text" id="cm-nomf" placeholder="DURAND" autocomplete="off" style="text-transform:uppercase"></label>
       <label class="fld"><span>Prénom *</span><input type="text" id="cm-prenom" placeholder="Marie" autocomplete="off"></label>
@@ -3048,6 +3057,7 @@ function clientModal(afterSave){
     </div>
   </div>`;
   document.body.appendChild(back);
+  let o2sExtra = null; /* v36 : champs O2S hors formulaire (situation, adresse, dossier) */
   const nomfEl = back.querySelector("#cm-nomf"), prenomEl = back.querySelector("#cm-prenom");
   const composeNom = ()=> (nomfEl.value.trim().toUpperCase() + " " + prenomEl.value.trim()).trim();
   const updDup = ()=>{
@@ -3061,6 +3071,50 @@ function clientModal(afterSave){
   nomfEl.addEventListener("input", updDup);
   prenomEl.addEventListener("input", updDup);
   nomfEl.focus();
+  /* ---- v36 : reprise au compte-goutte depuis le référentiel O2S ---- */
+  const o2sBox = back.querySelector("#cm-o2s");
+  const o2sRendre = ()=>{
+    const ref = o2sRefGet();
+    if (!ref){
+      o2sBox.innerHTML = `<b>📇 Reprendre depuis O2S :</b> <span class="small muted">chargez une fois l'export « Analyse » — il reste mémorisé sur ce poste pour les prochains clients.</span>
+        <input type="file" id="cm-o2s-file" accept=".xlsx,.xls" style="margin-top:4px">`;
+    } else {
+      o2sBox.innerHTML = `<b>📇 Reprendre depuis O2S :</b>
+        <input type="search" id="cm-o2s-q" placeholder="tapez un nom… (${ref.clients.length} clients O2S)" autocomplete="off" style="margin:4px 0 2px;width:100%">
+        <div id="cm-o2s-res"></div>
+        <span class="small muted">Référentiel du ${new Date(ref.quand).toLocaleDateString("fr-FR")} · <a href="#" id="cm-o2s-maj">mettre à jour le fichier</a></span>
+        <input type="file" id="cm-o2s-file" accept=".xlsx,.xls" style="display:none">`;
+    }
+    o2sBox.querySelector("#cm-o2s-maj")?.addEventListener("click", e=>{ e.preventDefault(); o2sBox.querySelector("#cm-o2s-file").click(); });
+    o2sBox.querySelector("#cm-o2s-file")?.addEventListener("change", async e=>{
+      const f = e.target.files[0]; if (!f) return;
+      try{ const n = await o2sRefCharger(f); toast(`Référentiel O2S mémorisé ✓ — ${n} clients`); o2sRendre(); }
+      catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+    o2sBox.querySelector("#cm-o2s-q")?.addEventListener("input", e=>{
+      const q = normName(e.target.value);
+      const res = o2sBox.querySelector("#cm-o2s-res");
+      if (q.length < 2){ res.innerHTML = ""; return; }
+      const hits = o2sRefGet().clients.filter(c=>normName(c.brut+" "+c.prenom+" "+c.nomf).includes(q)).slice(0,6);
+      res.innerHTML = hits.length? hits.map((c,i)=>`<button class="btn secondary small cm-o2s-hit" data-i="${o2sRefGet().clients.indexOf(c)}" style="margin:2px 4px 2px 0">${esc(c.brut)}${c.naissance? ` <span class="small muted">· ${new Date(c.naissance+"T00:00:00").toLocaleDateString("fr-FR")}</span>`:""}${c.cons? ` <span class="small muted">· ${esc(c.cons)}</span>`:""}</button>`).join("")
+        : `<span class="small muted">aucun client O2S ne correspond</span>`;
+      res.querySelectorAll(".cm-o2s-hit").forEach(b=>b.addEventListener("click", ()=>{
+        const c = o2sRefGet().clients[+b.dataset.i];
+        nomfEl.value = c.nomf; prenomEl.value = c.prenom;
+        back.querySelector("#cm-statut").value = c.statut;
+        back.querySelector("#cm-tel").value = c.tel;
+        back.querySelector("#cm-email").value = c.email;
+        back.querySelector("#cm-nais").value = c.naissance || "";
+        back.querySelector("#cm-prof").value = c.profession;
+        const mc = o2sMatchConseiller(c.cons);
+        if (mc && back.querySelector(`#cm-cons option[value="${mc.id}"]`)) back.querySelector("#cm-cons").value = String(mc.id);
+        o2sExtra = {situation:c.situation, adresse:c.adresse, dossier:c.dossier};
+        res.innerHTML = `<span class="small" style="color:var(--ok,#2e9e63)">✓ ${esc(c.brut)} repris d'O2S — vérifiez puis « Créer la fiche »${c.situation||c.adresse? " (situation et adresse seront reprises aussi)":""}</span>`;
+        updDup();
+      }));
+    });
+  };
+  o2sRendre();
   back.querySelector("#cm-cancel").addEventListener("click", ()=>back.remove());
   back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
   back.querySelector("#cm-save").addEventListener("click", async ()=>{
@@ -3085,7 +3139,14 @@ function clientModal(afterSave){
         tel, email,
         date_naissance:back.querySelector("#cm-nais").value || null,
         profession:back.querySelector("#cm-prof").value.trim(),
-        conseiller_id:+back.querySelector("#cm-cons").value || null});
+        conseiller_id:+back.querySelector("#cm-cons").value || null,
+        ...(o2sExtra? {situation:o2sExtra.situation, adresse:o2sExtra.adresse} : {})});
+      if (o2sExtra?.dossier){
+        const ci = state.clientsInfos.find(x=>x.client_key===key);
+        if (!(ci?.notes||"").includes(o2sExtra.dossier))
+          await state.db.saveClientInfo({...(ci||{client_key:key, nom, statut:back.querySelector("#cm-statut").value, origine:back.querySelector("#cm-origine").value}),
+            client_key:key, notes:((ci?.notes||back.querySelector("#cm-notes").value.trim())+"\nDossier O2S : "+o2sExtra.dossier).trim()});
+      }
       await state.db.loadAll();
       back.remove(); state._cliOpen = key; state._cliSearch = "";
       toast("Fiche client créée ✓"); afterSave(key);
@@ -3112,6 +3173,10 @@ function viewClients(root){
   if (q) list = list.filter(g=>g.name.toLowerCase().includes(q)
     || nomAffiche(g.key, g.name).toLowerCase().includes(q)
     || (g.info.groupe||"").toLowerCase().includes(q));
+  const nParStatut = {"":list.length};
+  for (const g of list){ const s = g.info.statut||"Prospect"; nParStatut[s] = (nParStatut[s]||0)+1; }
+  const fSt = state._cliStatut || "";
+  if (fSt) list = list.filter(g=>(g.info.statut||"Prospect")===fSt);
   for (const g of list){
     g.pond = g.rows.reduce((a,p)=>a+pondere(p),0);
     g.signe = g.rows.filter(p=>(p.etape||"").toLowerCase()==="signé").reduce((a,p)=>a+pondere(p),0);
@@ -3138,6 +3203,10 @@ function viewClients(root){
   <div class="inline-controls" style="margin-bottom:12px">
     <label class="fld" style="min-width:240px"><span>Recherche</span>
       <input type="search" id="cli-search" placeholder="nom du client…" value="${esc(state._cliSearch||"")}"></label>
+    <div class="seg" id="cli-fst" style="margin-bottom:8px">
+      ${[["","Tous"],["Client","Clients"],["Prospect","Prospects"],["Inactif","Inactifs"]].map(([v,l])=>
+        `<button data-v="${v}" class="${fSt===v?"active":""}">${l}${nParStatut[v]!==undefined? ` (${nParStatut[v]})`:" (0)"}</button>`).join("")}
+    </div>
   </div>
   <div class="card tbl-scroll"><table class="tbl">
     <thead><tr><th>Client</th><th>Statut</th><th>Conseiller(s)</th><th class="num">Dossiers</th>
@@ -3304,7 +3373,10 @@ function viewClients(root){
   <datalist id="ci-groupes">${[...new Set(state.clientsInfos.map(ci=>(ci.groupe||"").trim()).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
 
   $("#cli-new").addEventListener("click", ()=>clientModal(()=>viewClients(root)));
-  $("#cli-search").addEventListener("input", e=>{ state._cliSearch = e.target.value; viewClients(root); });
+  $("#cli-fst")?.querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{
+    state._cliStatut = b.dataset.v; viewClients(root);
+  }));
+  $("#cli-search").addEventListener("input", e=>{ state._cliSearch = e.target.value; viewClients(root); relanceFocus(root, "#cli-search"); });
   root.querySelectorAll(".cli-row").forEach(r=>r.addEventListener("click", ()=>{
     state._cliOpen = state._cliOpen === r.dataset.key ? null : r.dataset.key;
     viewClients(root);
@@ -4317,7 +4389,7 @@ function viewPropositions(root){
     <tbody>${propoRowsHTML(list, true) || `<tr><td colspan="8" class="empty">Aucune proposition — clique sur « Nouvelle proposition » pour démarrer depuis un client du pipeline</td></tr>`}</tbody>
   </table></div>`;
   $("#prop-new")?.addEventListener("click", propoClientPicker);
-  $("#prop-search").addEventListener("input", e=>{ state._propSearch = e.target.value; viewPropositions(root); });
+  $("#prop-search").addEventListener("input", e=>{ state._propSearch = e.target.value; viewPropositions(root); relanceFocus(root, "#prop-search"); });
   bindPropoRows(root, ()=>viewPropositions(root));
 }
 
@@ -4638,7 +4710,7 @@ function viewMissions(root){
   $("#mi-seg").querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{ state._miView = b.dataset.v; render(); }));
   $("#mi-add").addEventListener("click", ()=>missionModal(null));
   $("#mi-suivre")?.addEventListener("click", ()=>{ state._miSuivre = !state._miSuivre; render(); });
-  $("#mi-search").addEventListener("input", e=>{ state._miSearch = e.target.value; viewMissions(root); });
+  $("#mi-search").addEventListener("input", e=>{ state._miSearch = e.target.value; viewMissions(root); relanceFocus(root, "#mi-search"); });
   $("#mi-type").addEventListener("change", e=>{ state._miType = e.target.value; render(); });
   $("#mi-cons")?.addEventListener("change", e=>{ state._miCons = e.target.value; render(); });
 }
@@ -4831,6 +4903,41 @@ function o2sCol(o, ...cands){
   /* valeur de la première colonne dont l'en-tête contient un des motifs */
   for (const k of Object.keys(o)) for (const c of cands) if (O2S_NORM(k).includes(O2S_NORM(c))) return o[k];
   return undefined;
+}
+/* v36 : référentiel clients O2S mémorisé sur le poste (localStorage) pour l'import au compte-goutte */
+function o2sRefFromObjets(objs){
+  return objs.filter(o=>String(o["Nom"]||"").trim() && !/^total$/i.test(String(o["Titre"]||"").trim())).map(o=>({
+    nomf: String(o["Nom"]).trim(), prenom: String(o["Prénom"]||"").trim(),
+    brut: String(o["Nom + Prénom"]||`${String(o["Nom"]).trim()} ${String(o["Prénom"]||"").trim()}`).trim(),
+    statut: /prospect/i.test(String(o["Type"]||""))? "Prospect" : "Client",
+    naissance: o2sParseDate(o["Date de nais."]),
+    situation: O2S_VIDE(o["Sit. fam."])? "" : String(o["Sit. fam."]).trim(),
+    profession: O2S_VIDE(o["Profession"])? "" : String(o["Profession"]).trim(),
+    adresse: O2S_VIDE(o2sCol(o,"Adresse complète (Domicile")) ? "" : String(o2sCol(o,"Adresse complète (Domicile")).replace(/\s*\n\s*/g,", ").trim(),
+    tel: O2S_VIDE(o2sCol(o,"portable","téléphone","tél"))? "" : String(o2sCol(o,"portable","téléphone","tél")).trim(),
+    email: O2S_VIDE(o2sCol(o,"mail"))? "" : String(o2sCol(o,"mail")).trim(),
+    dossier: String(o["Code dossier"]||"").trim(),
+    cons: O2S_VIDE(o["Conseiller principal"])? "" : String(o["Conseiller principal"]).trim(),
+  }));
+}
+function o2sRefGet(){
+  if (state._o2sRef) return state._o2sRef;
+  try{ const d = JSON.parse(localStorage.getItem("eligi_o2s_ref")||"null");
+    return (d && Array.isArray(d.clients) && d.clients.length)? d : null; }catch(e){ return null; }
+}
+function o2sRefSet(clients){
+  const d = {quand:new Date().toISOString(), clients};
+  state._o2sRef = d;
+  try{ localStorage.setItem("eligi_o2s_ref", JSON.stringify(d)); }catch(e){}
+}
+async function o2sRefCharger(file){
+  if (!window.XLSX) throw new Error("Librairie Excel non chargée — réessaie en ligne");
+  const wb = XLSX.read(await file.arrayBuffer());
+  const rows = XLSX.utils.sheet_to_json(wb.Sheets[wb.SheetNames[0]], {header:1, raw:false});
+  if (o2sDetect((rows[0]||[]).map(x=>String(x||""))) !== "clients") throw new Error("Ce fichier n'est pas l'export O2S « Analyse » (clients)");
+  const clients = o2sRefFromObjets(o2sObjets(rows));
+  o2sRefSet(clients);
+  return clients.length;
 }
 function o2sTokEq(s){ return normName(s).split(" ").filter(Boolean).sort().join("|"); }
 function o2sClesExistantes(){
@@ -5379,6 +5486,7 @@ function viewParam(root){
       const type = o2sDetect((rows[0]||[]).map(x=>String(x||"")));
       if (!type){ $("#o2s-apercu").innerHTML = `<p class="small" style="color:var(--critical)">Format non reconnu — attendez-vous à un export O2S « Analyse » (clients) ou « Fiche suivis ».</p>`; $("#o2s-actions").style.display = "none"; return; }
       const objs = o2sObjets(rows);
+      if (type === "clients") o2sRefSet(o2sRefFromObjets(objs));
       state._o2s = type === "clients"? {type, data:o2sAnalyseClients(objs)} : {type, data:o2sAnalyseSuivis(objs)};
       $("#o2s-apercu").innerHTML = `<p class="small"><b>${type==="clients"? "📇 Référentiel clients" : "🗒 Fiches de suivi"}</b> détecté${type==="clients"? "" : " — les doublons déjà importés sont ignorés"}.</p>` + o2sApercu(type, state._o2s.data);
       $("#o2s-actions").style.display = "";
