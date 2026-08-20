@@ -3518,6 +3518,27 @@ function viewClients(root){
                   <td class="num small">${+mm.hono_facture? eur(mm.hono_facture):""}</td>
                 </tr>`; }).join("")}</tbody></table></div>${mis.length>4? `<p class="small muted" style="margin:2px 0 4px">+ ${mis.length-4} autre(s) dans les Missions</p>`:""}`
               : `<p class="small muted" style="margin:2px 0 6px">aucune mission d'honoraires</p>`); })()}
+            ${(()=>{ /* v44 : opérations back-office du client, récentes d'abord */
+              const tousOps = state.operations.filter(o=>o.client_key===g.key)
+                .sort((a,b)=>String(b.updated_at||b.created_at||"").localeCompare(String(a.updated_at||a.created_at||"")));
+              const J30 = Date.now() - 30*86400000;
+              const recentes = tousOps.filter(o=>o.statut!=="Terminé" || new Date(o.updated_at||o.created_at||0).getTime() >= J30);
+              const nAnciennes = tousOps.length - recentes.length;
+              const ops = state._cliBoOld? tousOps : recentes;
+              return `<div class="tl-subhead" style="display:flex;justify-content:space-between;align-items:center;gap:6px">📥 Opérations back-office (${tousOps.length})
+                <span style="display:flex;gap:6px;flex-wrap:wrap">
+                  ${nAnciennes? `<button class="btn secondary small cli-bo-old" title="Opérations terminées depuis plus de 30 jours">${state._cliBoOld? "Masquer" : "Voir"} les anciennes (${nAnciennes})</button>`:""}
+                  <button class="btn secondary small cli-bo-add" data-key="${esc(g.key)}">＋ Opération</button>
+                </span></div>` +
+              (ops.length? `<div class="tbl-scroll" style="margin-bottom:2px"><table class="tbl dense"><tbody>${ops.slice(0, state._cliBoOld? 8 : 4).map(o=>{ const pr = boProgress(o); return `
+                <tr class="clickable cli-bo" data-oid="${o.id}">
+                  <td>${esc(o.titre)}</td>
+                  <td>${o.statut==="Terminé"? `<span class="badge neutral"><span class="dot"></span>Terminé</span>` : `<span class="badge"><span class="dot" style="background:var(--s1)"></span>${esc(o.statut)}</span>`}</td>
+                  <td class="num small">${pr.total? pr.done+"/"+pr.total : "—"}</td>
+                  <td class="small">${esc(o.responsable||"")}</td>
+                  <td class="small">${(o.updated_at||o.created_at)? new Date(o.updated_at||o.created_at).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"2-digit"}) : ""}</td>
+                </tr>`; }).join("")}</tbody></table></div>${ops.length > (state._cliBoOld? 8 : 4)? `<p class="small muted" style="margin:2px 0 4px">+ ${ops.length - (state._cliBoOld? 8 : 4)} autre(s) dans le Back-office</p>`:""}`
+              : `<p class="small muted" style="margin:2px 0 6px">${tousOps.length? "aucune opération récente — « Voir les anciennes » pour l'historique" : "aucune opération sur contrat"}</p>`); })()}
             ${(()=>{ const prs = state.propositions.filter(pr=>pr.client_key===g.key);
               return prs.length? `<div class="tl-subhead">📄 Propositions (${prs.length})</div>
             <div class="tbl-scroll" style="margin-bottom:2px"><table class="tbl dense">
@@ -3656,6 +3677,17 @@ function viewClients(root){
   root.querySelectorAll(".cli-mi-add").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
     missionModal(null, {clientKey:b.dataset.key, clientNom:b.dataset.nom});
+  }));
+  root.querySelectorAll(".cli-bo").forEach(r=>r.addEventListener("click", e=>{
+    e.stopPropagation();
+    const o = state.operations.find(x=>x.id===+r.dataset.oid);
+    if (o) boModal(o);
+  }));
+  root.querySelectorAll(".cli-bo-add").forEach(b=>b.addEventListener("click", e=>{
+    e.stopPropagation(); boModal(null, null, b.dataset.key);
+  }));
+  root.querySelectorAll(".cli-bo-old").forEach(b=>b.addEventListener("click", e=>{
+    e.stopPropagation(); state._cliBoOld = !state._cliBoOld; viewClients(root);
   }));
   root.querySelectorAll(".cli-op-add").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
@@ -5313,10 +5345,10 @@ function boResoudreClient(txt){
   for (const p of state.pipeline) if (normName(p.client||"")===t) return normName(p.client);
   return null;
 }
-function boModal(o, statutInitial){
+function boModal(o, statutInitial, clientKey){
   const creation = !o;
   o = o? {...o, etapes:(o.etapes||[]).map(e=>({...e})), journal:(o.journal||[]).map(j=>({...j}))}
-       : {titre:"", statut:statutInitial||"À faire", client_key:"", assureur:"", responsable:monNom(), conseiller_id:null,
+       : {titre:"", statut:statutInitial||"À faire", client_key:clientKey||"", assureur:"", responsable:monNom(), conseiller_id:null,
           description:"", etapes:[], journal:[], echeance:null, trello_id:""};
   const back = document.createElement("div");
   back.className = "modal-back";
