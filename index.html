@@ -997,6 +997,10 @@ class SupaDB {
     if (info.date_naissance !== undefined) row.date_naissance = info.date_naissance || null;
     if (info.conseiller_id !== undefined) row.conseiller_id = info.conseiller_id || null;
     if (info.conformite !== undefined) row.conformite = info.conformite || {};
+    if (info.morale !== undefined) row.morale = !!info.morale;
+    if (info.liens !== undefined) row.liens = info.liens || [];
+    if (info.encours !== undefined) row.encours = (info.encours ?? null);
+    if (info.encours_maj !== undefined) row.encours_maj = info.encours_maj || null;
     const {error} = await this.c.from("clients_infos").upsert(row, {onConflict:"client_key"});
     if (error) throw error;
   }
@@ -1243,6 +1247,10 @@ class DemoDB {
     if (info.date_naissance !== undefined) row.date_naissance = info.date_naissance || null;
     if (info.conseiller_id !== undefined) row.conseiller_id = info.conseiller_id || null;
     if (info.conformite !== undefined) row.conformite = info.conformite || {};
+    if (info.morale !== undefined) row.morale = !!info.morale;
+    if (info.liens !== undefined) row.liens = info.liens || [];
+    if (info.encours !== undefined) row.encours = (info.encours ?? null);
+    if (info.encours_maj !== undefined) row.encours_maj = info.encours_maj || null;
     if (i>=0) Object.assign(this.clientsInfos[i], row);
     else this.clientsInfos.push({id:this._id++, ...row});
   }
@@ -3178,6 +3186,28 @@ function revueEchue(info){
 }
 /* v38 : suivi de conformité par coches datées — MustCompliance reste la référence documentaire */
 const CONF_ITEMS = [["der","DER"],["dcc","DCC"],["profil","Profil investisseur"],["lm","Lettre de mission"],["ra","Rapport d'adéquation"]];
+/* v42 : liens typés entre fiches — stockés sur A ({key:B, type}) = « A est <label> de B » */
+const LIEN_TYPES = [
+  ["gerant","gérant(e) de","a pour gérant(e)"],
+  ["associe","associé(e) de","a pour associé(e)"],
+  ["salarie","salarié(e) de","a pour salarié(e)"],
+  ["conjoint","conjoint(e) de","conjoint(e) de"],
+  ["enfant","enfant de","parent de"],
+  ["autre","lié(e) à","lié(e) à"],
+];
+function lienLabel(t, inverse){
+  const d = LIEN_TYPES.find(x=>x[0]===t) || LIEN_TYPES[LIEN_TYPES.length-1];
+  return inverse? d[2] : d[1];
+}
+function liensPour(key){
+  const out = [];
+  const ci = state.clientsInfos.find(c=>c.client_key===key);
+  for (const l of (ci?.liens||[])) out.push({key:l.key, type:l.type, inverse:false});
+  for (const c of state.clientsInfos)
+    if (c.client_key !== key)
+      for (const l of (c.liens||[])) if (l.key===key) out.push({key:c.client_key, type:l.type, inverse:true});
+  return out;
+}
 function confEtat(info){ const c = info?.conformite||{}; return {faits:CONF_ITEMS.filter(([k])=>c[k]).length, total:CONF_ITEMS.length}; }
 function clientConseillers(key){
   const ids = new Set();
@@ -3209,7 +3239,7 @@ function clientModal(afterSave){
     <p class="small muted" style="margin-top:0">Crée une fiche client sans passer par le pipeline : connaissance client, suivi (appels, RDV, notes, tâches) — l'opportunité pipeline pourra venir plus tard.</p>
     <div class="helpbox" id="cm-o2s" style="margin:0 0 10px"></div>
     <div class="form-grid">
-      <label class="fld"><span>Nom *</span><input type="text" id="cm-nomf" placeholder="DURAND" autocomplete="off" style="text-transform:uppercase"></label>
+      <label class="fld"><span>Nom * <label class="small muted" style="display:inline;font-weight:400;margin-left:8px;cursor:pointer"><input type="checkbox" id="cm-morale" style="width:auto;vertical-align:middle"> 🏢 personne morale</label></span><input type="text" id="cm-nomf" placeholder="DURAND" autocomplete="off" style="text-transform:uppercase"></label>
       <label class="fld"><span>Prénom *</span><input type="text" id="cm-prenom" placeholder="Marie" autocomplete="off"></label>
       <label class="fld"><span>Statut</span><select id="cm-statut">${STATUTS.map(s=>`<option>${s}</option>`).join("")}</select></label>
       <label class="fld"><span>Conseiller référent *</span><select id="cm-cons">
@@ -3299,7 +3329,9 @@ function clientModal(afterSave){
       back.remove(); state._cliOpen = key; state._cliSearch = ""; afterSave(key); toast("Fiche existante ouverte");
       return;
     }
-    if (nomf.length < 2 || prenom.length < 2){ toast("Nom ET prénom sont requis (2 caractères minimum chacun)"); return; }
+    const morale = back.querySelector("#cm-morale").checked;
+    if (morale){ if (nomf.length < 2){ toast("Indique la raison sociale"); return; } }
+    else if (nomf.length < 2 || prenom.length < 2){ toast("Nom ET prénom sont requis (2 caractères minimum chacun)"); return; }
     if (!tel && !email){ toast("Indique au moins un moyen de contact : téléphone ou e-mail"); return; }
     if (!back.querySelector("#cm-cons").value){ toast("Choisis le conseiller référent de ce client"); return; }
     if (email && !/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email)){ toast("L'adresse e-mail ne semble pas valide"); return; }
@@ -3313,6 +3345,7 @@ function clientModal(afterSave){
         date_naissance:back.querySelector("#cm-nais").value || null,
         profession:back.querySelector("#cm-prof").value.trim(),
         conseiller_id:+back.querySelector("#cm-cons").value || null,
+        morale,
         ...(o2sExtra? {situation:o2sExtra.situation, adresse:o2sExtra.adresse} : {})});
       if (o2sExtra?.dossier){
         const ci = state.clientsInfos.find(x=>x.client_key===key);
@@ -3422,6 +3455,21 @@ function viewClients(root){
               <div class="inline-controls" style="gap:12px;flex-wrap:wrap;margin-top:3px">
                 ${CONF_ITEMS.map(([k,l])=>{ const d = (g.info.conformite||{})[k];
                   return `<label class="small" style="display:flex;align-items:center;gap:5px;cursor:pointer;margin:0"><input type="checkbox" class="ci-conf" data-k="${k}" data-key="${esc(g.key)}" ${d?"checked":""} style="width:auto">${l}${d? ` <span class="muted">(${new Date(String(d).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR")})</span>`:""}</label>`; }).join("")}
+              </div>
+            </div>
+            <div style="margin:2px 0 6px">
+              <span class="small muted" style="font-weight:700">🔗 Liens avec d'autres fiches</span>
+              <div style="margin-top:3px">
+                ${liensPour(g.key).map(l=>`<div class="inline-controls" style="gap:6px;margin:2px 0;align-items:center">
+                  <span class="small">${esc(lienLabel(l.type, l.inverse))} <a href="#" class="ci-lienfiche" data-key="${esc(l.key)}"><b>${esc(nomAffiche(l.key, l.key))}</b></a></span>
+                  ${l.inverse? "" : `<button class="btn danger small ci-lien-del" data-key="${esc(g.key)}" data-cible="${esc(l.key)}" data-type="${esc(l.type)}" title="Supprimer ce lien">✕</button>`}
+                </div>`).join("") || `<span class="small muted">aucun lien — reliez une société à son gérant, un enfant à ses parents…</span>`}
+              </div>
+              <div class="inline-controls" style="gap:6px;margin-top:4px;flex-wrap:wrap">
+                <select class="ci-lien-type small" style="max-width:160px">${LIEN_TYPES.map(([v,l])=>`<option value="${v}">${l}</option>`).join("")}</select>
+                <input type="text" class="ci-lien-cible" list="cli-fiches" placeholder="fiche à relier…" autocomplete="off" style="flex:1;min-width:150px">
+                <button class="btn secondary small ci-lien-add" data-key="${esc(g.key)}">Relier</button>
+                <datalist id="cli-fiches">${[...new Map(state.clientsInfos.map(ci=>[ci.client_key, nomAffiche(ci.client_key, ci.nom||ci.client_key)])).values()].sort((a,b)=>a.localeCompare(b,"fr")).map(f=>`<option value="${esc(f)}">`).join("")}</datalist>
               </div>
             </div>
             <label class="fld"><span>Notes du cabinet (visibles par toute l'équipe)</span>
@@ -3535,7 +3583,7 @@ function viewClients(root){
     const ce = confEtat(gOpen.info);
     const dj = gOpen.dernier? Math.floor((Date.now()-gOpen.dernier)/86400000) : null;
     root.innerHTML = `
-  ${vhead(gOpen.disp, [gOpen.info.statut||"Prospect", gOpen.info.groupe? "groupe "+gOpen.info.groupe : "", gOpen.info.profession||"", gOpen.info.conseiller_id? "référent "+consName(gOpen.info.conseiller_id) : ""].filter(Boolean).join(" · "), `
+  ${vhead((gOpen.info.morale? "🏢 " : "") + gOpen.disp, [gOpen.info.morale? "Personne morale" : "", gOpen.info.statut||"Prospect", gOpen.info.groupe? "groupe "+gOpen.info.groupe : "", gOpen.info.profession||"", gOpen.info.conseiller_id? "référent "+consName(gOpen.info.conseiller_id) : ""].filter(Boolean).join(" · "), `
     <button class="btn secondary" id="cli-back">← Liste des clients</button>
     <button class="btn secondary ci-brief" data-key="${esc(gOpen.key)}">📋 Brief RDV</button>
     <button class="btn ci-propo" data-key="${esc(gOpen.key)}">＋ Proposition</button>
@@ -3544,6 +3592,7 @@ function viewClients(root){
     ${tile("Pondéré", eur(gOpen.pond), `${gOpen.rows.length} dossier(s)${gOpen.relance? " · "+gOpen.relance+" à relancer" : ""}`)}
     ${tile("Dont signé", eur(gOpen.signe))}
     ${tile("Collecte potentielle", eur(gOpen.coll))}
+    ${gOpen.info.encours != null && gOpen.info.encours !== ""? tile("Encours O2S", eur(+gOpen.info.encours), gOpen.info.encours_maj? "au "+new Date(String(gOpen.info.encours_maj).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR") : "") : ""}
     ${tile("Dernier contact", dj===null? "—" : dj===0? "aujourd'hui" : "il y a "+dj+" j",
       gOpen.info.derniere_revue? "revue annuelle : "+new Date(gOpen.info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "revue annuelle jamais faite")}
     ${tile("Conformité", ce.faits+"/"+ce.total, ce.faits===ce.total? "complète ✓" : "coches sur la fiche ci-dessous")}
@@ -3569,7 +3618,7 @@ function viewClients(root){
     <th class="num">Collecte pot.</th><th class="num">Pondéré</th><th class="num">Dont signé</th><th>À relancer</th></tr></thead>
     <tbody>${list.map((g,i)=>`
       <tr class="clickable cli-row" data-key="${esc(g.key)}" title="Ouvrir la fiche client">
-        <td><b>${esc(g.disp)}</b></td>
+        <td>${g.info.morale? `<span title="Personne morale">🏢</span> `:""}<b>${esc(g.disp)}</b></td>
         <td>${statutBadge(g.info.statut)}${revueEchue(g.info)? ` <span class="badge watch" title="Revue annuelle à programmer (dernière : ${g.info.derniere_revue? new Date(g.info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "jamais"})"><span class="dot"></span>Revue due</span>`:""}${(()=>{
           if (g.info.statut!=="Client") return "";
           const j = contactJours(g.key);
@@ -3716,6 +3765,33 @@ function viewClients(root){
     e.stopPropagation();
     state._pipeSearch = el.dataset.cli || ""; state._pipeStale = false;
     go("pipeline");
+  }));
+  root.querySelectorAll(".ci-lienfiche").forEach(a=>a.addEventListener("click", e=>{
+    e.preventDefault(); e.stopPropagation();
+    state._cliOpen = a.dataset.key; viewClients(root);
+  }));
+  root.querySelectorAll(".ci-lien-add").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    const det = b.closest(".cli-detail") || root;
+    const type = det.querySelector(".ci-lien-type").value;
+    const cible = boResoudreClient(det.querySelector(".ci-lien-cible").value.trim());
+    if (!cible){ toast("Choisis une fiche existante dans la liste"); return; }
+    if (cible === b.dataset.key){ toast("Une fiche ne peut pas être reliée à elle-même"); return; }
+    const info = state.clientsInfos.find(x=>x.client_key===b.dataset.key);
+    const liens = [...(info?.liens||[])];
+    if (liens.some(l=>l.key===cible && l.type===type)){ toast("Ce lien existe déjà"); return; }
+    liens.push({key:cible, type});
+    try{
+      await state.db.saveClientInfo({...(info||{client_key:b.dataset.key, statut:"Prospect", origine:"", notes:""}), client_key:b.dataset.key, liens});
+      await state.db.loadAll(); toast("Lien ajouté ✓"); viewClients(root);
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  root.querySelectorAll(".ci-lien-del").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    const info = state.clientsInfos.find(x=>x.client_key===b.dataset.key);
+    const liens = (info?.liens||[]).filter(l=>!(l.key===b.dataset.cible && l.type===b.dataset.type));
+    try{ await state.db.saveClientInfo({...info, liens}); await state.db.loadAll(); viewClients(root); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
   root.querySelectorAll(".ci-conf").forEach(c=>c.addEventListener("change", async e=>{
     e.stopPropagation();
@@ -5502,7 +5578,8 @@ function undoSet(j){
   state._undoImport = j;
   try{ if (j) localStorage.setItem("eligi_undo_import", JSON.stringify(j)); else localStorage.removeItem("eligi_undo_import"); }catch(e){}
 }
-const UNDO_CHAMPS = ["nom","statut","notes","nom_famille","prenom","date_naissance","situation","profession","adresse","tel","email","groupe","conseiller_id","derniere_revue"];
+const UNDO_CHAMPS = ["nom","statut","notes","nom_famille","prenom","date_naissance","situation","profession","adresse","tel","email","groupe","conseiller_id","derniere_revue","morale","liens","encours","encours_maj"];
+const undoVal = v => (v && typeof v === "object")? JSON.stringify(v) : (v ?? "");
 async function annulerDernierImport(){
   const j = undoGet();
   if (!j) return null;
@@ -5570,9 +5647,13 @@ function o2sAnalyseClients(objs){
   const parNom = {};
   for (const o of lignes){ const t = O2S_NORM(String(o["Nom"]).split(/\s+/)[0]); (parNom[t] = parNom[t]||[]).push(o); }
   const {res, incertains} = o2sResolutionMap(lignes.map(o=>String(o["Nom + Prénom"]||`${String(o["Nom"]).trim()} ${String(o["Prénom"]||"").trim()}`).trim()));
+  /* v42 : colonne « Portefeuille au JJ/MM/AAAA (€) » → encours daté */
+  const encKey = lignes.length? Object.keys(lignes[0]).find(k=>O2S_NORM(k).includes("portefeuille")) : null;
+  const encDate = encKey? (o2sParseDate((encKey.match(/\d{2}\/\d{2}\/\d{4}/)||[])[0]) || new Date().toISOString().slice(0,10)) : null;
   const out = []; const vusCles = new Set();
   for (const o of lignes){
     const nomF = String(o["Nom"]).trim(), pre = String(o["Prénom"]||"").trim();
+    const morale = !String(o["Titre"]||"").trim() && !pre;   /* v42 : personne morale = ni civilité ni prénom */
     const brut = String(o["Nom + Prénom"]||`${nomF} ${pre}`).trim();
     const r = res.get(brut) || {key:normName(brut), mode:"nouveau", label:""};
     const key = r.key;
@@ -5589,13 +5670,30 @@ function o2sAnalyseClients(objs){
       situation: O2S_VIDE(o["Sit. fam."])? "" : String(o["Sit. fam."]).trim(),
       profession: O2S_VIDE(o["Profession"])? "" : String(o["Profession"]).trim(),
       adresse,
-      tel: O2S_VIDE(o2sCol(o,"portable","téléphone","tél"))? "" : String(o2sCol(o,"portable","téléphone","tél")).trim(),
+      tel: O2S_VIDE(o2sCol(o,"portable","téléphone","tél"))? "" : [...new Set(String(o2sCol(o,"portable","téléphone","tél")).split(/[;,]/).map(s=>s.trim()).filter(Boolean))].join(" / "),
       email: O2S_VIDE(o2sCol(o,"mail"))? "" : String(o2sCol(o,"mail")).trim(),
       dossier: String(o["Code dossier"]||"").trim(),
       cons_id: cons?.id || null,
-      groupe: (parNom[tok]||[]).length >= 2? "Famille " + nomF.split(/\s+/)[0] : "",
+      morale,
+      soc: O2S_VIDE(o["Societé"])? "" : String(o["Societé"]).trim(),
+      encours: (encKey && String(o[encKey]??"").trim())? (parseFloat(String(o[encKey]).replace(/\s/g,"").replace(",", ".")) || null) : null,
+      encours_maj: encDate,
+      groupe: (!morale && (parNom[tok]||[]).length >= 2)? "Famille " + nomF.split(/\s+/)[0] : "",
       match: r.mode, matchLabel: r.label,
     });
+  }
+  /* v42 : liens suggérés — société et personne(s) partageant la même adresse dans l'export */
+  const adrDe = it => O2S_NORM(it.adresse).replace(/\bfrance\b|\bnon defini\b/g,"").replace(/[^a-z0-9]/g,"");
+  for (const m of out.filter(x=>x.morale)){
+    const a = adrDe(m);
+    if (a.length >= 8)
+      m.liens_sugg = out.filter(x=>!x.morale && adrDe(x)===a).map(x=>x.key);
+  }
+  /* employeur (colonne Societé) : lien « salarié de » si la société est une fiche, sinon note */
+  for (const it of out.filter(x=>!x.morale && x.soc)){
+    const cible = out.find(x=>x.morale && o2sTokEq(x.nom)===o2sTokEq(it.soc))
+      || state.clientsInfos.find(c=>c.morale && o2sTokEq(c.nom||c.client_key)===o2sTokEq(it.soc));
+    if (cible) it.lien_soc = cible.key || cible.client_key;
   }
   return {items:out, incertains};
 }
@@ -5621,10 +5719,21 @@ async function o2sImporterClients(items){
       email: ex.email || it.email,
       groupe: ex.groupe || it.groupe,
       conseiller_id: ex.conseiller_id || it.cons_id,
+      morale: !!(ex.morale || it.morale),
+      encours: (it.encours != null)? it.encours : (ex.encours ?? null),
+      encours_maj: (it.encours != null)? it.encours_maj : (ex.encours_maj ?? null),
+      liens: (()=>{
+        const l = [...(ex.liens||[])];
+        for (const k of (it.liens_sugg||[])) if (k !== it.key && !l.some(x=>x.key===k)) l.push({key:k, type:"autre"});
+        if (it.lien_soc && it.lien_soc !== it.key && !l.some(x=>x.key===it.lien_soc)) l.push({key:it.lien_soc, type:"salarie"});
+        return l;
+      })(),
     };
+    if (it.soc && !it.lien_soc && !(info.notes||"").includes(it.soc))
+      info.notes = (info.notes? info.notes+"\n" : "") + "Société : " + it.soc;
     if (it.exist){
       const avant = {};
-      for (const ch of UNDO_CHAMPS) if ((info[ch] ?? "") !== (ex[ch] ?? "")) avant[ch] = ex[ch] ?? "";
+      for (const ch of UNDO_CHAMPS) if (undoVal(info[ch]) !== undoVal(ex[ch])) avant[ch] = ex[ch] ?? (ch==="liens"? [] : ch==="morale"? false : "");
       if (Object.keys(avant).length) journal.majs.push({key:it.key, avant});
     } else journal.fiches.push(it.key);
     await state.db.saveClientInfo(info);
@@ -5705,7 +5814,10 @@ function o2sApercu(type, data){
     const items = data.items;
     const nv = items.filter(x=>!x.exist && x.match==="nouveau").length;
     const rap = items.filter(x=>x.match!=="exact" && x.match!=="nouveau").length;
-    return `<p class="small" style="margin:8px 0 4px"><b>${items.length}</b> client(s) reconnus — <b>${nv}</b> à créer, <b>${items.length-nv}</b> rattachés à une fiche ou un dossier existants${rap? ` (dont <b>${rap}</b> rapprochés malgré une écriture différente)`:""} — aucun champ existant n'est écrasé.</p>
+    const nMor = items.filter(x=>x.morale).length;
+    const nLiens = items.reduce((a,x)=>a+(x.liens_sugg?.length||0)+(x.lien_soc?1:0), 0);
+    const nEnc = items.filter(x=>x.encours != null).length;
+    return `<p class="small" style="margin:8px 0 4px"><b>${items.length}</b> client(s) reconnus — <b>${nv}</b> à créer, <b>${items.length-nv}</b> rattachés à une fiche ou un dossier existants${rap? ` (dont <b>${rap}</b> rapprochés malgré une écriture différente)`:""}${nMor? ` · <b>${nMor}</b> 🏢 personne(s) morale(s)`:""}${nLiens? ` · <b>${nLiens}</b> lien(s) suggéré(s) (même adresse / employeur)`:""}${nEnc? ` · encours repris pour <b>${nEnc}</b> fiche(s)`:""} — aucun champ existant n'est écrasé.</p>
       <ul class="small muted" style="margin:0 0 4px 18px">${items.slice(0,8).map(x=>`<li><b>${esc(x.nom)}</b> — ${x.match==="nouveau"? (x.exist? "existant" : "nouveau") : (x.match==="exact"? "existant" : `↪ rattaché à « ${esc(x.matchLabel)} » (${esc(x.match)})`)}${x.cons_id? " · référent "+esc(consName(x.cons_id)) : ""}${x.naissance? " · né(e) "+new Date(x.naissance+"T00:00:00").toLocaleDateString("fr-FR") : ""}${x.groupe? " · "+esc(x.groupe) : ""}</li>`).join("")}</ul>
       ${items.length>8? `<p class="small muted">… et ${items.length-8} autres</p>`:""}
       ${o2sIncertainsHTML(data.incertains)}`;
