@@ -2907,7 +2907,9 @@ function viewJourIngenieur(root){
 /* ---------------- Cockpit « Ma journée » ---------------- */
 function viewJour(root){
   if (isIngenieur()) return viewJourIngenieur(root);
-  const mgr = isManager();
+  /* v45 : un manager qui est aussi conseiller (Loïc) peut basculer sur SA journée */
+  const perso = !!(isManager() && state.profile.conseiller_id && state._jourMoi);
+  const mgr = isManager() && !perso;
   const meId = state.profile.conseiller_id;
   const scope = mgr? activeConseillers().map(c=>c.id) : [meId];
   const mine = x => scope.includes(x.conseiller_id);
@@ -2937,6 +2939,7 @@ function viewJour(root){
 
   root.innerHTML = `
   ${vhead(mgr? "Aujourd'hui — équipe" : "Ma journée", dateStr.charAt(0).toUpperCase()+dateStr.slice(1), `
+    ${(isManager() && meId)? `<div class="seg" id="jr-seg"><button data-v="" class="${perso? "":"active"}">Équipe</button><button data-v="moi" class="${perso? "active":""}">Ma journée</button></div>` : ""}
     <button class="btn secondary" id="jr-saisie">${ICONS.edit} Saisie hebdo</button>
     <button class="btn" id="jr-newop">＋ Opportunité</button>`)}
   ${mgr && noSaisie.length? `<div class="card reminder" style="border-left-color:var(--warn)">📝 <b>Saisies manquantes ${esc(cur)} :</b>
@@ -3033,6 +3036,9 @@ function viewJour(root){
     go("propositions");
   }));
   $("#jr-saisie").addEventListener("click", ()=>go("saisie"));
+  $("#jr-seg")?.querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{
+    state._jourMoi = b.dataset.v === "moi"; render();
+  }));
   $("#jr-macro")?.addEventListener("click", ()=>go("param"));
   bindCampagnes(root);
   $("#jr-newop").addEventListener("click", ()=>pipeModal(null));
@@ -3492,7 +3498,7 @@ function viewClients(root){
             ${(()=>{ const an = new Date().getFullYear();
               const ixAn = state.interactions.filter(i=>i.client_key===g.key && new Date(i.quand||0).getFullYear()===an);
               const nApp = ixAn.filter(i=>i.type==="Appel").length, nRdv = ixAn.filter(i=>i.type==="RDV").length;
-              const dj = g.dernier? Math.floor((Date.now()-g.dernier)/86400000) : null;
+              const dj = contactJours(g.key);
               return `<div class="ci-stats">📞 ${nApp} · 🤝 ${nRdv} · ${ixAn.length} échange(s) cette année${dj!==null? ` · dernier contact <b>${dj===0? "aujourd'hui" : "il y a "+dj+" j"}</b>`:""}</div>`; })()}
             ${(()=>{ const rows = [...g.rows].sort((a,b)=>pondere(b)-pondere(a));
               return `<div class="tl-subhead" style="display:flex;justify-content:space-between;align-items:center">🧭 Dossiers pipeline (${rows.length})
@@ -3600,7 +3606,7 @@ function viewClients(root){
   const datalistGroupes = `<datalist id="ci-groupes">${[...new Set(state.clientsInfos.map(ci=>(ci.groupe||"").trim()).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
   if (gOpen){
     const ce = confEtat(gOpen.info);
-    const dj = gOpen.dernier? Math.floor((Date.now()-gOpen.dernier)/86400000) : null;
+    const dj = contactJours(gOpen.key);   /* v44.2 : vrai contact (échange, dossier, mission, revue) — pas la simple édition de fiche */
     root.innerHTML = `
   ${vhead((gOpen.info.morale? "🏢 " : "") + gOpen.disp, [gOpen.info.morale? "Personne morale" : "", gOpen.info.statut||"Prospect", gOpen.info.groupe? "groupe "+gOpen.info.groupe : "", gOpen.info.profession||"", gOpen.info.conseiller_id? "référent "+consName(gOpen.info.conseiller_id) : ""].filter(Boolean).join(" · "), `
     <button class="btn secondary" id="cli-back">← Liste des clients</button>
