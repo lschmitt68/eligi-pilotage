@@ -867,13 +867,22 @@ class SupaDB {
     return {client_key:o.client_key||"", titre:o.titre||"", statut:o.statut||"À faire",
       assureur:o.assureur||"", responsable:o.responsable||"", conseiller_id:o.conseiller_id||null,
       description:o.description||"", etapes:o.etapes||[], journal:o.journal||[],
-      echeance:o.echeance||null, trello_id:o.trello_id||""};
+      echeance:o.echeance||null, trello_id:o.trello_id||"", campagne_id:o.campagne_id||null};
   }
   async saveOperation(o){
     const row = this._opRow(o);
-    if (o.id){ const {error} = await this.c.from("operations").update(row).eq("id", o.id); if (error) throw error; return o.id; }
-    const {data, error} = await this.c.from("operations").insert(row).select().single();
-    if (error) throw error; return data.id;
+    for (let essai = 0; essai < 2; essai++){
+      if (o.id){
+        const {error} = await this.c.from("operations").update(row).eq("id", o.id);
+        if (!error) return o.id;
+        if (essai === 0 && /campagne_id/.test(error.message||"")){ delete row.campagne_id; continue; }  /* migration v39 pas encore passée */
+        throw error;
+      }
+      const {data, error} = await this.c.from("operations").insert(row).select().single();
+      if (!error) return data.id;
+      if (essai === 0 && /campagne_id/.test(error.message||"")){ delete row.campagne_id; continue; }
+      throw error;
+    }
   }
   async deleteOperation(id){
     const {error} = await this.c.from("operations").delete().eq("id", id);
@@ -881,7 +890,12 @@ class SupaDB {
   }
   async addOperationsBulk(rows){
     for (let k = 0; k < rows.length; k += 100){
-      const {error} = await this.c.from("operations").insert(rows.slice(k, k+100).map(o=>this._opRow(o)));
+      const lot = rows.slice(k, k+100).map(o=>this._opRow(o));
+      let {error} = await this.c.from("operations").insert(lot);
+      if (error && /campagne_id/.test(error.message||"")){  /* migration v39 pas encore passée */
+        lot.forEach(r=>{ delete r.campagne_id; });
+        ({error} = await this.c.from("operations").insert(lot));
+      }
       if (error) throw error;
     }
   }
@@ -1588,7 +1602,8 @@ async function boDepuisSignature(p){
     await state.db.saveOperation({client_key:key, titre, statut:"À faire",
       assureur:p.support||"", responsable:monNom(), conseiller_id:p.conseiller_id||null,
       description:"Créée automatiquement à la signature de l'opportunité pipeline.",
-      etapes:(mod?.items||[]).map(t=>({t, done:false})), journal:[], echeance:null, trello_id:""});
+      etapes:(mod?.items||[]).map(t=>({t, done:false})), journal:[], echeance:null, trello_id:"",
+      campagne_id:p.campagne_id||null});
     await state.db.loadAll();
     toast(`📥 Opération back-office « ${titre} » créée pour ${cliAff(p.client)}`);
   }catch(e){ /* silencieux : table operations peut-être absente (migration v37) */ }
@@ -3291,16 +3306,9 @@ function viewClients(root){
     if (!groups[ci.client_key])
       groups[ci.client_key] = {key:ci.client_key, name:(ci.nom||ci.client_key).trim(), rows:[], standalone:true};
   }
-  let list = Object.values(groups);
-  for (const g of list) g.info = state.clientsInfos.find(ci=>ci.client_key===g.key) || {statut:"Prospect", origine:"", notes:""};
-  if (q) list = list.filter(g=>g.name.toLowerCase().includes(q)
-    || nomAffiche(g.key, g.name).toLowerCase().includes(q)
-    || (g.info.groupe||"").toLowerCase().includes(q));
-  const nParStatut = {"":list.length};
-  for (const g of list){ const s = g.info.statut||"Prospect"; nParStatut[s] = (nParStatut[s]||0)+1; }
-  const fSt = state._cliStatut || "";
-  if (fSt) list = list.filter(g=>(g.info.statut||"Prospect")===fSt);
-  for (const g of list){
+  const tous = Object.values(groups);
+  for (const g of tous) g.info = state.clientsInfos.find(ci=>ci.client_key===g.key) || {statut:"Prospect", origine:"", notes:""};
+  for (const g of tous){
     g.pond = g.rows.reduce((a,p)=>a+pondere(p),0);
     g.signe = g.rows.filter(p=>(p.etape||"").toLowerCase()==="signé").reduce((a,p)=>a+pondere(p),0);
     g.coll = g.rows.reduce((a,p)=>a+(+p.collecte_potentielle||0),0);
@@ -3309,48 +3317,27 @@ function viewClients(root){
     g.spl = splitNomPrenom(g.name);
     g.dernier = g.rows.reduce((a,p)=>Math.max(a, new Date(p.updated_at||p.created_at||0).getTime()), 0);
     if (!g.dernier && g.info.maj_le) g.dernier = new Date(g.info.maj_le).getTime();
-    g.suivi = suiviClient(g);
     const lastIx = state.interactions.filter(i=>i.client_key===g.key)
       .reduce((a,i)=>Math.max(a, new Date(i.quand||0).getTime()), 0);
     if (lastIx > g.dernier) g.dernier = lastIx;
+    g.disp = nomAffiche(g.key, g.name);
   }
-  for (const g of list) g.disp = nomAffiche(g.key, g.name);
+  let list = tous;
+  if (q) list = list.filter(g=>g.name.toLowerCase().includes(q)
+    || g.disp.toLowerCase().includes(q)
+    || (g.info.groupe||"").toLowerCase().includes(q));
+  const nParStatut = {"":list.length};
+  for (const g of list){ const s = g.info.statut||"Prospect"; nParStatut[s] = (nParStatut[s]||0)+1; }
+  const fSt = state._cliStatut || "";
+  if (fSt) list = list.filter(g=>(g.info.statut||"Prospect")===fSt);
   list.sort((a,b)=>a.disp.localeCompare(b.disp, "fr", {sensitivity:"base"}));
+  /* v39 : la fiche ouverte devient une pleine page ; sa chronologie n'est calculée que pour elle */
+  const gOpen = state._cliOpen? tous.find(x=>x.key===state._cliOpen) : null;
+  if (gOpen) gOpen.suivi = suiviClient(gOpen);
   const statutBadge = s => s==="Client"? `<span class="badge ok"><span class="dot"></span>Client</span>`
     : s==="Inactif"? `<span class="badge neutral"><span class="dot"></span>Inactif</span>`
     : `<span class="badge"><span class="dot" style="background:var(--s1)"></span>Prospect</span>`;
-
-  root.innerHTML = `
-  ${vhead("Clients", `${list.length} client(s) — fiche partagée par le cabinet`,
-    `<button class="btn" id="cli-new">＋ Nouveau client</button>`)}
-  <div class="inline-controls" style="margin-bottom:12px">
-    <label class="fld" style="min-width:240px"><span>Recherche</span>
-      <input type="search" id="cli-search" placeholder="nom du client…" value="${esc(state._cliSearch||"")}"></label>
-    <div class="seg" id="cli-fst" style="margin-bottom:8px">
-      ${[["","Tous"],["Client","Clients"],["Prospect","Prospects"],["Inactif","Inactifs"]].map(([v,l])=>
-        `<button data-v="${v}" class="${fSt===v?"active":""}">${l}${nParStatut[v]!==undefined? ` (${nParStatut[v]})`:" (0)"}</button>`).join("")}
-    </div>
-  </div>
-  <div class="card tbl-scroll"><table class="tbl">
-    <thead><tr><th>Client</th><th>Statut</th><th>Conseiller(s)</th><th class="num">Dossiers</th>
-    <th class="num">Collecte pot.</th><th class="num">Pondéré</th><th class="num">Dont signé</th><th>À relancer</th></tr></thead>
-    <tbody>${list.map((g,i)=>`
-      <tr class="clickable cli-row" data-key="${esc(g.key)}" title="Ouvrir la fiche client">
-        <td><b>${esc(g.disp)}</b></td>
-        <td>${statutBadge(g.info.statut)}${revueEchue(g.info)? ` <span class="badge watch" title="Revue annuelle à programmer (dernière : ${g.info.derniere_revue? new Date(g.info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "jamais"})"><span class="dot"></span>Revue due</span>`:""}${(()=>{
-          if (g.info.statut!=="Client") return "";
-          const j = contactJours(g.key);
-          return (j===null || j>=contactAlerteJ())? ` <span class="badge watch" title="Aucun échange enregistré ${j===null? "sur cette fiche" : "depuis "+j+" jours"} — programmer une prise de contact">💤 ${j===null? "jamais contacté" : j+" j"}</span>` : "";
-        })()}</td>
-        <td>${(g.cons.length? g.cons : (g.info.conseiller_id? [g.info.conseiller_id] : [])).map(id=>`<span class="cdot" style="background:${consColor(id)}" title="${esc(consName(id))}"></span>`).join("") || "—"}</td>
-        <td class="num">${g.rows.length}</td>
-        <td class="num">${eur(g.coll)}</td>
-        <td class="num"><b>${eur(g.pond)}</b></td>
-        <td class="num">${eur(g.signe)}</td>
-        <td>${g.relance? `<span class="badge watch"><span class="dot"></span>! ${g.relance}</span>`:"—"}</td>
-      </tr>
-      <tr class="cli-detail" data-for="${esc(g.key)}" style="display:${state._cliOpen===g.key? "":"none"}"><td colspan="8">
-        <div class="row" style="margin:8px 0 10px">
+  const clientDetailHTML = g => `<div class="row" style="margin:8px 0 10px">
           <div class="card" style="flex:1;min-width:300px">
             <h3 class="mt0">Fiche client — ${esc(g.disp)}${(()=>{ const a = ageDe(g.info.date_naissance); return a!==null? ` <span class="small muted">(${a} ans)</span>`:""; })()}</h3>
             ${(g.info.tel||g.info.email||g.info.groupe||g.info.lien_onedrive||g.info.lien_must)? `<p class="small" style="margin:0 0 10px">
@@ -3506,15 +3493,71 @@ function viewClients(root){
               </div>`).join("") || `<div class="empty">Aucun événement pour l'instant — ajoute un appel, un RDV ou une note ci-dessus</div>`}</div>
           </div>
         </div>
-      </td></tr>`).join("") || `<tr><td colspan="8" class="empty">Aucun client</td></tr>`}</tbody>
-  </table></div>
-  <datalist id="ci-groupes">${[...new Set(state.clientsInfos.map(ci=>(ci.groupe||"").trim()).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
+`;
 
-  $("#cli-new").addEventListener("click", ()=>clientModal(()=>viewClients(root)));
+  const datalistGroupes = `<datalist id="ci-groupes">${[...new Set(state.clientsInfos.map(ci=>(ci.groupe||"").trim()).filter(Boolean))].sort().map(x=>`<option value="${esc(x)}">`).join("")}</datalist>`;
+  if (gOpen){
+    const ce = confEtat(gOpen.info);
+    const dj = gOpen.dernier? Math.floor((Date.now()-gOpen.dernier)/86400000) : null;
+    root.innerHTML = `
+  ${vhead(gOpen.disp, [gOpen.info.statut||"Prospect", gOpen.info.groupe? "groupe "+gOpen.info.groupe : "", gOpen.info.profession||"", gOpen.info.conseiller_id? "référent "+consName(gOpen.info.conseiller_id) : ""].filter(Boolean).join(" · "), `
+    <button class="btn secondary" id="cli-back">← Liste des clients</button>
+    <button class="btn secondary ci-brief" data-key="${esc(gOpen.key)}">📋 Brief RDV</button>
+    <button class="btn ci-propo" data-key="${esc(gOpen.key)}">＋ Proposition</button>
+    <button class="btn secondary" id="cli-new">＋ Nouveau client</button>`)}
+  <div class="tiles" style="margin-bottom:14px">
+    ${tile("Pondéré", eur(gOpen.pond), `${gOpen.rows.length} dossier(s)${gOpen.relance? " · "+gOpen.relance+" à relancer" : ""}`)}
+    ${tile("Dont signé", eur(gOpen.signe))}
+    ${tile("Collecte potentielle", eur(gOpen.coll))}
+    ${tile("Dernier contact", dj===null? "—" : dj===0? "aujourd'hui" : "il y a "+dj+" j",
+      gOpen.info.derniere_revue? "revue annuelle : "+new Date(gOpen.info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "revue annuelle jamais faite")}
+    ${tile("Conformité", ce.faits+"/"+ce.total, ce.faits===ce.total? "complète ✓" : "coches sur la fiche ci-dessous")}
+  </div>
+  <div class="cli-detail" data-for="${esc(gOpen.key)}">${clientDetailHTML(gOpen)}</div>
+  ${datalistGroupes}`;
+    bindClients(root);
+    return;
+  }
+  root.innerHTML = `
+  ${vhead("Clients", `${list.length} client(s) — fiche partagée par le cabinet`,
+    `<button class="btn" id="cli-new">＋ Nouveau client</button>`)}
+  <div class="inline-controls" style="margin-bottom:12px">
+    <label class="fld" style="min-width:240px"><span>Recherche</span>
+      <input type="search" id="cli-search" placeholder="nom du client…" value="${esc(state._cliSearch||"")}"></label>
+    <div class="seg" id="cli-fst" style="margin-bottom:8px">
+      ${[["","Tous"],["Client","Clients"],["Prospect","Prospects"],["Inactif","Inactifs"]].map(([v,l])=>
+        `<button data-v="${v}" class="${fSt===v?"active":""}">${l}${nParStatut[v]!==undefined? ` (${nParStatut[v]})`:" (0)"}</button>`).join("")}
+    </div>
+  </div>
+  <div class="card tbl-scroll"><table class="tbl">
+    <thead><tr><th>Client</th><th>Statut</th><th>Conseiller(s)</th><th class="num">Dossiers</th>
+    <th class="num">Collecte pot.</th><th class="num">Pondéré</th><th class="num">Dont signé</th><th>À relancer</th></tr></thead>
+    <tbody>${list.map((g,i)=>`
+      <tr class="clickable cli-row" data-key="${esc(g.key)}" title="Ouvrir la fiche client">
+        <td><b>${esc(g.disp)}</b></td>
+        <td>${statutBadge(g.info.statut)}${revueEchue(g.info)? ` <span class="badge watch" title="Revue annuelle à programmer (dernière : ${g.info.derniere_revue? new Date(g.info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "jamais"})"><span class="dot"></span>Revue due</span>`:""}${(()=>{
+          if (g.info.statut!=="Client") return "";
+          const j = contactJours(g.key);
+          return (j===null || j>=contactAlerteJ())? ` <span class="badge watch" title="Aucun échange enregistré ${j===null? "sur cette fiche" : "depuis "+j+" jours"} — programmer une prise de contact">💤 ${j===null? "jamais contacté" : j+" j"}</span>` : "";
+        })()}</td>
+        <td>${(g.cons.length? g.cons : (g.info.conseiller_id? [g.info.conseiller_id] : [])).map(id=>`<span class="cdot" style="background:${consColor(id)}" title="${esc(consName(id))}"></span>`).join("") || "—"}</td>
+        <td class="num">${g.rows.length}</td>
+        <td class="num">${eur(g.coll)}</td>
+        <td class="num"><b>${eur(g.pond)}</b></td>
+        <td class="num">${eur(g.signe)}</td>
+        <td>${g.relance? `<span class="badge watch"><span class="dot"></span>! ${g.relance}</span>`:"—"}</td>
+      </tr>
+`).join("") || `<tr><td colspan="8" class="empty">Aucun client</td></tr>`}</tbody>
+  </table></div>
+  ${datalistGroupes}`;
+  bindClients(root);
+  function bindClients(root){
+  $("#cli-new")?.addEventListener("click", ()=>clientModal(()=>viewClients(root)));
+  $("#cli-back")?.addEventListener("click", ()=>{ state._cliOpen = null; viewClients(root); });
   $("#cli-fst")?.querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{
     state._cliStatut = b.dataset.v; viewClients(root);
   }));
-  $("#cli-search").addEventListener("input", e=>{ state._cliSearch = e.target.value; viewClients(root); relanceFocus(root, "#cli-search"); });
+  $("#cli-search")?.addEventListener("input", e=>{ state._cliSearch = e.target.value; viewClients(root); relanceFocus(root, "#cli-search"); });
   root.querySelectorAll(".cli-row").forEach(r=>r.addEventListener("click", ()=>{
     state._cliOpen = state._cliOpen === r.dataset.key ? null : r.dataset.key;
     viewClients(root);
@@ -3686,6 +3729,7 @@ function viewClients(root){
       await state.db.loadAll(); toast("Revue annuelle enregistrée ✓"); viewClients(root);
     }catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
+  }
 }
 
 /* ================================================================
@@ -5078,6 +5122,7 @@ function boCardHTML(o){
   return `<div class="kcard" draggable="true" data-boid="${o.id}" title="Glisser pour changer d'étape — cliquer pour ouvrir">
     <div class="kclient"><span class="kc-name">${esc(o.titre)}</span></div>
     <div class="kmeta">${o.client_key? `<span class="tag">👤 ${esc(boClientDisp(o))}</span>` : `<span class="ksig">À RATTACHER</span>`}
+      ${o.campagne_id? `<span class="tag" title="Campagne : ${esc(state.campagnes.find(c=>c.id===o.campagne_id)?.nom||"")}">🚀</span>`:""}
       ${o.assureur? `<span class="tag">${esc(o.assureur)}</span>`:""}
       ${o.responsable? `<span>${esc(o.responsable)}</span>`:""}
       ${pr.total? `<span>☑ ${pr.done}/${pr.total}</span>`:""}
@@ -5087,8 +5132,11 @@ function boCardHTML(o){
 function viewBackoffice(root){
   const q = normName(state._boSearch||"");
   const J30 = Date.now() - 30*86400000;
+  const boCampOpts = [...new Map([...campagnesActives(), ...state.campagnes.filter(c=>state.operations.some(o=>o.campagne_id===c.id))].map(c=>[c.id,c])).values()];
+  const fCamp = (state._boCamp && boCampOpts.some(c=>String(c.id)===String(state._boCamp)))? String(state._boCamp) : "";
   const visibles = state.operations.filter(o=>{
     if (o.statut==="Terminé" && !state._boOld && new Date(o.updated_at||o.created_at||0).getTime() < J30) return false;
+    if (fCamp && String(o.campagne_id)!==fCamp) return false;
     return !q || normName(o.titre).includes(q) || normName(boClientDisp(o)).includes(q) || normName(o.assureur||"").includes(q) || normName(o.responsable||"").includes(q);
   });
   const enCours = state.operations.filter(o=>o.statut!=="Terminé").length;
@@ -5099,6 +5147,9 @@ function viewBackoffice(root){
   <div class="inline-controls" style="margin-bottom:12px">
     <label class="fld" style="min-width:230px"><span>Recherche</span>
       <input type="search" id="bo-search" placeholder="client, opération, assureur…" value="${esc(state._boSearch||"")}"></label>
+    ${boCampOpts.length? `<label class="fld"><span>Campagne</span><select id="bo-camp"><option value="">Toutes</option>
+      ${boCampOpts.map(c=>{ const j = campagneJoursRestants(c);
+        return `<option value="${c.id}" ${String(c.id)===fCamp?"selected":""}>🚀 ${esc(c.nom)}${j>=0? ` (J-${j})` : " (terminée)"}</option>`; }).join("")}</select></label>`:""}
     <button class="chip ${state._boOld? "warn":""}" id="bo-old" style="margin-bottom:8px" title="Les opérations terminées depuis plus de 30 jours sont masquées par défaut">${state._boOld? "Masquer" : "Voir"} les terminées &gt; 30 j</button>
     <span style="flex:1"></span>
     <div class="small muted" style="padding-bottom:8px"><b>${enCours}</b> opération(s) en cours${aRatt? ` · <b>${aRatt}</b> sans client rattaché`:""} · ${state.operations.length} au total</div>
@@ -5114,6 +5165,7 @@ function viewBackoffice(root){
 
   $("#bo-add").addEventListener("click", ()=>boModal(null));
   $("#bo-old").addEventListener("click", ()=>{ state._boOld = !state._boOld; render(); });
+  $("#bo-camp")?.addEventListener("change", e=>{ state._boCamp = e.target.value; render(); });
   $("#bo-search").addEventListener("input", e=>{ state._boSearch = e.target.value; viewBackoffice(root); relanceFocus(root, "#bo-search"); });
   root.querySelectorAll("[data-boaddcol]").forEach(b=>b.addEventListener("click", ()=>boModal(null, b.dataset.boaddcol)));
   root.querySelectorAll(".kcard[data-boid]").forEach(card=>{
@@ -5161,6 +5213,7 @@ function boModal(o, statutInitial){
     o.responsable = back.querySelector("#bo-resp").value.trim();
     o.echeance = back.querySelector("#bo-ech").value || null;
     o.description = back.querySelector("#bo-desc").value.trim();
+    o.campagne_id = back.querySelector("#bo-campagne")? (+back.querySelector("#bo-campagne").value || null) : (o.campagne_id||null);
   };
   const rendre = ()=>{
     back.innerHTML = `<div class="modal" style="width:640px">
@@ -5170,6 +5223,8 @@ function boModal(o, statutInitial){
         <label class="fld"><span>Client</span><input type="text" id="bo-client" list="bo-fiches" autocomplete="off" value="${esc(o._clientTxt !== undefined? o._clientTxt : boClientDisp(o))}" placeholder="choisir dans la liste…"><datalist id="bo-fiches">${fiches.map(f=>`<option value="${esc(f)}">`).join("")}</datalist></label>
         <label class="fld"><span>Statut</span><select id="bo-statut">${BO_STATUTS.map(s=>`<option ${s===o.statut?"selected":""}>${s}</option>`).join("")}</select></label>
         <label class="fld"><span>Assureur / support</span><input type="text" id="bo-assureur" list="bo-asr" value="${esc(o.assureur)}"><datalist id="bo-asr">${assureurs.map(a=>`<option value="${esc(a)}">`).join("")}</datalist></label>
+        ${(campagnesActives().length || o.campagne_id)? `<label class="fld"><span>Campagne produit</span><select id="bo-campagne"><option value="">—</option>
+          ${[...new Map([...campagnesActives(), ...state.campagnes.filter(c=>c.id===o.campagne_id)].map(c=>[c.id,c])).values()].map(c=>`<option value="${c.id}" ${c.id===o.campagne_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`:""}
         <label class="fld"><span>Responsable</span><input type="text" id="bo-resp" list="bo-resps" value="${esc(o.responsable)}"><datalist id="bo-resps">${resps.map(r=>`<option value="${esc(r)}">`).join("")}</datalist></label>
         <label class="fld"><span>Échéance</span><input type="date" id="bo-ech" value="${o.echeance? String(o.echeance).slice(0,10):""}"></label>
         <label class="fld full"><span>Description</span><textarea id="bo-desc" rows="2">${esc(o.description)}</textarea></label>
