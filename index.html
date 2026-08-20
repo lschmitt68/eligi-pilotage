@@ -414,16 +414,16 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .tl{max-height:280px; overflow:auto; margin-top:8px}
 /* v39.1 — fiche client pleine page : grille alignée (identité + dossiers | suivi) */
 .cli-detail > .row{display:grid; grid-template-columns:minmax(370px,2fr) minmax(430px,3fr);
-  grid-template-areas:"ident suivi" "doss suivi"; gap:14px; align-items:start; margin:0}
+  grid-template-areas:"ident suivi"; gap:14px; align-items:start; margin:0}
 .cli-detail > .row > .card{margin:0; width:auto; min-width:0; flex:none; box-sizing:border-box}
 .cli-detail > .row > .card:nth-child(1){grid-area:ident}
-.cli-detail > .row > .card:nth-child(2){grid-area:doss}
-.cli-detail > .row > .card:nth-child(3){grid-area:suivi}
-.cli-detail .tl{max-height:52vh}
+.cli-detail > .row > .card:nth-child(2){grid-area:suivi}
+.cli-detail .tl{max-height:46vh}
+.tl-subhead .btn{text-transform:none; letter-spacing:0}
 .tl-item.tl-lien{cursor:pointer; border-radius:8px}
 .tl-item.tl-lien:hover{background:var(--surface-2)}
 @media (max-width:1100px){
-  .cli-detail > .row{grid-template-columns:1fr; grid-template-areas:"ident" "suivi" "doss"}
+  .cli-detail > .row{grid-template-columns:1fr; grid-template-areas:"ident" "suivi"}
 }
 .tl-composer{background:var(--surface-2); border-radius:10px; padding:7px 8px; margin-top:10px}
 .tl-seg{display:inline-flex; flex-wrap:wrap; max-width:100%; background:var(--surface-2); border:1px solid var(--border); border-radius:10px; padding:2px; gap:2px; margin-top:8px}
@@ -3483,32 +3483,6 @@ function viewClients(root){
               ${!g.rows.length && !state.missions.some(mm=>mm.client_key===g.key)? `<button class="ci-delfiche danger-link" data-key="${esc(g.key)}">Supprimer la fiche</button>`:""}
             </div>`:""}
           </div>
-          <div class="card grow tbl-scroll">
-            <h3 class="mt0" style="display:flex;justify-content:space-between;align-items:center;gap:6px"><span>Dossiers</span>
-              <button class="btn small cli-op-add" data-nom="${esc(g.name)}">＋ Opportunité</button></h3>
-            ${g.rows.length? "" : `<div class="empty">Aucune opportunité pour l'instant — le bouton « ＋ Proposition » ou la vue Pipeline permettent d'en créer une.</div>`}
-            <table class="tbl dense"><tbody>${g.rows.sort((a,b)=>pondere(b)-pondere(a)).map(p=>`<tr class="clickable cli-op" data-id="${p.id}">
-              <td><span class="cdot" style="background:${consColor(p.conseiller_id)}"></span>${esc(consName(p.conseiller_id))}</td>
-              <td>${esc(p.support)}</td>
-              <td>${(p.etape||"").toLowerCase()==="signé"? `<span class="badge ok"><span class="dot"></span>✓ Signé</span>` : esc(p.etape)}</td>
-              <td class="num">${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</td>
-              <td class="num"><b>${eur(pondere(p))}</b></td>
-              <td>${isOverdue(p)? "⏰ closing dépassé" : isStale(p)? `💤 ${staleDays(p)} j`:""}</td>
-              <td>${esc(p.prochaine_action||"")}</td>
-            </tr>`).join("")}</tbody></table>
-            ${(()=>{ const mis = state.missions.filter(mm=>mm.client_key===g.key);
-              return `<h3 style="display:flex;justify-content:space-between;align-items:center;gap:6px"><span>🧰 Missions de conseil</span>
-                <button class="btn small cli-mi-add" data-key="${esc(g.key)}" data-nom="${esc(g.name)}">＋ Mission</button></h3>
-              ${mis.length? `<table class="tbl dense"><tbody>${mis.map(mm=>{ const pr = miProgress(mm); return `
-                <tr class="clickable cli-mi" data-mid="${mm.id}">
-                  <td>${esc(mm.titre||mm.type)}</td>
-                  <td><span class="badge" style="color:${MI_ST_COLORS[mm.statut]}"><span class="dot" style="background:${MI_ST_COLORS[mm.statut]}"></span>${esc(mm.statut)}</span></td>
-                  <td class="num small">${pr.total? pr.done+"/"+pr.total : "—"}</td>
-                  <td>${miEcheanceHTML(mm)}</td>
-                  <td class="num small">${+mm.hono_facture? eur(mm.hono_facture):""}</td>
-                </tr>`; }).join("")}</tbody></table>`
-              : `<div class="small muted">Aucune mission d'honoraires pour ce client.</div>`}`; })()}
-          </div>
           <div class="card" style="flex:1.1;min-width:340px">
             <h3 class="mt0" style="display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:6px"><span>🗂 Suivi client</span>
               <span style="display:flex;gap:6px;flex-wrap:wrap">
@@ -3520,6 +3494,30 @@ function viewClients(root){
               const nApp = ixAn.filter(i=>i.type==="Appel").length, nRdv = ixAn.filter(i=>i.type==="RDV").length;
               const dj = g.dernier? Math.floor((Date.now()-g.dernier)/86400000) : null;
               return `<div class="ci-stats">📞 ${nApp} · 🤝 ${nRdv} · ${ixAn.length} échange(s) cette année${dj!==null? ` · dernier contact <b>${dj===0? "aujourd'hui" : "il y a "+dj+" j"}</b>`:""}</div>`; })()}
+            ${(()=>{ const rows = [...g.rows].sort((a,b)=>pondere(b)-pondere(a));
+              return `<div class="tl-subhead" style="display:flex;justify-content:space-between;align-items:center">🧭 Dossiers en cours (${rows.length})
+                <button class="btn secondary small cli-op-add" data-nom="${esc(g.name)}">＋ Opportunité</button></div>` +
+              (rows.length? `<div class="tbl-scroll" style="margin-bottom:2px"><table class="tbl dense"><tbody>${rows.slice(0,4).map(p=>`
+                <tr class="clickable cli-op" data-id="${p.id}">
+                  <td><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span>${esc(p.support)}</td>
+                  <td>${(p.etape||"").toLowerCase()==="signé"? `<span class="badge ok"><span class="dot"></span>✓ Signé</span>` : esc(p.etape)}</td>
+                  <td class="num">${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</td>
+                  <td class="num"><b>${eur(pondere(p))}</b></td>
+                  <td class="small">${isOverdue(p)? "⏰ dépassé" : isStale(p)? `💤 ${staleDays(p)} j` : esc(String(p.prochaine_action||"").slice(0,24))}</td>
+                </tr>`).join("")}</tbody></table></div>${rows.length>4? `<p class="small muted" style="margin:2px 0 4px">+ ${rows.length-4} autre(s) dans le Pipeline</p>`:""}`
+              : `<p class="small muted" style="margin:2px 0 6px">aucune opportunité pour l'instant</p>`); })()}
+            ${(()=>{ const mis = state.missions.filter(mm=>mm.client_key===g.key);
+              return `<div class="tl-subhead" style="display:flex;justify-content:space-between;align-items:center">🧰 Missions (${mis.length})
+                <button class="btn secondary small cli-mi-add" data-key="${esc(g.key)}" data-nom="${esc(g.name)}">＋ Mission</button></div>` +
+              (mis.length? `<div class="tbl-scroll" style="margin-bottom:2px"><table class="tbl dense"><tbody>${mis.slice(0,4).map(mm=>{ const pr = miProgress(mm); return `
+                <tr class="clickable cli-mi" data-mid="${mm.id}">
+                  <td>${esc(mm.titre||mm.type)}</td>
+                  <td><span class="badge" style="color:${MI_ST_COLORS[mm.statut]}"><span class="dot" style="background:${MI_ST_COLORS[mm.statut]}"></span>${esc(mm.statut)}</span></td>
+                  <td class="num small">${pr.total? pr.done+"/"+pr.total : "—"}</td>
+                  <td>${miEcheanceHTML(mm)}</td>
+                  <td class="num small">${+mm.hono_facture? eur(mm.hono_facture):""}</td>
+                </tr>`; }).join("")}</tbody></table></div>${mis.length>4? `<p class="small muted" style="margin:2px 0 4px">+ ${mis.length-4} autre(s) dans les Missions</p>`:""}`
+              : `<p class="small muted" style="margin:2px 0 6px">aucune mission d'honoraires</p>`); })()}
             ${(()=>{ const prs = state.propositions.filter(pr=>pr.client_key===g.key);
               return prs.length? `<div class="tl-subhead">📄 Propositions (${prs.length})</div>
             <div class="tbl-scroll" style="margin-bottom:2px"><table class="tbl dense">
