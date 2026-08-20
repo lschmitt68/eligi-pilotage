@@ -939,12 +939,21 @@ class SupaDB {
     if (error) throw error;
   }
   async addInteractionsBulk(rows){
+    const ids = [];
     for (let k = 0; k < rows.length; k += 200){
-      const {error} = await this.c.from("interactions").insert(rows.slice(k, k+200).map(i=>{
+      const {data, error} = await this.c.from("interactions").insert(rows.slice(k, k+200).map(i=>{
         const r = {client_key:i.client_key, conseiller_id:i.conseiller_id||null, type:i.type, note:i.note, auteur:i.auteur || monNom()};
         if (i.quand) r.quand = i.quand;
         return r;
-      }));
+      })).select("id");
+      if (error) throw error;
+      ids.push(...(data||[]).map(x=>x.id));
+    }
+    return ids;
+  }
+  async deleteInteractionsBulk(ids){
+    for (let k = 0; k < ids.length; k += 200){
+      const {error} = await this.c.from("interactions").delete().in("id", ids.slice(k, k+200));
       if (error) throw error;
     }
   }
@@ -999,8 +1008,9 @@ class SupaDB {
   }
   async saveAction(a){
     const row = {conseiller_id:a.conseiller_id, texte:a.texte, echeance:a.echeance||null, semaine:a.semaine||null, fait:!!a.fait, client_key:a.client_key||null};
-    if (a.id){ const {error} = await this.c.from("actions").update(row).eq("id", a.id); if (error) throw error; }
-    else { const {error} = await this.c.from("actions").insert(row); if (error) throw error; }
+    if (a.id){ const {error} = await this.c.from("actions").update(row).eq("id", a.id); if (error) throw error; return a.id; }
+    const {data, error} = await this.c.from("actions").insert(row).select().single();
+    if (error) throw error; return data.id;
   }
   async deleteAction(id){
     const {error} = await this.c.from("actions").delete().eq("id", id);
@@ -1198,7 +1208,15 @@ class DemoDB {
   async addInteraction(i){
     this.interactions.unshift({id:this._id++, quand:new Date().toISOString(), auteur:i.auteur || monNom(), ...i});
   }
-  async addInteractionsBulk(rows){ for (const i of rows) await this.addInteraction(i); }
+  async addInteractionsBulk(rows){
+    const ids = [];
+    for (const i of rows){ await this.addInteraction(i); ids.push(this.interactions[0].id); }
+    return ids;
+  }
+  async deleteInteractionsBulk(ids){
+    const s = new Set(ids);
+    this.interactions = this.interactions.filter(x=>!s.has(x.id));
+  }
   async deleteInteraction(id){
     const i = this.interactions.findIndex(x=>x.id===id);
     if (i>=0) this.interactions.splice(i,1);
@@ -1234,8 +1252,10 @@ class DemoDB {
   }
   async saveAction(a){
     if (!this._mine(a.conseiller_id)) throw new Error("Accès refusé");
-    if (a.id){ Object.assign(this.actions.find(x=>x.id===a.id), a); }
-    else this.actions.push({id:this._id++, fait:false, ...a});
+    if (a.id){ Object.assign(this.actions.find(x=>x.id===a.id), a); return a.id; }
+    const id = this._id++;
+    this.actions.push({id, fait:false, ...a});
+    return id;
   }
   async deleteAction(id){
     const i = this.actions.findIndex(x=>x.id===id);
@@ -5473,6 +5493,32 @@ async function o2sRefCharger(file){
   o2sRefSet(clients);
   return clients.length;
 }
+/* v41 : journal du dernier import — permet de l'annuler intégralement */
+function undoGet(){
+  if (state._undoImport) return state._undoImport;
+  try{ return JSON.parse(localStorage.getItem("eligi_undo_import")||"null"); }catch(e){ return null; }
+}
+function undoSet(j){
+  state._undoImport = j;
+  try{ if (j) localStorage.setItem("eligi_undo_import", JSON.stringify(j)); else localStorage.removeItem("eligi_undo_import"); }catch(e){}
+}
+const UNDO_CHAMPS = ["nom","statut","notes","nom_famille","prenom","date_naissance","situation","profession","adresse","tel","email","groupe","conseiller_id","derniere_revue"];
+async function annulerDernierImport(){
+  const j = undoGet();
+  if (!j) return null;
+  let n = 0;
+  if (j.interactions?.length){ await state.db.deleteInteractionsBulk(j.interactions); n += j.interactions.length; }
+  for (const id of (j.actions||[])){ try{ await state.db.deleteAction(id); n++; }catch(e){} }
+  for (const m of (j.majs||[])){
+    const ci = state.clientsInfos.find(x=>x.client_key===m.key);
+    if (!ci) continue;
+    await state.db.saveClientInfo({...ci, ...m.avant, client_key:m.key});
+    n++;
+  }
+  for (const key of (j.fiches||[])){ try{ await state.db.deleteClientFiche(key); n++; }catch(e){} }
+  undoSet(null);
+  return n;
+}
 function o2sTokEq(s){ return normName(s).split(" ").filter(Boolean).sort().join("|"); }
 function o2sClesExistantes(){
   const m = new Map();
@@ -5555,6 +5601,7 @@ function o2sAnalyseClients(objs){
 }
 async function o2sImporterClients(items){
   let crees = 0, maj = 0;
+  const journal = {quand:new Date().toISOString(), type:"O2S clients", fiches:[], majs:[], interactions:[], actions:[]};
   for (const it of items){
     const ex = it.exist || {};
     const info = {
@@ -5575,9 +5622,15 @@ async function o2sImporterClients(items){
       groupe: ex.groupe || it.groupe,
       conseiller_id: ex.conseiller_id || it.cons_id,
     };
+    if (it.exist){
+      const avant = {};
+      for (const ch of UNDO_CHAMPS) if ((info[ch] ?? "") !== (ex[ch] ?? "")) avant[ch] = ex[ch] ?? "";
+      if (Object.keys(avant).length) journal.majs.push({key:it.key, avant});
+    } else journal.fiches.push(it.key);
     await state.db.saveClientInfo(info);
     it.exist? maj++ : crees++;
   }
+  undoSet(journal);
   return {crees, maj};
 }
 const O2S_MODES = {email:"Email", "téléphone":"Appel", telephone:"Appel", "rendez-vous":"RDV", rdv:"RDV"};
@@ -5616,6 +5669,7 @@ function o2sAnalyseSuivis(objs){
 }
 async function o2sImporterSuivis(an){
   let fichesCreees = 0;
+  const journal = {quand:new Date().toISOString(), type:"O2S suivis", fiches:[], majs:[], interactions:[], actions:[]};
   const connues = new Map(state.clientsInfos.map(ci=>[ci.client_key, ci]));
   for (const f of an.fiches){
     const [key, brut] = JSON.parse(f);
@@ -5624,16 +5678,20 @@ async function o2sImporterSuivis(an){
       const info = {client_key:key, nom:brut, statut:"Client", origine:"", notes:"", nom_famille:spl.nom, prenom:spl.prenom};
       await state.db.saveClientInfo(info);
       connues.set(key, info);
+      journal.fiches.push(key);
       fichesCreees++;
     }
   }
-  await state.db.addInteractionsBulk(an.suivis);
+  journal.interactions = (await state.db.addInteractionsBulk(an.suivis)) || [];
   for (const [key, date] of Object.entries(an.revues)){
     const ci = connues.get(key);
-    if (ci && (!ci.derniere_revue || ci.derniere_revue < date))
+    if (ci && (!ci.derniere_revue || ci.derniere_revue < date)){
+      if (!journal.fiches.includes(key)) journal.majs.push({key, avant:{derniere_revue:ci.derniere_revue || null}});
       await state.db.saveClientInfo({...ci, derniere_revue:date});
+    }
   }
-  for (const a of an.relances) await state.db.saveAction(a);
+  for (const a of an.relances){ const id = await state.db.saveAction(a); if (id) journal.actions.push(id); }
+  undoSet(journal);
   return {fichesCreees};
 }
 function o2sIncertainsHTML(incertains){
@@ -5919,6 +5977,12 @@ function viewParam(root){
     <p class="small muted" style="margin-top:0">Déposez un export Excel O2S : l'outil reconnaît automatiquement s'il s'agit du <b>référentiel clients</b> (fiches créées ou complétées, sans écraser l'existant, avec conseiller référent et groupe familial suggéré) ou des <b>fiches de suivi</b> (échanges datés et signés de leur auteur, revues d'adéquation, relances futures transformées en tâches).</p>
     <input type="file" id="o2s-file" accept=".xlsx,.xls" style="margin-bottom:6px">
     <div id="o2s-apercu"></div>
+    ${(()=>{ const j = undoGet(); return j? `<div class="helpbox" style="border-left:3px solid var(--s1);margin:6px 0" id="o2s-undo-box">
+      ↩ Dernier import annulable : <b>${esc(j.type)}</b> du ${new Date(j.quand).toLocaleString("fr-FR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}
+      — ${j.fiches.length} fiche(s) créée(s), ${j.majs.length} complétée(s), ${j.interactions.length} échange(s), ${j.actions.length} tâche(s).
+      <button class="btn danger small" id="o2s-undo" style="margin-left:8px">Annuler cet import</button>
+      <span class="small muted" style="display:block;margin-top:2px">Possible tant qu'un nouvel import n'a pas été lancé — tout est remis exactement comme avant.</span>
+    </div>` : ""; })()}
     <div class="modal-actions" style="justify-content:flex-start;margin-top:4px;display:none" id="o2s-actions">
       <button class="btn" id="o2s-go">Importer</button>
       <button class="btn secondary" id="o2s-cancel">Annuler</button>
@@ -6043,6 +6107,17 @@ function viewParam(root){
     }catch(err){ toast("Lecture impossible : "+(err.message||err)); }
   });
   $("#o2s-cancel")?.addEventListener("click", ()=>{ state._o2s = null; render(); });
+  $("#o2s-undo")?.addEventListener("click", async ()=>{
+    const j = undoGet(); if (!j) return;
+    if (!confirm(`Annuler l'import « ${j.type} » ?\n— ${j.fiches.length} fiche(s) créée(s) seront supprimées\n— ${j.majs.length} fiche(s) retrouveront leurs valeurs d'avant\n— ${j.interactions.length} échange(s) et ${j.actions.length} tâche(s) seront supprimés`)) return;
+    const btn = $("#o2s-undo"); btn.disabled = true; btn.textContent = "Annulation…";
+    try{
+      const n = await annulerDernierImport();
+      await state.db.loadAll();
+      toast(`Import annulé ✓ — ${n} élément(s) remis comme avant`);
+      render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); btn.disabled = false; btn.textContent = "Annuler cet import"; }
+  });
   $("#trl-file")?.addEventListener("change", async e=>{
     const f = e.target.files[0]; if (!f) return;
     try{
