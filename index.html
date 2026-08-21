@@ -1013,9 +1013,16 @@ class SupaDB {
     if (r.error) throw r.error;
   }
   async saveAction(a){
-    const row = {conseiller_id:a.conseiller_id, texte:a.texte, echeance:a.echeance||null, semaine:a.semaine||null, fait:!!a.fait, client_key:a.client_key||null};
-    if (a.id){ const {error} = await this.c.from("actions").update(row).eq("id", a.id); if (error) throw error; return a.id; }
-    const {data, error} = await this.c.from("actions").insert(row).select().single();
+    const row = {conseiller_id:a.conseiller_id, texte:a.texte, echeance:a.echeance||null, semaine:a.semaine||null, fait:!!a.fait, client_key:a.client_key||null,
+      auteur: a.auteur ?? monNom()};   /* v47 : la tâche est signée par qui la crée */
+    const sans = ({auteur, ...r}) => r;   /* tolérant tant que la migration v47 n'est pas passée */
+    if (a.id){
+      let {error} = await this.c.from("actions").update(row).eq("id", a.id);
+      if (error && /auteur/.test(error.message||"")) ({error} = await this.c.from("actions").update(sans(row)).eq("id", a.id));
+      if (error) throw error; return a.id;
+    }
+    let {data, error} = await this.c.from("actions").insert(row).select().single();
+    if (error && /auteur/.test(error.message||"")) ({data, error} = await this.c.from("actions").insert(sans(row)).select().single());
     if (error) throw error; return data.id;
   }
   async deleteAction(id){
@@ -1264,7 +1271,7 @@ class DemoDB {
     if (!this._mine(a.conseiller_id)) throw new Error("Accès refusé");
     if (a.id){ Object.assign(this.actions.find(x=>x.id===a.id), a); return a.id; }
     const id = this._id++;
-    this.actions.push({id, fait:false, ...a});
+    this.actions.push({id, fait:false, auteur: a.auteur ?? monNom(), ...a});
     return id;
   }
   async deleteAction(id){
@@ -1599,7 +1606,7 @@ function actionsCardHTML(consId, title="Actions"){
     <div>${list.map(a=>`<div class="action-item ${a.fait?"done":""}">
       <input type="checkbox" class="ac-done" data-id="${a.id}" ${a.fait?"checked":""}>
       ${!consId? `<span class="cdot" style="background:${consColor(a.conseiller_id)}" title="${esc(consName(a.conseiller_id))}"></span>`:""}
-      <span class="ac-text">${esc(a.texte)}${!consId? ` <span class="muted small">(${esc(consName(a.conseiller_id))})</span>`:""}</span>
+      <span class="ac-text">${esc(a.texte)}${!consId? ` <span class="muted small">(${esc(consName(a.conseiller_id))})</span>`:""}${(a.auteur && a.auteur !== consName(a.conseiller_id))? ` <span class="muted small">— par ${esc(a.auteur)}</span>`:""}</span>
       <span class="ac-due ${!a.fait && a.echeance && a.echeance<today? "overdue":""}">${a.echeance? new Date(a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</span>
       ${isManager()? `<button class="btn danger small ac-del" data-id="${a.id}" style="padding:1px 7px">✕</button>`:""}
     </div>`).join("") || `<div class="empty">Aucune action en cours</div>`}</div>
@@ -3415,6 +3422,11 @@ function viewClients(root){
   if (q) list = list.filter(g=>g.name.toLowerCase().includes(q)
     || g.disp.toLowerCase().includes(q)
     || (g.info.groupe||"").toLowerCase().includes(q));
+  /* v48 : onglets personnes physiques / morales */
+  const nPhy = list.filter(g=>!g.info.morale).length, nMor = list.length - nPhy;
+  const fPM = state._cliPM || "";
+  if (fPM === "phy") list = list.filter(g=>!g.info.morale);
+  if (fPM === "mor") list = list.filter(g=>g.info.morale);
   const nParStatut = {"":list.length};
   for (const g of list){ const s = g.info.statut||"Prospect"; nParStatut[s] = (nParStatut[s]||0)+1; }
   const fSt = state._cliStatut || "";
@@ -3607,7 +3619,7 @@ function viewClients(root){
               </div>` : ev.kind==="ac" ? `
               <div class="tl-item ${ev.a.fait?"done":""}"><span class="tl-ico">☑️</span>
                 <div class="tl-body"><span>${esc(ev.a.texte)}</span>
-                  <div class="tl-meta">Tâche · ${esc(consName(ev.a.conseiller_id))}${ev.a.echeance? ` · pour le ${new Date(ev.a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}`:""}${!ev.a.fait && ev.a.echeance && ev.a.echeance < new Date().toISOString().slice(0,10)? ` · <b style="color:var(--bad)">en retard</b>`:""}</div></div>
+                  <div class="tl-meta">Tâche · ${esc(consName(ev.a.conseiller_id))}${(ev.a.auteur && ev.a.auteur !== consName(ev.a.conseiller_id))? ` · par ${esc(ev.a.auteur)}`:""}${ev.a.echeance? ` · pour le ${new Date(ev.a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}`:""}${!ev.a.fait && ev.a.echeance && ev.a.echeance < new Date().toISOString().slice(0,10)? ` · <b style="color:var(--bad)">en retard</b>`:""}</div></div>
                 <input type="checkbox" class="ix-ac-done" data-id="${ev.a.id}" ${ev.a.fait?"checked":""} style="width:auto;flex:none" title="Fait">
               </div>` : `
               <div class="tl-item tl-lien tl-pipe" data-cli="${esc(ev.e.client||"")}" title="Voir dans le pipeline"><span class="tl-ico">${ev.e.vers_etape==="Perdu"? "❌" : ev.e.de_etape? "🧭":"✨"}</span>
@@ -3648,6 +3660,10 @@ function viewClients(root){
   <div class="inline-controls" style="margin-bottom:12px">
     <label class="fld" style="min-width:240px"><span>Recherche</span>
       <input type="search" id="cli-search" placeholder="nom du client…" value="${esc(state._cliSearch||"")}"></label>
+    <div class="seg" id="cli-fpm" style="margin-bottom:8px">
+      ${[["","Tous"],["phy","👤 Personnes physiques"],["mor","🏢 Personnes morales"]].map(([v,l])=>
+        `<button data-v="${v}" class="${fPM===v?"active":""}">${l}${v==="phy"? ` (${nPhy})` : v==="mor"? ` (${nMor})` : ""}</button>`).join("")}
+    </div>
     <div class="seg" id="cli-fst" style="margin-bottom:8px">
       ${[["","Tous"],["Client","Clients"],["Prospect","Prospects"],["Inactif","Inactifs"]].map(([v,l])=>
         `<button data-v="${v}" class="${fSt===v?"active":""}">${l}${nParStatut[v]!==undefined? ` (${nParStatut[v]})`:" (0)"}</button>`).join("")}
@@ -3680,6 +3696,9 @@ function viewClients(root){
   $("#cli-back")?.addEventListener("click", ()=>{ state._cliOpen = null; viewClients(root); });
   $("#cli-fst")?.querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{
     state._cliStatut = b.dataset.v; viewClients(root);
+  }));
+  $("#cli-fpm")?.querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{
+    state._cliPM = b.dataset.v; viewClients(root);
   }));
   $("#cli-search")?.addEventListener("input", e=>{ state._cliSearch = e.target.value; viewClients(root); relanceFocus(root, "#cli-search"); });
   root.querySelectorAll(".cli-row").forEach(r=>r.addEventListener("click", ()=>{
@@ -5822,7 +5841,7 @@ function o2sAnalyseSuivis(objs){
     if (/^oui$/i.test(String(o["Relance"]||"").trim()) && dRel && dRel >= today){
       const texte = (O2S_VIDE(o["Objet de relance"])? "Relance O2S" : String(o["Objet de relance"]).trim()) + " — " + brut;
       if (!state.actions.some(a=>a.client_key===key && a.echeance===dRel && a.texte===texte))
-        out.relances.push({texte, echeance:dRel, client_key:key, conseiller_id:cons?.id||null, fait:false});
+        out.relances.push({texte, echeance:dRel, client_key:key, conseiller_id:cons?.id||null, fait:false, auteur:"Import O2S"});
     }
   }
   return out;
