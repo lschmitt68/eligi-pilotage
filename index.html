@@ -5682,6 +5682,97 @@ async function trelloImporter(an){
   }
   return {fichesCreees, modelesRepris};
 }
+function trelloMissionStatut(n){ n = O2S_NORM(n);
+  if (n.startsWith("termin") || n.startsWith("clos") || n.startsWith("clot")) return "Close";
+  if (n.includes("livr")) return "Livrée";
+  if (n.includes("attente")) return "En attente";
+  if (n.includes("suivi")) return "Suivi";
+  if (n.includes("faire") || n.includes("demarrer") || n.includes("nouveau")) return "À démarrer";
+  return "En cours"; }
+function trelloMissionType(txt){ const n = O2S_NORM(txt);
+  if (n.includes("dutreil")) return "Dutreil";
+  if (n.includes("retraite")) return "Diagnostic retraite";
+  if (n.includes("remuner")) return "Rémunération (CAP)";
+  if (n.includes("cession") && n.includes("part")) return "Cession de parts";
+  if (n.includes("cession") || n.includes("transmission")) return "Cession / Transmission (CAP)";
+  if (n.includes("transformation")) return "Transformation de société";
+  if (n.includes("holding") || (n.includes("creation") && n.includes("societe")) || n.includes("statuts")) return "Création société / holding";
+  if (n.includes("formalit")) return "Formalités d'entreprises";
+  if (n.includes("immobilier")) return "Immobilier professionnel";
+  if (n.includes("abonnement")) return "Abonnement / suivi";
+  if (n.includes("audit") || n.includes("patrimonial") || n.includes("conseil")) return "Audit / Conseil patrimonial";
+  return "Autre"; }
+function trelloAnalyseMissions(d){
+  if (!d || !Array.isArray(d.lists) || !Array.isArray(d.cards)) throw new Error("Ce fichier n'est pas un export JSON de tableau Trello");
+  const listName = Object.fromEntries(d.lists.map(l=>[l.id, l.name||""]));
+  const clByCard = {};
+  for (const cl of (d.checklists||[])) (clByCard[cl.idCard] = clByCard[cl.idCard]||[]).push(cl);
+  const comByCard = {};
+  for (const a of (d.actions||[])) if (a.type==="commentCard" && a.data?.card?.id && a.data.text)
+    (comByCard[a.data.card.id] = comByCard[a.data.card.id]||[]).push({q:a.date,
+      n:(a.memberCreator?.fullName? (splitNomPrenom(a.memberCreator.fullName).prenom||a.memberCreator.fullName)+" — " : "")+String(a.data.text).replace(/\s*\n\s*/g," · ").slice(0,300)});
+  const idx = trelloIndexClients();
+  const dejaM = new Set();
+  for (const m of state.missions){ const mt = String(m.description||"").match(/\[Trello ([\w-]+)\]/); if (mt) dejaM.add(mt[1]); }
+  const mis = [], nonRattachees = [], arch = [];
+  let dejaImportees = 0, archIgnorees = 0, archDoublons = 0;
+  const archVues = new Set();
+  for (const c of d.cards){
+    const ln = listName[c.idList]||"";
+    if (O2S_NORM(ln).startsWith("model")) continue;
+    const m = trelloMatchClient(c.name||"", idx);
+    if (c.closed){
+      const quand = String(c.dateLastActivity||"").slice(0,10);
+      if (!m || !quand){ archIgnorees++; continue; }
+      const note = "[Trello] "+String(c.name).trim()+" ("+ln+")";
+      const sig = m.key+"|"+quand+"|"+note;
+      if (archVues.has(sig) || state.interactions.some(x=>x.client_key===m.key && String(x.quand||"").slice(0,10)===quand && x.note===note)){ archDoublons++; continue; }
+      archVues.add(sig);
+      arch.push({client_key:m.key, creer:m.creer, conseiller_id:null, type:"Note", auteur:"Trello", note, quand:quand+"T12:00:00"});
+      continue;
+    }
+    const tid = c.shortLink || c.id;
+    if (dejaM.has(tid)){ dejaImportees++; continue; }
+    mis.push({trello_id:tid, titre:String(c.name).trim(),
+      statut:trelloMissionStatut(ln),
+      type:trelloMissionType(String(c.name)+" "+ln),
+      client_key:m? m.key : "", creer:m?.creer||null,
+      conseiller_id: m? (state.clientsInfos.find(ci=>ci.client_key===m.key)?.conseiller_id||null) : null,
+      description:(String(c.desc||"").slice(0,1900)+"\n[Trello "+tid+"]").trim(),
+      echeance:String(c.due||"").slice(0,10)||null,
+      etapes:(clByCard[c.id]||[]).flatMap(cl=>(cl.checkItems||[]).map(i=>({t:i.name, done:i.state==="complete"}))),
+      journal:(comByCard[c.id]||[]).sort((a,b)=>a.q<b.q? -1 : 1)});
+    if (!m) nonRattachees.push(String(c.name).trim());
+  }
+  return {mis, nonRattachees, arch, archDoublons, archIgnorees, dejaImportees};
+}
+async function trelloImporterMissions(an){
+  const connues = new Set(state.clientsInfos.map(ci=>ci.client_key));
+  let fichesCreees = 0;
+  const creerFiche = async (key, c) => {
+    if (connues.has(key)) return;
+    connues.add(key); fichesCreees++;
+    const spl = c? {nom:c.nomf, prenom:c.prenom} : splitNomPrenom(key);
+    await state.db.saveClientInfo({client_key:key, nom:c? c.brut : key, statut:c? c.statut : "Client",
+      origine:"", notes:c?.dossier? "Dossier O2S : "+c.dossier : "",
+      nom_famille:spl.nom, prenom:spl.prenom,
+      ...(c? {tel:c.tel, email:c.email, date_naissance:c.naissance, situation:c.situation, profession:c.profession, adresse:c.adresse} : {})});
+  };
+  for (const m of an.mis) if (m.client_key && m.creer) await creerFiche(m.client_key, m.creer);
+  for (const n of an.arch) if (n.creer) await creerFiche(n.client_key, n.creer);
+  let importees = 0;
+  for (const {creer, trello_id, ...m} of an.mis){
+    await state.db.saveMission(m); importees++;   /* client_key vide = à rattacher depuis la mission */
+  }
+  await state.db.addInteractionsBulk(an.arch);
+  return {fichesCreees, importees};
+}
+function trelloApercuMissions(an){
+  const ratt = an.mis.filter(o=>o.client_key).length;
+  return `<p class="small" style="margin:8px 0 4px"><b>${an.mis.length}</b> mission(s) à reprendre — <b>${ratt}</b> rattachées à un client, <b>${an.nonRattachees.length}</b> à rattacher à la main${an.dejaImportees? ` · ${an.dejaImportees} déjà importée(s) (ignorées)`:""}.<br>
+    <b>${an.arch.length}</b> carte(s) archivée(s) → échanges « [Trello] » dans les chronologies clients${an.archDoublons? ` · ${an.archDoublons} doublon(s) ignoré(s)`:""} · ${an.archIgnorees} archivée(s) sans client identifiable (non reprises).</p>
+    <ul class="small muted" style="margin:0 0 4px 18px">${an.mis.slice(0,8).map(o=>`<li><b>${esc(o.titre)}</b>${o.client_key? " → "+esc(nomAffiche(o.client_key, o.client_key)) : ' <span style="color:var(--warn)">à rattacher</span>'} · ${esc(o.statut)} · ${esc(o.type)}</li>`).join("")}</ul>`;
+}
 function trelloApercu(an){
   const ratt = an.ops.filter(o=>o.client_key).length;
   return `<p class="small" style="margin:8px 0 4px"><b>${an.ops.length}</b> opération(s) à reprendre dans le kanban — <b>${ratt}</b> rattachées à un client, <b>${an.nonRattachees.length}</b> à rattacher à la main${an.dejaImportees? ` · ${an.dejaImportees} déjà importée(s) (ignorées)`:""}.<br>
@@ -6287,6 +6378,20 @@ function viewParam(root){
     </div>
   </div>
 
+  <div class="sect sect-head"><h2>Import Trello (Missions de conseil)</h2>
+    <span class="sub">reprise du tableau des missions d'ingénierie : cartes ouvertes → vue Missions rattachées aux clients · cartes archivées → mémoire des fiches</span></div>
+  <div class="card" id="trlm-card">
+    <p class="small muted" style="margin-top:0">Même principe que le back-office : export JSON du tableau Trello des missions, déposé ici.
+      Colonne → statut de mission (À démarrer / En cours / En attente / Livrée / Suivi / Close), type de mission deviné d'après le titre, checklists → étapes, commentaires → journal, échéance reprise.
+      Les honoraires restent à saisir sur chaque mission. Dédoublonné : réimporter ne crée rien en double.</p>
+    <input type="file" id="trlm-file" accept=".json,application/json" style="margin-bottom:6px">
+    <div id="trlm-apercu"></div>
+    <div class="modal-actions" style="justify-content:flex-start;margin-top:4px;display:none" id="trlm-actions">
+      <button class="btn" id="trlm-go">Importer</button>
+      <button class="btn secondary" id="trlm-cancel">Annuler</button>
+    </div>
+  </div>
+
   <div class="sect sect-head"><h2>Moteur de propositions</h2>
     <span class="sub">hypothèses de rendement, grilles d'allocation et honoraires utilisés par l'assistant — à ajuster quand les convictions de marché évoluent</span></div>
   ${propoParamsEditorHTML()}`;
@@ -6517,6 +6622,29 @@ function viewParam(root){
     }
   });
   $("#trl-cancel")?.addEventListener("click", ()=>{ state._trello = null; render(); });
+  $("#trlm-file")?.addEventListener("change", async e=>{
+    const f = e.target.files[0]; if (!f) return;
+    try{
+      const d = JSON.parse(await f.text());
+      state._trelloM = trelloAnalyseMissions(d);
+      $("#trlm-apercu").innerHTML = `<p class="small"><b>🧰 Tableau « ${esc(d.name||"Trello")} »</b> reconnu.</p>` + trelloApercuMissions(state._trelloM);
+      $("#trlm-actions").style.display = "";
+    }catch(err){
+      $("#trlm-apercu").innerHTML = `<p class="small" style="color:var(--critical)">${esc(err.message||String(err))}</p>`;
+      $("#trlm-actions").style.display = "none";
+    }
+  });
+  $("#trlm-cancel")?.addEventListener("click", ()=>{ state._trelloM = null; render(); });
+  $("#trlm-go")?.addEventListener("click", async ()=>{
+    const an = state._trelloM; if (!an) return;
+    const btn = $("#trlm-go"); btn.disabled = true; btn.textContent = "Import en cours…";
+    try{
+      const r = await trelloImporterMissions(an);
+      await state.db.loadAll();
+      toast(`Import Trello Missions ✓ — ${r.importees} mission(s), ${an.arch.length} carte(s) archivée(s) en mémoire client${r.fichesCreees? `, ${r.fichesCreees} fiche(s) créée(s)`:""}`);
+      state._trelloM = null; render();
+    }catch(err){ toast("Erreur d'import : "+(err.message||err)); btn.disabled = false; btn.textContent = "Importer"; }
+  });
   $("#trl-go")?.addEventListener("click", async ()=>{
     const an = state._trello; if (!an) return;
     const btn = $("#trl-go"); btn.disabled = true; btn.textContent = "Import en cours…";
