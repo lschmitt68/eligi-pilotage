@@ -3105,7 +3105,7 @@ function briefClient(key){
       <div class="pd-meta">${esc(info.statut||"Prospect")}${info.origine? ` · origine : ${esc(info.origine)}`:""}${rows.length? ` · conseiller(s) : ${[...new Set(rows.map(p=>consName(p.conseiller_id)))].join(", ")}`:""}${info.statut==="Client"? ` · revue annuelle : ${info.derniere_revue? new Date(info.derniere_revue+"T00:00:00").toLocaleDateString("fr-FR") : "jamais faite"}${revueEchue(info)? " ⚠":""}`:""}</div>
       ${(info.tel||info.email||info.adresse||info.date_naissance||info.profession||info.situation||info.groupe)? `<div class="pd-sec"><h3>Coordonnées & situation</h3><p>
         ${info.tel? `📞 ${esc(info.tel)} &nbsp; `:""}${info.email? `✉️ ${esc(info.email)} &nbsp; `:""}${info.adresse? `📍 ${esc(info.adresse)}`:""}
-        ${(info.date_naissance||info.profession||info.situation)? `<br>${info.date_naissance? `Né(e) le ${new Date(String(info.date_naissance).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR")}${ageDe(info.date_naissance)!==null? ` (${ageDe(info.date_naissance)} ans)`:""} · `:""}${esc([info.situation, info.profession].filter(Boolean).join(" · "))}`:""}
+        ${(info.date_naissance||info.profession||info.situation)? `<br>${info.date_naissance? `${info.morale? "Créée le":"Né(e) le"} ${new Date(String(info.date_naissance).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR")}${!info.morale && ageDe(info.date_naissance)!==null? ` (${ageDe(info.date_naissance)} ans)`:""} · `:""}${esc([info.situation, info.profession].filter(Boolean).join(" · "))}`:""}
         ${info.groupe? `<br>👥 Groupe : ${esc(info.groupe)}${(()=>{ const mm = state.clientsInfos.filter(ci=>ci.client_key!==key && (ci.groupe||"").trim().toLowerCase()===(info.groupe||"").trim().toLowerCase()); return mm.length? " — avec " + mm.map(m=>esc(m.nom||m.client_key)).join(", ") : ""; })()}`:""}
       </p></div>`:""}
       ${(info.notes||"").trim()? `<div class="pd-sec"><h3>Notes du cabinet</h3><p>${esc(info.notes)}</p></div>`:""}
@@ -3192,6 +3192,7 @@ function ageDe(d){
   return a;
 }
 const CI_SITUATIONS = ["","Célibataire","Marié(e)","Pacsé(e)","Union libre","Divorcé(e)","Veuf(ve)"];
+const FORMES_JURIDIQUES = ["","SARL","EURL","SAS","SASU","SA","SCI","SC / SCP","SNC","Holding","Association","Autre"]; /* v49 */
 /* Découpage heuristique « NOM Prénom » : les mots tout en majuscules = nom de famille */
 function splitNomPrenom(full){
   const mots = String(full||"").trim().split(/\s+/).filter(Boolean);
@@ -3267,8 +3268,8 @@ function clientModal(afterSave){
     <p class="small muted" style="margin-top:0">Crée une fiche client sans passer par le pipeline : connaissance client, suivi (appels, RDV, notes, tâches) — l'opportunité pipeline pourra venir plus tard.</p>
     <div class="helpbox" id="cm-o2s" style="margin:0 0 10px"></div>
     <div class="form-grid">
-      <label class="fld"><span>Nom * <label class="small muted" style="display:inline;font-weight:400;margin-left:8px;cursor:pointer"><input type="checkbox" id="cm-morale" style="width:auto;vertical-align:middle"> 🏢 personne morale</label></span><input type="text" id="cm-nomf" placeholder="DURAND" autocomplete="off" style="text-transform:uppercase"></label>
-      <label class="fld"><span>Prénom *</span><input type="text" id="cm-prenom" placeholder="Marie" autocomplete="off"></label>
+      <label class="fld"><span><span id="cm-lb-nom">Nom *</span> <label class="small muted" style="display:inline;font-weight:400;margin-left:8px;cursor:pointer"><input type="checkbox" id="cm-morale" style="width:auto;vertical-align:middle"> 🏢 personne morale</label></span><input type="text" id="cm-nomf" placeholder="DURAND" autocomplete="off" style="text-transform:uppercase"></label>
+      <label class="fld" id="cm-fld-prenom"><span>Prénom *</span><input type="text" id="cm-prenom" placeholder="Marie" autocomplete="off"></label>
       <label class="fld"><span>Statut</span><select id="cm-statut">${STATUTS.map(s=>`<option>${s}</option>`).join("")}</select></label>
       <label class="fld"><span>Conseiller référent *</span><select id="cm-cons">
         ${voitTout()? `<option value="">— choisir —</option>`:""}
@@ -3276,8 +3277,8 @@ function clientModal(afterSave){
       <label class="fld"><span>Origine du contact</span><select id="cm-origine">${ORIGINES.map(o=>`<option value="${o}">${o||"—"}</option>`).join("")}</select></label>
       <label class="fld"><span>Téléphone *</span><input type="tel" id="cm-tel" placeholder="06 …"></label>
       <label class="fld"><span>Email *</span><input type="email" id="cm-email" placeholder="client@…"></label>
-      <label class="fld"><span>Date de naissance (facultatif)</span><input type="date" id="cm-nais"></label>
-      <label class="fld"><span>Profession (facultatif)</span><input type="text" id="cm-prof" placeholder="dirigeant, cadre…"></label>
+      <label class="fld"><span id="cm-lb-nais">Date de naissance (facultatif)</span><input type="date" id="cm-nais"></label>
+      <label class="fld"><span id="cm-lb-prof">Profession (facultatif)</span><input type="text" id="cm-prof" placeholder="dirigeant, cadre…"></label>
       <label class="fld full"><span>Notes du cabinet (facultatif)</span><textarea id="cm-notes" rows="2" placeholder="contexte, famille, préférences…"></textarea></label>
       <p class="small muted full" style="margin:0">* requis — un conseiller référent et au moins un moyen de contact (téléphone ou e-mail), pour une fiche exploitable dès le départ.</p>
       <div class="dup-warn" id="cm-dup" style="display:none"></div>
@@ -3301,6 +3302,17 @@ function clientModal(afterSave){
   };
   nomfEl.addEventListener("input", updDup);
   prenomEl.addEventListener("input", updDup);
+  back.querySelector("#cm-morale").addEventListener("change", e=>{ /* v49 : champs adaptés à la personne morale */
+    const m = e.target.checked;
+    back.querySelector("#cm-lb-nom").textContent = m? "Raison sociale *" : "Nom *";
+    nomfEl.placeholder = m? "SCI DES VOSGES" : "DURAND";
+    back.querySelector("#cm-fld-prenom").style.display = m? "none" : "";
+    if (m) prenomEl.value = "";
+    back.querySelector("#cm-lb-nais").textContent = m? "Date de création (facultatif)" : "Date de naissance (facultatif)";
+    back.querySelector("#cm-lb-prof").textContent = m? "Activité (facultatif)" : "Profession (facultatif)";
+    back.querySelector("#cm-prof").placeholder = m? "immobilier, conseil, holding…" : "dirigeant, cadre…";
+    updDup();
+  });
   nomfEl.focus();
   /* ---- v36 : reprise au compte-goutte depuis le référentiel O2S ---- */
   const o2sBox = back.querySelector("#cm-o2s");
@@ -3440,7 +3452,7 @@ function viewClients(root){
     : `<span class="badge"><span class="dot" style="background:var(--s1)"></span>Prospect</span>`;
   const clientDetailHTML = g => `<div class="row" style="margin:8px 0 10px">
           <div class="card" style="flex:1;min-width:300px">
-            <h3 class="mt0">Fiche client — ${esc(g.disp)}${(()=>{ const a = ageDe(g.info.date_naissance); return a!==null? ` <span class="small muted">(${a} ans)</span>`:""; })()}</h3>
+            <h3 class="mt0">Fiche ${g.info.morale? "société":"client"} — ${g.info.morale? "🏢 ":""}${esc(g.disp)}${(()=>{ if (g.info.morale) return ""; const a = ageDe(g.info.date_naissance); return a!==null? ` <span class="small muted">(${a} ans)</span>`:""; })()}</h3>
             ${(g.info.tel||g.info.email||g.info.groupe||g.info.lien_onedrive||g.info.lien_must)? `<p class="small" style="margin:0 0 10px">
               ${g.info.tel? `📞 <a href="tel:${esc(String(g.info.tel).replace(/\s+/g,""))}">${esc(g.info.tel)}</a>`:""}
               ${g.info.email? ` &nbsp;✉️ <a href="mailto:${esc(g.info.email)}">${esc(g.info.email)}</a>`:""}
@@ -3454,21 +3466,28 @@ function viewClients(root){
               return membres.length? `<p class="small" style="margin:0 0 10px">Même groupe :
                 ${membres.map(m=>`<button class="chip ci-lien" data-key="${esc(m.client_key)}">${esc(m.nom||m.client_key)}</button>`).join(" ")}</p>` : ""; })()}
             <div class="inline-controls">
-              <label class="fld" style="min-width:130px"><span>Nom</span><input type="text" class="ci-nomf" value="${esc(g.info.nom_famille || g.spl.nom)}"></label>
-              <label class="fld" style="min-width:130px"><span>Prénom</span><input type="text" class="ci-prenom" value="${esc(g.info.prenom || g.spl.prenom)}"></label>
+              ${g.info.morale? `<label class="fld" style="flex:1;min-width:200px"><span>Raison sociale</span><input type="text" class="ci-nomf" value="${esc(g.info.nom_famille || g.spl.nom)}"></label>`
+              : `<label class="fld" style="min-width:130px"><span>Nom</span><input type="text" class="ci-nomf" value="${esc(g.info.nom_famille || g.spl.nom)}"></label>
+              <label class="fld" style="min-width:130px"><span>Prénom</span><input type="text" class="ci-prenom" value="${esc(g.info.prenom || g.spl.prenom)}"></label>`}
+              <label class="fld" style="min-width:150px"><span>Type de fiche</span><select class="ci-morale" data-key="${esc(g.key)}">
+                <option value="" ${g.info.morale? "":"selected"}>👤 Personne physique</option>
+                <option value="1" ${g.info.morale? "selected":""}>🏢 Personne morale</option></select></label>
             </div>
             <div class="inline-controls">
               <label class="fld" style="min-width:135px"><span>Téléphone</span><input type="tel" class="ci-tel" value="${esc(g.info.tel||"")}" placeholder="06 …"></label>
               <label class="fld" style="min-width:190px"><span>Email</span><input type="email" class="ci-email" value="${esc(g.info.email||"")}" placeholder="client@…"></label>
-              <label class="fld" style="min-width:145px"><span>Date de naissance</span><input type="date" class="ci-nais" value="${g.info.date_naissance? String(g.info.date_naissance).slice(0,10):""}"></label>
+              <label class="fld" style="min-width:145px"><span>${g.info.morale? "Date de création":"Date de naissance"}</span><input type="date" class="ci-nais" value="${g.info.date_naissance? String(g.info.date_naissance).slice(0,10):""}"></label>
             </div>
             <div class="inline-controls">
               <label class="fld" style="flex:1;min-width:220px"><span>Adresse</span><input type="text" class="ci-adresse" value="${esc(g.info.adresse||"")}" placeholder="n°, rue, CP, ville"></label>
             </div>
             <div class="inline-controls">
-              <label class="fld" style="min-width:140px"><span>Situation familiale</span><select class="ci-sit">${CI_SITUATIONS.map(s=>`<option value="${s}" ${s===(g.info.situation||"")?"selected":""}>${s||"—"}</option>`).join("")}</select></label>
+              ${g.info.morale? `<label class="fld" style="min-width:140px"><span>Forme juridique</span><select class="ci-sit">${(FORMES_JURIDIQUES.includes(g.info.situation||"")? FORMES_JURIDIQUES : [...FORMES_JURIDIQUES, g.info.situation]).map(s=>`<option value="${s}" ${s===(g.info.situation||"")?"selected":""}>${s||"—"}</option>`).join("")}</select></label>
+              <label class="fld" style="min-width:150px"><span>Activité</span><input type="text" class="ci-prof" value="${esc(g.info.profession||"")}" placeholder="immobilier, conseil, holding…"></label>
+              <label class="fld" style="min-width:150px"><span>Groupe</span><input type="text" class="ci-groupe" value="${esc(g.info.groupe||"")}" list="ci-groupes" placeholder="ex : Famille GUGENBUHL"></label>`
+              : `<label class="fld" style="min-width:140px"><span>Situation familiale</span><select class="ci-sit">${CI_SITUATIONS.map(s=>`<option value="${s}" ${s===(g.info.situation||"")?"selected":""}>${s||"—"}</option>`).join("")}</select></label>
               <label class="fld" style="min-width:150px"><span>Profession / activité</span><input type="text" class="ci-prof" value="${esc(g.info.profession||"")}" placeholder="dirigeant, cadre…"></label>
-              <label class="fld" style="min-width:150px"><span>Groupe / famille</span><input type="text" class="ci-groupe" value="${esc(g.info.groupe||"")}" list="ci-groupes" placeholder="ex : Famille GUGENBUHL"></label>
+              <label class="fld" style="min-width:150px"><span>Groupe / famille</span><input type="text" class="ci-groupe" value="${esc(g.info.groupe||"")}" list="ci-groupes" placeholder="ex : Famille GUGENBUHL"></label>`}
             </div>
             <div class="inline-controls">
               <label class="fld" style="flex:1;min-width:200px"><span>📁 Lien dossier OneDrive</span><input type="url" class="ci-od" value="${esc(g.info.lien_onedrive||"")}" placeholder="coller le lien du dossier client…"></label>
@@ -3729,6 +3748,17 @@ function viewClients(root){
   root.querySelectorAll(".cli-bo-old").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation(); state._cliBoOld = !state._cliBoOld; viewClients(root);
   }));
+  root.querySelectorAll(".ci-morale").forEach(s=>s.addEventListener("change", async e=>{
+    e.stopPropagation();
+    const morale = s.value === "1";
+    const gg = list.find(x=>x.key===s.dataset.key);
+    try{
+      await state.db.saveClientInfo({client_key:s.dataset.key, nom: gg? gg.name : undefined, morale});
+      await state.db.loadAll();
+      toast(morale? "Fiche passée en 🏢 personne morale — champs adaptés" : "Fiche passée en 👤 personne physique");
+      viewClients(root);
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
   root.querySelectorAll(".cli-op-add").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
     pipeModal(null);
@@ -3895,7 +3925,8 @@ function viewClients(root){
         profession: det.querySelector(".ci-prof").value.trim(),
         groupe: det.querySelector(".ci-groupe").value.trim(),
         nom_famille: det.querySelector(".ci-nomf").value.trim(),
-        prenom: det.querySelector(".ci-prenom").value.trim(),
+        prenom: det.querySelector(".ci-prenom")? det.querySelector(".ci-prenom").value.trim() : undefined,
+        morale: det.querySelector(".ci-morale")? det.querySelector(".ci-morale").value === "1" : undefined,
         lien_onedrive: det.querySelector(".ci-od").value.trim(),
         lien_must: det.querySelector(".ci-must").value.trim(),
       });
