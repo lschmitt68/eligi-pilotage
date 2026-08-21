@@ -5023,7 +5023,7 @@ function viewRapport(root){
    ================================================================ */
 const MI_STATUTS_DEFAUT = ["À faire","En cours","En attente client","En cours partenaire","Formalités en cours","En cours sur l'INPI","Terminé à facturer","Facturé","Terminé"];
 const MI_ST_LEGACY = {"À démarrer":"À faire","En attente":"En attente client","Livrée":"Terminé à facturer","Suivi":"En cours","Close":"Terminé"};
-const miStNorm = s => MI_ST_LEGACY[s] || s;
+const miStNorm = s => miStatuts().includes(s)? s : (MI_ST_LEGACY[s] || s);   /* v55.1 : une colonne existante n'est jamais convertie */
 function miStatuts(){ /* v55 : colonnes personnalisables (Paramétrage) */
   const v = state.paramsCabinet?.mi_statuts;
   return (Array.isArray(v) && v.length >= 2)? v : MI_STATUTS_DEFAUT;
@@ -5204,6 +5204,7 @@ function viewMissions(root){
   const nSuivre = rows.filter(miASuivre).length;
   if (state._miSuivre) rows = rows.filter(miASuivre);
   const ouvertes = rows.filter(miOuverte);
+  const attendu = state.missions.filter(miOuverte).reduce((a,m)=>a+(+m.hono_devis||0),0);   /* v55.1 : devis des missions non terminées */
   const fact = state.missions.reduce((a,m)=>a+(+m.hono_facture||0),0);
   const enc = state.missions.reduce((a,m)=>a+(+m.hono_encaisse||0),0);
 
@@ -5224,7 +5225,7 @@ function viewMissions(root){
     ${nSuivre? `<button class="chip ${state._miSuivre?"warn":""}" id="mi-suivre" style="margin-bottom:8px" title="Échéance dépassée ou pas de prochaine échéance">⚠ À suivre (${nSuivre})</button>`:""}
     <span style="flex:1"></span>
     <div class="small muted" style="padding-bottom:8px">
-      <b>${ouvertes.length}</b> mission(s) ouvertes · facturé <b>${eur(fact)}</b> · encaissé <b>${eur(enc)}</b></div>
+      <b>${ouvertes.length}</b> mission(s) ouvertes · honoraires attendus <b>${eur(attendu)}</b> <span title="somme des devis des missions non terminées">(devis)</span> · facturé <b>${eur(fact)}</b> · encaissé <b>${eur(enc)}</b></div>
   </div>
   <div id="mi-body"></div>`;
 
