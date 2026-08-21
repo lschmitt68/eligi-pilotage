@@ -837,7 +837,9 @@ class SupaDB {
     ]);
     for (const r of [co,se,sa,pi,pr,ab,os,ac,va,pe,ci,it,pp,pc]) if (r.error) throw r.error;
     state.conseillers = co.data; state.semaines = se.data;
-    state.saisies = sa.data; state.pipeline = pi.data; state.profiles = pr.data;
+    state.saisies = sa.data; state.profiles = pr.data;
+    state.pipelineArch = (pi.data||[]).filter(x=>x.archive);   /* v59 */
+    state.pipeline = (pi.data||[]).filter(x=>!x.archive);
     state.absences = ab.data; state.objSemaine = os.data;
     state.actions = ac.data; state.validations = va.data; state.pipeEvents = pe.data;
     state.clientsInfos = ci.data; state.interactions = it.data;
@@ -851,7 +853,9 @@ class SupaDB {
     const cg = await this.c.from("campagnes").select("*").order("date_fin");
     state.campagnes = cg.error? [] : (cg.data||[]);    // tolérant tant que la migration v22 n'est pas passée
     const op = await this.c.from("operations").select("*").order("id", {ascending:false});
-    state.operations = op.error? [] : (op.data||[]);   // tolérant tant que la migration v37 n'est pas passée
+    const opsTous = op.error? [] : (op.data||[]);   // tolérant tant que la migration v37 n'est pas passée
+    state.operationsArch = opsTous.filter(o=>o.archive);   /* v59 */
+    state.operations = opsTous.filter(o=>!o.archive);
   }
   async saveCampagne(c){
     const row = {nom:c.nom, support:c.support||"", date_debut:c.date_debut||null, date_fin:c.date_fin,
@@ -893,6 +897,16 @@ class SupaDB {
   async archiverMission(id, flag){ /* v56 */
     const {error} = await this.c.from("missions").update({archive:!!flag}).eq("id", id);
     if (error && /archive/.test(error.message||"")) throw new Error("Archivage pas encore activé sur la base (migration v56 en attente) — réessaie un peu plus tard");
+    if (error) throw error;
+  }
+  async archiverPipeline(id, flag){ /* v59 */
+    const {error} = await this.c.from("pipeline").update({archive:!!flag}).eq("id", id);
+    if (error && /archive/.test(error.message||"")) throw new Error("Archivage pas encore activé sur la base (migration v59 en attente) — réessaie un peu plus tard");
+    if (error) throw error;
+  }
+  async archiverOperation(id, flag){ /* v59 */
+    const {error} = await this.c.from("operations").update({archive:!!flag}).eq("id", id);
+    if (error && /archive/.test(error.message||"")) throw new Error("Archivage pas encore activé sur la base (migration v59 en attente) — réessaie un peu plus tard");
     if (error) throw error;
   }
   _opRow(o){
@@ -1176,7 +1190,8 @@ class DemoDB {
     state.conseillers = this.conseillers.filter(c=>voitTout()||c.id===state.profile.conseiller_id);
     state.semaines = [...this.semaines];
     state.saisies = this.saisies.filter(s=>this._mine(s.conseiller_id)).map(s=>({...s}));
-    state.pipeline = this.pipeline.filter(p=>this._mine(p.conseiller_id)).map(p=>({...p}));
+    state.pipelineArch = this.pipeline.filter(p=>this._mine(p.conseiller_id) && p.archive).map(p=>({...p}));
+    state.pipeline = this.pipeline.filter(p=>this._mine(p.conseiller_id) && !p.archive).map(p=>({...p}));
     state.profiles = isManager()? [...this.profiles] : this.profiles.filter(p=>p.email===state.profile.email);
     state.absences = this.absences.filter(a=>this._mine(a.conseiller_id)).map(a=>({...a}));
     state.objSemaine = this.objSemaine.filter(o=>this._mine(o.conseiller_id)).map(o=>({...o}));
@@ -1192,7 +1207,9 @@ class DemoDB {
     state.missionsArch = misTous.filter(m=>m.archive);
     state.missions = misTous.filter(m=>!m.archive);
     state.campagnes = (this.campagnes||[]).map(c=>({...c, objectifs:{...(c.objectifs||{})}}));
-    state.operations = (this.operations||[]).map(o=>({...o, etapes:(o.etapes||[]).map(e=>({...e})), journal:(o.journal||[]).map(j=>({...j}))}));
+    const opsTous = (this.operations||[]).map(o=>({...o, etapes:(o.etapes||[]).map(e=>({...e})), journal:(o.journal||[]).map(j=>({...j}))}));
+    state.operationsArch = opsTous.filter(o=>o.archive);
+    state.operations = opsTous.filter(o=>!o.archive);
   }
   async saveCampagne(c){
     if (!isManager()) throw new Error("Réservé au manager");
@@ -1220,6 +1237,14 @@ class DemoDB {
   async archiverMission(id, flag){ /* v56 */
     const m = this.missions.find(x=>x.id===id);
     if (m) m.archive = !!flag;
+  }
+  async archiverPipeline(id, flag){ /* v59 */
+    const p = this.pipeline.find(x=>x.id===id);
+    if (p) p.archive = !!flag;
+  }
+  async archiverOperation(id, flag){ /* v59 */
+    const o = this.operations.find(x=>x.id===id);
+    if (o) o.archive = !!flag;
   }
   async deleteMission(id){
     const i = this.missions.findIndex(x=>x.id===id);
@@ -2491,6 +2516,7 @@ function viewPipeline(root){
     ${state._pipeView==="table"? `<label class="fld"><span>Étape</span><select id="pi-etape"><option value="">Toutes</option>
       ${ETAPES.map(e=>`<option value="${e}" ${e===fEtape?"selected":""}>${etapeAff(e)}</option>`).join("")}</select></label>`:""}
     ${nRelance? `<button class="chip ${state._pipeStale?"warn":""}" id="pi-stale" style="margin-bottom:8px" title="Sans mouvement depuis ${STALE_JOURS} j ou closing dépassé">🔥 À relancer (${nRelance})</button>`:""}
+    ${(state.pipelineArch||[]).length? `<button class="chip ${state._piArch?"warn":""}" id="pi-arch-toggle" style="margin-bottom:8px" title="Affaires archivées — hors du tableau et des compteurs">🗄 Archivées (${(state.pipelineArch||[]).length})</button>`:""}
     <span style="flex:1"></span>
     <div class="small muted" style="padding-bottom:8px">
       <b>${rows.length}</b> affaire(s) · pondéré <b>${eur(pond)}</b> · dont validé <b>${eur(signe)}</b></div>
@@ -2523,12 +2549,33 @@ function viewPipeline(root){
   $("#pi-camp")?.addEventListener("change", e=>{ state._pipeCamp = e.target.value; render(); });
   bindCampagnes(root);
   $("#pi-etape")?.addEventListener("change", e=>{ state._pipeEtape = e.target.value; render(); });
+  /* ---- v59 : archivées ---- */
+  $("#pi-arch-toggle")?.addEventListener("click", ()=>{ state._piArch = !state._piArch; render(); });
+  if (state._piArch && (state.pipelineArch||[]).length){
+    const bloc = document.createElement("div");
+    bloc.innerHTML = `<div class="card tbl-scroll" style="margin-top:10px"><h3 class="mt0">🗄 Affaires archivées</h3><table class="tbl dense">
+      <thead><tr><th>Client</th><th>Support</th><th>Étape</th><th class="num">Potentiel</th><th></th></tr></thead>
+      <tbody>${(state.pipelineArch||[]).map(p=>`<tr>
+        <td><b>${esc(cliAff(p.client))}</b></td><td class="small">${esc(p.support||"")}</td>
+        <td class="small">${esc(etapeAff(p.etape||""))}</td><td class="num">${eur(p.ca_potentiel)}</td>
+        <td><button class="btn secondary small pi-desarch" data-pid="${p.id}">↩ Désarchiver</button></td>
+      </tr>`).join("")}</tbody></table></div>`;
+    $("#pi-body").after(bloc);
+    bloc.querySelectorAll(".pi-desarch").forEach(b=>b.addEventListener("click", async ()=>{
+      try{
+        await state.db.archiverPipeline(+b.dataset.pid, false);
+        await state.db.loadAll();
+        toast("Affaire désarchivée ✓"); render();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+    }));
+  } else if (state._piArch) state._piArch = false;
 }
 
 function kcardHTML(p){
   return `<div class="kcard" draggable="true" data-kid="${p.id}" title="Glisser pour changer d'étape — cliquer pour modifier">
     <div class="kclient"><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span>
       <span class="kc-name">${esc(cliAff(p.client))}</span>
+      <button class="mi-arch-btn pi-arch-btn" data-pid="${p.id}" title="Archiver — la carte disparaît du tableau (récupérable via le filtre 🗄 Archivées)">🗄</button>
       <span class="kpond">${eur(pondere(p))}</span></div>
     <div class="kmeta"><span class="tag">${esc(p.support)}</span><span>${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</span>
       ${p.campagne_id? `<span class="tag" title="Campagne : ${esc(state.campagnes.find(c=>c.id===p.campagne_id)?.nom||"")}">🚀</span>`:""}
@@ -2547,6 +2594,16 @@ function renderKanban(body, rows){
       <button class="kcol-add" data-addcol="${esc(et)}">+ ajouter ici</button>
     </div>`;}).join("")}</div>`;
 
+  body.querySelectorAll(".pi-arch-btn").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    const p = state.pipeline.find(x=>x.id===+b.dataset.pid);
+    if (!p || !confirm(`Archiver l'affaire « ${cliAff(p.client)} — ${p.support||""} » ?\nElle disparaît du tableau, des compteurs et des campagnes — récupérable via le filtre 🗄 Archivées.`)) return;
+    try{
+      await state.db.archiverPipeline(p.id, true);
+      await state.db.loadAll();
+      toast("Affaire archivée 🗄"); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
   body.querySelectorAll(".kcard").forEach(card=>{
     card.addEventListener("click", ()=>pipeModal(state.pipeline.find(p=>p.id===+card.dataset.kid)));
     card.addEventListener("dragstart", e=>{
@@ -2664,7 +2721,7 @@ function pipeModal(p, etapeInit){
       <div class="dup-warn" id="pm-dup" style="display:none"></div>
     </div>
     <div class="modal-actions">
-      ${!isNew? `<button class="btn danger" id="pm-del" style="margin-right:auto">Supprimer</button>`:""}
+      ${!isNew? `<button class="btn secondary" id="pm-archiver" title="L'affaire disparaît du tableau et des compteurs — récupérable via le filtre 🗄 Archivées">🗄 Archiver</button><button class="btn danger" id="pm-del" style="margin-right:auto">Supprimer</button>`:""}
       <button class="btn secondary" id="pm-cancel">Annuler</button>
       <button class="btn" id="pm-save">Enregistrer</button>
     </div>
@@ -2693,6 +2750,14 @@ function pipeModal(p, etapeInit){
   back.querySelector("#pm-cancel").addEventListener("click", ()=>back.remove());
   back.addEventListener("click", e=>{ if(e.target===back) back.remove(); });
   back.querySelector("#pm-del")?.addEventListener("click", ()=>{ back.remove(); loseModal(p); });
+  back.querySelector("#pm-archiver")?.addEventListener("click", async ()=>{
+    if (!confirm(`Archiver cette affaire ?\nElle disparaît du tableau, des compteurs et des campagnes — récupérable via le filtre 🗄 Archivées.`)) return;
+    try{
+      await state.db.archiverPipeline(p.id, true);
+      back.remove(); await state.db.loadAll();
+      toast("Affaire archivée 🗄"); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
   back.querySelector("#pm-save").addEventListener("click", async ()=>{
     const nomCli = back.querySelector("#pm-client").value.trim();
     const keyCli = normName(nomCli);
@@ -5596,7 +5661,7 @@ function boCardHTML(o){
   const pr = boProgress(o);
   const today = new Date().toISOString().slice(0,10);
   return `<div class="kcard" draggable="true" data-boid="${o.id}" title="Glisser pour changer d'étape — cliquer pour ouvrir">
-    <div class="kclient"><span class="kc-name">${esc(o.titre)}</span></div>
+    <div class="kclient"><span class="kc-name">${esc(o.titre)}</span><button class="mi-arch-btn bo-arch-btn" data-oid="${o.id}" title="Archiver — la carte disparaît du tableau (récupérable via le filtre 🗄 Archivées)">🗄</button></div>
     <div class="kmeta">${o.client_key? `<span class="tag">👤 ${esc(boClientDisp(o))}</span>` : `<span class="ksig">À RATTACHER</span>`}
       ${o.campagne_id? `<span class="tag" title="Campagne : ${esc(state.campagnes.find(c=>c.id===o.campagne_id)?.nom||"")}">🚀</span>`:""}
       ${o.assureur? `<span class="tag">${esc(o.assureur)}</span>`:""}
@@ -5627,6 +5692,7 @@ function viewBackoffice(root){
       ${boCampOpts.map(c=>{ const j = campagneJoursRestants(c);
         return `<option value="${c.id}" ${String(c.id)===fCamp?"selected":""}>🚀 ${esc(c.nom)}${j>=0? ` (J-${j})` : " (terminée)"}</option>`; }).join("")}</select></label>`:""}
     <button class="chip ${state._boOld? "warn":""}" id="bo-old" style="margin-bottom:8px" title="Les opérations terminées depuis plus de 30 jours sont masquées par défaut">${state._boOld? "Masquer" : "Voir"} les terminées &gt; 30 j</button>
+    ${(state.operationsArch||[]).length? `<button class="chip ${state._boArch?"warn":""}" id="bo-arch-toggle" style="margin-bottom:8px" title="Opérations archivées — hors du tableau et des compteurs">🗄 Archivées (${(state.operationsArch||[]).length})</button>`:""}
     <span style="flex:1"></span>
     <div class="small muted" style="padding-bottom:8px"><b>${enCours}</b> opération(s) en cours${aRatt? ` · <b>${aRatt}</b> sans client rattaché`:""} · ${state.operations.length} au total</div>
   </div>
@@ -5637,10 +5703,36 @@ function viewBackoffice(root){
       <div class="kcol-cards">${items.map(boCardHTML).join("")}</div>
       <button class="kcol-add" data-boaddcol="${esc(st)}">+ ajouter ici</button>
     </div>`;}).join("")}</div>
-  ${state.operations.length? "" : `<div class="empty" style="margin-top:14px">Aucune opération — crée la première avec « ＋ Opération », ou reprends ton tableau Trello depuis Paramétrage → Import Trello.</div>`}`;
+  ${state.operations.length? "" : `<div class="empty" style="margin-top:14px">Aucune opération — crée la première avec « ＋ Opération », ou reprends ton tableau Trello depuis Paramétrage → Import Trello.</div>`}
+  ${(state._boArch && (state.operationsArch||[]).length)? `<div class="card tbl-scroll" style="margin-top:10px"><h3 class="mt0">🗄 Opérations archivées</h3><table class="tbl dense">
+    <thead><tr><th>Opération</th><th>Client</th><th>Statut</th><th></th></tr></thead>
+    <tbody>${(state.operationsArch||[]).map(o=>`<tr>
+      <td style="white-space:normal">${esc(o.titre)}</td>
+      <td><b>${esc(o.client_key? boClientDisp(o) : "—")}</b></td>
+      <td class="small">${esc(o.statut)}</td>
+      <td><button class="btn secondary small bo-desarch" data-oid="${o.id}">↩ Désarchiver</button></td>
+    </tr>`).join("")}</tbody></table></div>`:""}`;
 
   $("#bo-add").addEventListener("click", ()=>boModal(null));
   $("#bo-old").addEventListener("click", ()=>{ state._boOld = !state._boOld; render(); });
+  $("#bo-arch-toggle")?.addEventListener("click", ()=>{ state._boArch = !state._boArch; render(); });
+  root.querySelectorAll(".bo-arch-btn").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    const o = state.operations.find(x=>x.id===+b.dataset.oid);
+    if (!o || !confirm(`Archiver « ${o.titre} » ?\nLa carte disparaît du tableau — récupérable via le filtre 🗄 Archivées.`)) return;
+    try{
+      await state.db.archiverOperation(o.id, true);
+      await state.db.loadAll();
+      toast("Opération archivée 🗄"); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  root.querySelectorAll(".bo-desarch").forEach(b=>b.addEventListener("click", async ()=>{
+    try{
+      await state.db.archiverOperation(+b.dataset.oid, false);
+      await state.db.loadAll();
+      toast("Opération désarchivée ✓"); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
   $("#bo-camp")?.addEventListener("change", e=>{ state._boCamp = e.target.value; render(); });
   $("#bo-search").addEventListener("input", e=>{ state._boSearch = e.target.value; viewBackoffice(root); relanceFocus(root, "#bo-search"); });
   root.querySelectorAll("[data-boaddcol]").forEach(b=>b.addEventListener("click", ()=>boModal(null, b.dataset.boaddcol)));
@@ -5716,6 +5808,7 @@ function boModal(o, statutInitial, clientKey){
         </div>
       </div>
       <div class="modal-actions">
+        ${!creation? `<button class="btn secondary" id="bo-archiver" title="L'opération disparaît du tableau — récupérable via le filtre 🗄 Archivées">🗄 Archiver</button>`:""}
         ${!creation && isManager()? `<button class="btn danger" id="bo-del">Supprimer</button>`:""}
         <span style="flex:1"></span>
         <button class="btn secondary" id="bo-cancel">Annuler</button>
@@ -5739,6 +5832,11 @@ function boModal(o, statutInitial, clientKey){
     back.querySelector("#bo-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
     back.querySelectorAll(".bo-et-done").forEach(c=>c.addEventListener("change", ()=>{ lireForm(); o.etapes[+c.dataset.i].done = c.checked; rendre(); }));
     back.querySelectorAll(".bo-et-del").forEach(b=>b.addEventListener("click", ()=>{ lireForm(); o.etapes.splice(+b.dataset.i,1); rendre(); }));
+    back.querySelector("#bo-archiver")?.addEventListener("click", async ()=>{
+      if (!confirm(`Archiver cette opération ?\nElle disparaît du tableau — récupérable via le filtre 🗄 Archivées.`)) return;
+      try{ await state.db.archiverOperation(o.id, true); await state.db.loadAll(); back.remove(); toast("Opération archivée 🗄"); render(); }
+      catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
     back.querySelector("#bo-del")?.addEventListener("click", async ()=>{
       if (!confirm("Supprimer définitivement cette opération ?")) return;
       try{ await state.db.deleteOperation(o.id); await state.db.loadAll(); back.remove(); toast("Opération supprimée"); render(); }
