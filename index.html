@@ -1686,21 +1686,49 @@ function bindActionsCards(scope, refresh){
   });
 }
 
-/* v38 : une signature pipeline crée l'opération back-office « Souscription » */
-async function boDepuisSignature(p){
+/* v38→v57 : une signature d'affaire crée l'opération back-office — le conseiller choisit sa nature */
+async function boCreerDepuisAffaire(p, mod){
+  const key = normName(p.client||"");
+  const titre = (mod.nom + " — " + (p.support||"")).replace(/—\s*$/,"").trim();
+  if (state.operations.some(o=>o.client_key===key && o.statut!=="Terminé" && normName(o.titre)===normName(titre))){
+    toast(`Une opération « ${titre} » est déjà ouverte pour ce client`); return;
+  }
+  await state.db.saveOperation({client_key:key, titre, statut:"À faire",
+    assureur:p.support||"", responsable:monNom(), conseiller_id:p.conseiller_id||null,
+    description:"Créée à la signature de l'affaire" + (p.campagne_id? " (campagne rattachée)":"") + ".",
+    etapes:(mod.items||[]).map(t=>({t, done:false})), journal:[], echeance:null, trello_id:"",
+    campagne_id:p.campagne_id||null});
+  await state.db.loadAll();
+  toast(`📥 « ${titre} » créée pour ${cliAff(p.client)} — visible au Back-office`); render();
+}
+function boDepuisSignature(p){
   try{
     const key = normName(p.client||"");
     if (!key) return;
-    const titre = ("Souscription — " + (p.support||"")).replace(/—\s*$/,"").trim();
-    if (state.operations.some(o=>o.client_key===key && o.statut!=="Terminé" && normName(o.titre)===normName(titre))) return;
-    const mod = boModeles().find(m=>O2S_NORM(m.nom).startsWith("souscription"));
-    await state.db.saveOperation({client_key:key, titre, statut:"À faire",
-      assureur:p.support||"", responsable:monNom(), conseiller_id:p.conseiller_id||null,
-      description:"Créée automatiquement à la signature de l'affaire.",
-      etapes:(mod?.items||[]).map(t=>({t, done:false})), journal:[], echeance:null, trello_id:"",
-      campagne_id:p.campagne_id||null});
-    await state.db.loadAll();
-    toast(`📥 Opération back-office « ${titre} » créée pour ${cliAff(p.client)}`);
+    const mods = boModeles();
+    const back = document.createElement("div");
+    back.className = "modal-back";
+    back.innerHTML = `<div class="modal" style="width:560px">
+      <h3>📥 Et côté back-office ? — ${esc(cliAff(p.client))}</h3>
+      <p class="small muted" style="margin-top:0">Signature enregistrée ✓ &nbsp;Quelle opération l'équipe back-office doit-elle traiter${p.support? ` pour <b>${esc(p.support)}</b>`:""} ?
+        Elle arrivera dans le kanban Back-office avec sa check-list, rattachée au client${p.campagne_id? " et à la campagne":""}.</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${mods.map((m,i)=>`<button class="btn secondary bo-sig-mod" data-i="${i}">${esc(m.nom)}</button>`).join("")}
+        <button class="btn secondary" id="bo-sig-perso">Autre / personnaliser…</button>
+      </div>
+      <div class="modal-actions">
+        <button class="btn secondary" id="bo-sig-non">Pas d'opération back-office</button>
+      </div>
+    </div>`;
+    document.body.appendChild(back);
+    back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
+    back.querySelector("#bo-sig-non").addEventListener("click", ()=>back.remove());
+    back.querySelector("#bo-sig-perso").addEventListener("click", ()=>{ back.remove(); boModal(null, "À faire", key); });
+    back.querySelectorAll(".bo-sig-mod").forEach(b=>b.addEventListener("click", async ()=>{
+      back.remove();
+      try{ await boCreerDepuisAffaire(p, mods[+b.dataset.i]); }
+      catch(e){ toast("Erreur : "+(e.message||e)); }
+    }));
   }catch(e){ /* silencieux : table operations peut-être absente (migration v37) */ }
 }
 
