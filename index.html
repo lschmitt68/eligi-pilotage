@@ -974,6 +974,9 @@ class SupaDB {
       const {data} = await this.c.from(t).select("id, client_key").eq("client_key", oldKey);
       for (const row of (data||[])){
         if (t==="clients_infos" && state.clientsInfos.some(x=>x.client_key===newKey && x.client_key!==oldKey)){
+          const patch = fusionInfos(state.clientsInfos.find(x=>x.client_key===newKey),
+                                    state.clientsInfos.find(x=>x.client_key===oldKey));   /* v50.1 */
+          if (patch) await this.c.from(t).update(patch).eq("client_key", newKey);
           await this.c.from(t).delete().eq("id", row.id);   // fiche cible existe déjà : on fusionne dessus
         } else {
           await this.c.from(t).update({client_key:newKey}).eq("id", row.id);
@@ -1244,6 +1247,13 @@ class DemoDB {
     const newKey = normName(newName);
     for (const p of this.pipeline) if (normName(p.client)===oldKey) p.client = newName.trim();
     for (const e of this.pipeEvents) if (normName(e.client)===oldKey) e.client = newName.trim();
+    const cibleDemo = this.clientsInfos.find(x=>x.client_key===newKey && x.client_key!==oldKey);
+    if (cibleDemo){ /* v50.1 : fusion — la cible récupère ce qui lui manque, la source disparaît */
+      const srcDemo = this.clientsInfos.find(x=>x.client_key===oldKey);
+      const patch = srcDemo? fusionInfos(cibleDemo, srcDemo) : null;
+      if (patch) Object.assign(cibleDemo, patch);
+      this.clientsInfos = this.clientsInfos.filter(x=>x.client_key!==oldKey);
+    }
     for (const t of [this.clientsInfos, this.interactions])
       for (const r of t) if (r.client_key===oldKey) r.client_key = newKey;
     for (const ci of this.clientsInfos) if (ci.client_key===newKey) ci.nom = newName.trim();
@@ -3854,7 +3864,7 @@ function viewClients(root){
     if (!nom || nom===g.name) return;
     if (!nomPrenomOk(nom) && !list.some(x=>x.key===normName(nom))){ toast(MSG_NOM_PRENOM); return; }
     const cible = list.find(x=>x.key===normName(nom) && x.key!==g.key);
-    if (cible && !confirm(`Un client « ${cible.name} » existe déjà : les dossiers et le suivi de « ${g.name} » seront fusionnés dans sa fiche. Continuer ?`)) return;
+    if (cible && !confirm(`FUSION :\n• fiche GARDÉE : « ${cible.name} »\n• fiche SUPPRIMÉE : « ${g.name} » (celle-ci)\n\nTout le suivi, les dossiers, missions et opérations de « ${g.name} » basculent dans « ${cible.name} », qui récupère aussi ses infos manquantes (tél, notes…).\n\nContinuer ?`)) return;
     try{
       await state.db.renameClient(g.key, nom);
       await state.db.loadAll();
@@ -4985,6 +4995,25 @@ const miASuivre = m => miEcheanceDepassee(m) || miSansEcheance(m);
 /* v32 : relance des clients sans contact */
 const CONTACT_ALERTE_J_DEF = 90;
 function contactAlerteJ(){ const v = +state.paramsCabinet?.contact_alerte_j; return v>0? v : CONTACT_ALERTE_J_DEF; }
+function fusionInfos(cible, source){ /* v50.1 : la fiche gardée récupère ce qui lui manque */
+  if (!cible || !source) return null;
+  const vide = v => v==null || String(v).trim()==="";
+  const patch = {};
+  for (const k of ["tel","email","adresse","profession","situation","groupe","origine","lien_onedrive","lien_must","nom_famille","prenom"])
+    if (vide(cible[k]) && !vide(source[k])) patch[k] = source[k];
+  if (vide(cible.date_naissance) && !vide(source.date_naissance)) patch.date_naissance = source.date_naissance;
+  if (!cible.conseiller_id && source.conseiller_id) patch.conseiller_id = source.conseiller_id;
+  if ((cible.encours==null || cible.encours==="") && source.encours!=null && source.encours!==""){ patch.encours = source.encours; patch.encours_maj = source.encours_maj || null; }
+  if (!vide(source.derniere_revue) && (vide(cible.derniere_revue) || String(source.derniere_revue) > String(cible.derniere_revue))) patch.derniere_revue = source.derniere_revue;
+  const conf = {...(source.conformite||{}), ...(cible.conformite||{})};
+  if (JSON.stringify(conf) !== JSON.stringify(cible.conformite||{})) patch.conformite = conf;
+  const liens = [...(cible.liens||[])];
+  for (const l of (source.liens||[])) if (l && !liens.some(x=>x.key===l.key && x.type===l.type)) liens.push(l);
+  if (liens.length !== (cible.liens||[]).length) patch.liens = liens;
+  const nS = String(source.notes||"").trim(), nC = String(cible.notes||"").trim();
+  if (nS && !nC.includes(nS)) patch.notes = (nC? nC + "\n" : "") + nS;
+  return Object.keys(patch).length? patch : null;
+}
 function dernierContactT(key){
   /* dernier signe de vie du dossier : échange saisi, mouvement pipeline, mission (création + journal), revue */
   let t = 0;
