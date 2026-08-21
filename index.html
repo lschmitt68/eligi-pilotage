@@ -3423,7 +3423,7 @@ function clientModal(afterSave){
   });
 }
 function viewClients(root){
-  const STATUTS = ["Prospect","Client","Inactif"];
+  const STATUTS = ["Prospect","Client","Inactif","Archivé"];
   const ORIGINES = ["","Recommandation","Famille / proche","Partenaire","Salon / événement","Site web","Autre"];
   const IX_TYPES = [["Note","📝"],["Appel","📞"],["RDV","🤝"],["Email","✉️"],["Tâche","☑️"]];
   const IX_ICO = Object.fromEntries(IX_TYPES);
@@ -3462,16 +3462,19 @@ function viewClients(root){
   const fPM = state._cliPM || "";
   if (fPM === "phy") list = list.filter(g=>!g.info.morale);
   if (fPM === "mor") list = list.filter(g=>g.info.morale);
-  const nParStatut = {"":list.length};
+  const nParStatut = {};
   for (const g of list){ const s = g.info.statut||"Prospect"; nParStatut[s] = (nParStatut[s]||0)+1; }
+  nParStatut[""] = list.length - (nParStatut["Archivé"]||0);
   const fSt = state._cliStatut || "";
   if (fSt) list = list.filter(g=>(g.info.statut||"Prospect")===fSt);
+  else list = list.filter(g=>(g.info.statut||"Prospect")!=="Archivé");   /* v51 : les archivés n'encombrent pas la liste */
   list.sort((a,b)=>a.disp.localeCompare(b.disp, "fr", {sensitivity:"base"}));
   /* v39 : la fiche ouverte devient une pleine page ; sa chronologie n'est calculée que pour elle */
   const gOpen = state._cliOpen? tous.find(x=>x.key===state._cliOpen) : null;
   if (gOpen) gOpen.suivi = suiviClient(gOpen);
   const statutBadge = s => s==="Client"? `<span class="badge ok"><span class="dot"></span>Client</span>`
     : s==="Inactif"? `<span class="badge neutral"><span class="dot"></span>Inactif</span>`
+    : s==="Archivé"? `<span class="badge neutral" style="opacity:.65"><span class="dot"></span>🗄 Archivé</span>`
     : `<span class="badge"><span class="dot" style="background:var(--s1)"></span>Prospect</span>`;
   const clientDetailHTML = g => `<div class="row" style="margin:8px 0 10px">
           <div class="card" style="flex:1;min-width:300px">
@@ -3707,7 +3710,7 @@ function viewClients(root){
         `<button data-v="${v}" class="${fPM===v?"active":""}">${l}${v==="phy"? ` (${nPhy})` : v==="mor"? ` (${nMor})` : ""}</button>`).join("")}
     </div>
     <div class="seg" id="cli-fst" style="margin-bottom:8px">
-      ${[["","Tous"],["Client","Clients"],["Prospect","Prospects"],["Inactif","Inactifs"]].map(([v,l])=>
+      ${[["","Tous"],["Client","Clients"],["Prospect","Prospects"],["Inactif","Inactifs"],["Archivé","🗄 Archivés"]].map(([v,l])=>
         `<button data-v="${v}" class="${fSt===v?"active":""}">${l}${nParStatut[v]!==undefined? ` (${nParStatut[v]})`:" (0)"}</button>`).join("")}
     </div>
   </div>
@@ -6261,6 +6264,8 @@ function viewParam(root){
       ↩ Dernier import annulable : <b>${esc(j.type)}</b> du ${new Date(j.quand).toLocaleString("fr-FR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}
       — ${j.fiches.length} fiche(s) créée(s), ${j.majs.length} complétée(s), ${j.interactions.length} échange(s), ${j.actions.length} tâche(s).
       <button class="btn danger small" id="o2s-undo" style="margin-left:8px">Annuler cet import</button>
+      ${j.fiches.length? `<button class="btn secondary small" id="o2s-fiches" style="margin-left:6px">👁 Voir les ${j.fiches.length} fiche(s) créée(s)</button>`:""}
+      <div id="o2s-fiches-liste"></div>
       <span class="small muted" style="display:block;margin-top:2px">Possible tant qu'un nouvel import n'a pas été lancé — tout est remis exactement comme avant.</span>
     </div>` : ""; })()}
     <div class="modal-actions" style="justify-content:flex-start;margin-top:4px;display:none" id="o2s-actions">
@@ -6376,7 +6381,7 @@ function viewParam(root){
     const seuil = Date.now() - mois*30.44*86400000;
     const rows = [];
     for (const ci of state.clientsInfos){
-      if (ci.statut === "Inactif") continue;
+      if (ci.statut === "Inactif" || ci.statut === "Archivé") continue;
       const t = vraiContactT(ci.client_key);
       if (t === null) rows.push({ci, t:null, jours:null});
       else if (t < seuil) rows.push({ci, t, jours:Math.floor((Date.now()-t)/86400000)});
@@ -6440,6 +6445,54 @@ function viewParam(root){
     }catch(err){ toast("Lecture impossible : "+(err.message||err)); }
   });
   $("#o2s-cancel")?.addEventListener("click", ()=>{ state._o2s = null; render(); });
+  $("#o2s-fiches")?.addEventListener("click", ()=>{
+    const j = undoGet(); if (!j?.fiches?.length) return;
+    const box = $("#o2s-fiches-liste");
+    if (box.innerHTML){ box.innerHTML = ""; return; }
+    const rows = j.fiches.map(k=>{
+      const ci = state.clientsInfos.find(x=>x.client_key===k);
+      return ci? {k, ci, nIx: state.interactions.filter(i=>i.client_key===k).length} : null;
+    }).filter(Boolean).sort((a,b)=>(a.ci.nom||a.k).localeCompare(b.ci.nom||b.k, "fr"));
+    box.innerHTML = `
+      <p class="small muted" style="margin:8px 0 4px">Fiches créées par cet import — sans coordonnées ni référent (le client n'était pas dans le référentiel).
+        Si un nom ressemble à une fiche existante, c'est un doublon d'orthographe : ouvrez-la puis « Renommer / fusionner ». Les autres (ex-clients, contacts sortis) peuvent être archivées ici.</p>
+      <div class="tbl-scroll" style="max-height:300px"><table class="tbl dense"><tbody>
+        ${rows.map(r=>`<tr>
+          <td style="width:26px"><input type="checkbox" class="ofl-ck" data-key="${esc(r.k)}" checked style="width:auto"></td>
+          <td>${r.ci.morale? "🏢 ":""}<b>${esc(r.ci.nom||r.k)}</b></td>
+          <td>${esc(r.ci.statut||"Prospect")}</td>
+          <td class="small">${r.nIx} échange(s)</td>
+          <td><a href="#" class="ofl-open small" data-key="${esc(r.k)}">ouvrir la fiche</a></td>
+        </tr>`).join("")}
+      </tbody></table></div>
+      <div class="modal-actions" style="justify-content:flex-start;margin-top:8px">
+        <button class="btn small" id="ofl-arch">🗄 Archiver la sélection (<span id="ofl-n">${rows.length}</span>)</button>
+        <a href="#" id="ofl-all" class="small" style="align-self:center">tout cocher / décocher</a>
+      </div>`;
+    const majN = ()=>{ const el = $("#ofl-n"); if (el) el.textContent = box.querySelectorAll(".ofl-ck:checked").length; };
+    box.querySelectorAll(".ofl-ck").forEach(c=>c.addEventListener("change", majN));
+    box.querySelectorAll(".ofl-open").forEach(a=>a.addEventListener("click", e=>{
+      e.preventDefault(); state._cliOpen = a.dataset.key; state._cliSearch = ""; state._cliStatut = ""; go("clients");
+    }));
+    $("#ofl-all").addEventListener("click", e=>{
+      e.preventDefault();
+      const cks = [...box.querySelectorAll(".ofl-ck")];
+      const tous = cks.every(c=>c.checked);
+      cks.forEach(c=>{ c.checked = !tous; });
+      majN();
+    });
+    $("#ofl-arch").addEventListener("click", async ()=>{
+      const keys = [...box.querySelectorAll(".ofl-ck:checked")].map(c=>c.dataset.key);
+      if (!keys.length){ toast("Aucune fiche cochée"); return; }
+      if (!confirm(`Archiver ${keys.length} fiche(s) ?\nElles sortent de la liste clients et des alertes, restent consultables via l'onglet 🗄 Archivés, et sont réactivables à tout moment (statut → Client).`)) return;
+      try{
+        await state.db.setStatutBulk(keys, "Archivé");
+        await state.db.loadAll();
+        toast(`${keys.length} fiche(s) archivée(s) ✓`);
+        render();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+  });
   $("#o2s-undo")?.addEventListener("click", async ()=>{
     const j = undoGet(); if (!j) return;
     if (!confirm(`Annuler l'import « ${j.type} » ?\n— ${j.fiches.length} fiche(s) créée(s) seront supprimées\n— ${j.majs.length} fiche(s) retrouveront leurs valeurs d'avant\n— ${j.interactions.length} échange(s) et ${j.actions.length} tâche(s) seront supprimés`)) return;
