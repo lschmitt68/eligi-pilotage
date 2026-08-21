@@ -501,6 +501,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 const CFG = window.APP_CONFIG || {};
 const SUPPORTS = ["SCPI","Produit structuré","Audit / honoraires","Assurance / PER","Autre"];
 const ETAPES = ["Prise de contact","Découverte","Proposition envoyée","Négociation","Signature probable","Signé"];
+/* v58 : à l'écran, « Signé » se lit « Validé » — le client a donné son accord, la signature
+   effective du bulletin est une étape de la check-list back-office. Valeur interne inchangée. */
+const etapeAff = e => e==="Signé"? "Validé" : e;
 const PRIORITES = ["Haute","Moyenne","Basse"];
 const PROBAS = [0,0.25,0.5,0.75,1];
 const MIX_COLORS = ["var(--s1)","var(--s2)","var(--s3)","var(--s4)","var(--s5)"];
@@ -1740,7 +1743,7 @@ function signatureModal(op){
   const back = document.createElement("div");
   back.className = "modal-back";
   back.innerHTML = `<div class="modal" style="width:520px">
-    <h3>🎉 ${esc(cliAff(op.client)||"Affaire")} — signé !</h3>
+    <h3>🎉 ${esc(cliAff(op.client)||"Affaire")} — validé !</h3>
     <p class="small muted" style="margin:0 0 12px">Reporter cette signature dans la saisie hebdo de <b>${esc(consName(op.conseiller_id))}</b> ? (support : ${esc(op.support)})</p>
     <div class="form-grid">
       <label class="fld"><span>Semaine</span><select id="sg-week">${codes.map(w=>`<option ${w===defWeek?"selected":""}>${w}</option>`).join("")}</select></label>
@@ -2080,7 +2083,7 @@ function meetingMode(){
       <div class="card grow" style="min-width:min(420px,100%)"><h3 class="mt0">Son entonnoir</h3>${meetStagesHTML(c.id)}</div>
       <div class="card grow"><h3 class="mt0">Top affaires en cours</h3>
         ${top.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${top.map(x=>`<tr>
-          <td><b>${esc(cliAff(x.client))}</b></td><td class="small">${esc(x.support)}</td><td class="small">${esc(x.etape)}</td>
+          <td><b>${esc(cliAff(x.client))}</b></td><td class="small">${esc(x.support)}</td><td class="small">${esc(etapeAff(x.etape))}</td>
           <td class="num">${fmtPct(x.probabilite||0)}</td><td class="num"><b>${eur(pondere(x))}</b></td>
           <td>${x.signature_probable?'<span class="ksig">SIGNATURE ?</span>':""}</td></tr>`).join("")}</tbody></table></div>` : `<div class="empty">Aucune affaire en cours</div>`}
       </div>
@@ -2103,7 +2106,7 @@ function meetingMode(){
       </div>
       <div class="card grow"><h3 class="mt0">Plus grosses affaires en cours</h3>
         <div class="jr-wrap"><table class="tbl dense"><tbody>${top.map(x=>`<tr><td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
-          <td><b>${esc(cliAff(x.client))}</b></td><td class="small">${esc(x.etape)}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table></div>
+          <td><b>${esc(cliAff(x.client))}</b></td><td class="small">${esc(etapeAff(x.etape))}</td><td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table></div>
       </div>
       <div class="card grow"><h3 class="mt0">🔥 À relancer (affaires endormies)</h3>
         ${(()=>{ const st = aRelancer(state.pipeline).sort((a,b)=>pondere(b)-pondere(a)).slice(0,6);
@@ -2183,7 +2186,7 @@ function viewSaisie(root){
         ${numFld("sa-rdv","RDV réalisés", v.rdv)}
         <label class="fld"><span>Signatures (automatique)</span>
           <input type="text" value="${fmtNum.format(v.nb_signatures||0)}" disabled
-            title="Ce compteur s'alimente tout seul : passe une affaire en « Signé » dans les Affaires et confirme le report."></label>
+            title="Ce compteur s'alimente tout seul : passe une affaire en « Validé » dans les Affaires et confirme le report."></label>
         ${numFld("sa-cscpi","Collecte SCPI (€)", v.collecte_scpi)}
         <label class="fld"><span>CA SCPI (auto : 5 %)</span><input type="text" id="sa-cascpi" value="${eur2(v.ca_scpi)}" disabled></label>
         ${numFld("sa-cstru","Collecte structurés (€)", v.collecte_structures)}
@@ -2303,7 +2306,7 @@ function campagneCardHTML(camp, forCons){
         ${isManager()? `<button class="btn secondary small camp-edit" data-cid="${camp.id}">Modifier</button>`:""}</span></h3>
     <p class="small muted" style="margin:0 0 8px">Commercialisation jusqu'au <b>${new Date(String(camp.date_fin).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</b>${camp.description? ` — ${esc(camp.description)}`:""}</p>
     <div class="jr-wrap"><table class="tbl dense">
-      <thead><tr><th>Conseiller</th><th class="num">Objectif collecte</th><th class="num">Signé</th><th class="num">Pondéré</th><th style="min-width:90px"></th><th class="num">Atteint</th></tr></thead>
+      <thead><tr><th>Conseiller</th><th class="num">Objectif collecte</th><th class="num">Validé</th><th class="num">Pondéré</th><th style="min-width:90px"></th><th class="num">Atteint</th></tr></thead>
       <tbody>${cons.map(c=>{
         const s = campagneStats(camp, c.id);
         const taux = s.obj? s.signe/s.obj : 0;
@@ -2430,7 +2433,7 @@ function funnelHTML(consId){
       const n = st.reached[i];
       const conv = i? (st.reached[i-1]? n/st.reached[i-1] : 0) : 1;
       return `<div class="fun-row" data-fet="${esc(et)}">
-        <span class="fun-lab">${esc(et)}</span>
+        <span class="fun-lab">${esc(etapeAff(et))}</span>
         <div class="fun-bar"><div class="fun-fill" style="width:${Math.max(2, n/base*100)}%"></div></div>
         <span class="fun-n">${n}</span>
         <span class="fun-conv">${i? fmtPct(conv) : "—"}</span></div>`;
@@ -2439,7 +2442,7 @@ function funnelHTML(consId){
   </div>
   <div class="card grow" style="min-width:250px"><h3 class="mt0">⏱ Durée moyenne par étape</h3>
     <table class="tbl dense"><tbody>${ETAPES.slice(0,-1).map((et,i)=>`<tr>
-      <td>${esc(et)}</td>
+      <td>${esc(etapeAff(et))}</td>
       <td class="num"><b>${st.durees[i].n? Math.round(st.durees[i].tot/st.durees[i].n)+" j" : "—"}</b></td>
       <td class="num small muted">${st.durees[i].n} passage(s)</td></tr>`).join("")}</tbody></table>
     <p class="small muted" style="margin-bottom:0">Temps passé dans l'étape avant le mouvement suivant — repère les étapes qui traînent.</p>
@@ -2486,11 +2489,11 @@ function viewPipeline(root){
       ${campOpts.map(c=>{ const j = campagneJoursRestants(c);
         return `<option value="${c.id}" ${String(c.id)===fCamp?"selected":""}>🚀 ${esc(c.nom)}${j>=0? ` (J-${j})` : " (terminée)"}</option>`; }).join("")}</select></label>`:""}
     ${state._pipeView==="table"? `<label class="fld"><span>Étape</span><select id="pi-etape"><option value="">Toutes</option>
-      ${ETAPES.map(e=>`<option ${e===fEtape?"selected":""}>${e}</option>`).join("")}</select></label>`:""}
+      ${ETAPES.map(e=>`<option value="${e}" ${e===fEtape?"selected":""}>${etapeAff(e)}</option>`).join("")}</select></label>`:""}
     ${nRelance? `<button class="chip ${state._pipeStale?"warn":""}" id="pi-stale" style="margin-bottom:8px" title="Sans mouvement depuis ${STALE_JOURS} j ou closing dépassé">🔥 À relancer (${nRelance})</button>`:""}
     <span style="flex:1"></span>
     <div class="small muted" style="padding-bottom:8px">
-      <b>${rows.length}</b> affaire(s) · pondéré <b>${eur(pond)}</b> · dont signé <b>${eur(signe)}</b></div>
+      <b>${rows.length}</b> affaire(s) · pondéré <b>${eur(pond)}</b> · dont validé <b>${eur(signe)}</b></div>
   </div>
   ${fCamp? (()=>{ const cp = state.campagnes.find(c=>String(c.id)===fCamp);
     return cp? `<div class="row" style="margin-bottom:12px">${campagneCardHTML(cp, fCons? +fCons : null)}</div>` : ""; })() : ""}
@@ -2539,7 +2542,7 @@ function renderKanban(body, rows){
     const items = rows.filter(p=>p.etape===et).sort((a,b)=>pondere(b)-pondere(a));
     const tot = items.reduce((a,p)=>a+pondere(p),0);
     return `<div class="kcol" data-etape="${esc(et)}">
-      <div class="kcol-head"><b>${esc(et)}</b><span class="kcount">${items.length}</span><span class="ktotal">${eur(tot)}</span></div>
+      <div class="kcol-head"><b>${esc(etapeAff(et))}</b><span class="kcount">${items.length}</span><span class="ktotal">${eur(tot)}</span></div>
       <div class="kcol-cards">${items.map(kcardHTML).join("")}</div>
       <button class="kcol-add" data-addcol="${esc(et)}">+ ajouter ici</button>
     </div>`;}).join("")}</div>`;
@@ -2567,7 +2570,7 @@ function renderKanban(body, rows){
         const devientSigne = newEtape === "Signé" && (p.etape||"").toLowerCase() !== "signé";
         if (devientSigne) upd.probabilite = 1;
         await state.db.savePipeline(upd);
-        await state.db.loadAll(); toast(`${p.client||"Affaire"} → ${newEtape} ✓`); render();
+        await state.db.loadAll(); toast(`${p.client||"Affaire"} → ${etapeAff(newEtape)} ✓`); render();
         if (devientSigne){ signatureModal(upd); boDepuisSignature(upd); }
       }catch(err){ toast("Erreur : "+(err.message||err)); }
     });
@@ -2582,7 +2585,7 @@ function renderPipeTable(body, rows){
     <tbody>${rows.map(p=>`<tr>
       <td><span class="cdot" style="background:${consColor(p.conseiller_id)}"></span>${esc(consName(p.conseiller_id))}</td>
       <td><b>${esc(cliAff(p.client))}</b></td><td>${esc(p.support)}</td>
-      <td>${(p.etape||"").toLowerCase()==="signé" ? `<span class="badge ok"><span class="dot"></span>✓ Signé</span>` : esc(p.etape)}</td>
+      <td>${(p.etape||"").toLowerCase()==="signé" ? `<span class="badge ok"><span class="dot"></span>✓ Validé</span>` : esc(p.etape)}</td>
       <td class="num">${eur(p.collecte_potentielle)}</td><td class="num">${eur(p.ca_potentiel)}</td>
       <td class="num">${fmtPct(p.probabilite||0)}</td><td class="num"><b>${eur(pondere(p))}</b></td>
       <td>${p.closing_prevu? new Date(p.closing_prevu).toLocaleDateString("fr-FR") : "—"}</td>
@@ -2649,7 +2652,7 @@ function pipeModal(p, etapeInit){
       <label class="fld"><span>Support</span><select id="pm-support">${SUPPORTS.map(s=>`<option ${s===p.support?"selected":""}>${s}</option>`).join("")}</select></label>
       ${(campagnesActives().length || p.campagne_id)? `<label class="fld"><span>Campagne produit</span><select id="pm-camp"><option value="">—</option>
         ${[...new Map([...campagnesActives(), ...state.campagnes.filter(c=>c.id===p.campagne_id)].map(c=>[c.id,c])).values()].map(c=>`<option value="${c.id}" ${c.id===p.campagne_id?"selected":""}>${esc(c.nom)} (fin ${new Date(String(c.date_fin).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})})</option>`).join("")}</select></label>`:""}
-      <label class="fld"><span>Étape</span><select id="pm-etape">${ETAPES.map(e=>`<option ${e===p.etape?"selected":""}>${e}</option>`).join("")}</select></label>
+      <label class="fld"><span>Étape</span><select id="pm-etape">${ETAPES.map(e=>`<option value="${e}" ${e===p.etape?"selected":""}>${etapeAff(e)}</option>`).join("")}</select></label>
       <label class="fld"><span>Collecte potentielle (€)</span><input type="number" id="pm-coll" value="${p.collecte_potentielle||0}" min="0" step="any"></label>
       <label class="fld"><span>CA potentiel (€)</span><input type="number" id="pm-ca" value="${p.ca_potentiel||0}" min="0" step="any"></label>
       <label class="fld"><span>Probabilité</span><select id="pm-proba">${PROBAS.map(x=>`<option value="${x}" ${x===+p.probabilite?"selected":""}>${fmtPct(x)}</option>`).join("")}</select></label>
@@ -2883,9 +2886,9 @@ function viewProgression(root){
     const delta = crees28prec? ` <span class="${crees28>=crees28prec?"up":"down"}">${crees28>=crees28prec?"▲":"▼"} vs ${crees28prec} le mois d'avant</span>` : "";
     $("#prog-flux").innerHTML =
       tile("Nouvelles affaires (28 j)", fmtNum.format(crees28), `entrées ces 4 semaines${delta}`) +
-      tile("Signatures (28 j)", fmtNum.format(signes28), "passages en « Signé »") +
+      tile("Validations (28 j)", fmtNum.format(signes28), "passages en « Validé »") +
       tile("Dossiers en cours", fmtNum.format(enCours), `${aRelancer(state.pipeline).length} à relancer`) +
-      tile("Durée moyenne avant signature", dMoy!==null? `${dMoy} j` : "—", dMoy!==null? "de la création au « Signé »" : "statistique en cours de collecte");
+      tile("Durée moyenne avant validation", dMoy!==null? `${dMoy} j` : "—", dMoy!==null? "de la création au « Validé »" : "statistique en cours de collecte");
   })();
   $("#prog-export").addEventListener("click", exportXLSX);
   $("#prog-toggle").addEventListener("click", ()=>{
@@ -3073,7 +3076,7 @@ function viewJour(root){
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const opRow = (p, extra="") => `<tr class="clickable jr-op" data-id="${p.id}">
     ${mgr? `<td><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span></td>`:""}
-    <td><b>${esc(cliAff(p.client))}</b></td><td class="small">${esc(p.support)}</td><td class="small">${esc(p.etape)}</td>
+    <td><b>${esc(cliAff(p.client))}</b></td><td class="small">${esc(p.support)}</td><td class="small">${esc(etapeAff(p.etape))}</td>
     <td class="num"><b>${eur(pondere(p))}</b></td><td class="small">${extra}</td></tr>`;
 
   root.innerHTML = `
@@ -3251,7 +3254,7 @@ function briefClient(key){
       <div class="pd-sec"><h3>Dossiers en cours</h3>
         ${rows.length? `<table class="pd-tbl"><thead><tr><th>Support</th><th>Étape</th><th class="num">Potentiel</th><th class="num">Pondéré</th><th>Prochaine action</th></tr></thead>
         <tbody>${rows.sort((a,b)=>pondere(b)-pondere(a)).map(p=>`<tr>
-          <td>${esc(p.support)}</td><td>${esc(p.etape)}${isOverdue(p)? " ⏰": isStale(p)? " 💤":""}</td>
+          <td>${esc(p.support)}</td><td>${esc(etapeAff(p.etape))}${isOverdue(p)? " ⏰": isStale(p)? " 💤":""}</td>
           <td class="num">${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</td>
           <td class="num"><b>${eur(pondere(p))}</b></td><td>${esc(p.prochaine_action||"—")}</td></tr>`).join("")}</tbody></table>`
         : `<p class="pd-note">Aucune affaire pour l'instant.</p>`}</div>
@@ -3268,7 +3271,7 @@ function briefClient(key){
       <div class="pd-sec"><h3>Derniers événements</h3>
         ${suivi.length? `<table class="pd-tbl"><tbody>${suivi.map(ev=> ev.kind==="ix"
           ? `<tr><td>${IXI[ev.i.type]||"📝"}</td><td>${esc(ev.i.note)}</td><td>${esc(ev.i.auteur || (ev.i.conseiller_id? consName(ev.i.conseiller_id) : "Manager"))}</td><td class="num">${fdt(ev.t)}</td></tr>`
-          : `<tr><td>${ev.e.vers_etape==="Perdu"? "❌" : ev.e.de_etape? "🧭":"✨"}</td><td>${ev.e.de_etape? `${esc(ev.e.de_etape)} → ${esc(ev.e.vers_etape)}` : `Nouveau dossier — ${esc(ev.e.vers_etape)}`}${ev.e.raison? ` (${esc(ev.e.raison)})`:""}</td><td>${esc(consName(ev.e.conseiller_id))}</td><td class="num">${fdt(ev.t)}</td></tr>`).join("")}</tbody></table>`
+          : `<tr><td>${ev.e.vers_etape==="Perdu"? "❌" : ev.e.de_etape? "🧭":"✨"}</td><td>${ev.e.de_etape? `${esc(etapeAff(ev.e.de_etape))} → ${esc(etapeAff(ev.e.vers_etape))}` : `Nouveau dossier — ${esc(etapeAff(ev.e.vers_etape))}`}${ev.e.raison? ` (${esc(ev.e.raison)})`:""}</td><td>${esc(consName(ev.e.conseiller_id))}</td><td class="num">${fdt(ev.t)}</td></tr>`).join("")}</tbody></table>`
         : `<p class="pd-note">Aucun événement de suivi enregistré.</p>`}</div>
       ${lastProp? `<div class="pd-sec"><h3>Dernière proposition</h3>
         <p>${eur(+lastProp.data?.montant||0)} · profil ${esc(PROPO_PROFILS[(+lastProp.data?.profil||3)-1])} · ${esc(lastProp.mode)} — <b>${esc(lastProp.statut)}</b>
@@ -3694,7 +3697,7 @@ function viewClients(root){
               (rows.length? `<div class="tbl-scroll" style="margin-bottom:2px"><table class="tbl dense"><tbody>${rows.slice(0,4).map(p=>`
                 <tr class="clickable cli-op" data-id="${p.id}">
                   <td><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span>${esc(p.support)}</td>
-                  <td>${(p.etape||"").toLowerCase()==="signé"? `<span class="badge ok"><span class="dot"></span>✓ Signé</span>` : esc(p.etape)}</td>
+                  <td>${(p.etape||"").toLowerCase()==="signé"? `<span class="badge ok"><span class="dot"></span>✓ Validé</span>` : esc(p.etape)}</td>
                   <td class="num">${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</td>
                   <td class="num"><b>${eur(pondere(p))}</b></td>
                   <td class="small">${isOverdue(p)? "⏰ dépassé" : isStale(p)? `💤 ${staleDays(p)} j` : esc(String(p.prochaine_action||"").slice(0,24))}</td>
@@ -3784,7 +3787,7 @@ function viewClients(root){
                 <input type="checkbox" class="ix-ac-done" data-id="${ev.a.id}" ${ev.a.fait?"checked":""} style="width:auto;flex:none" title="Fait">
               </div>` : `
               <div class="tl-item tl-lien tl-pipe" data-cli="${esc(ev.e.client||"")}" title="Voir dans les Affaires"><span class="tl-ico">${ev.e.vers_etape==="Perdu"? "❌" : ev.e.de_etape? "🧭":"✨"}</span>
-                <div class="tl-body"><span>${ev.e.de_etape? `${esc(ev.e.de_etape)} → <b>${esc(ev.e.vers_etape)}</b>` : `Nouveau dossier — <b>${esc(ev.e.vers_etape)}</b>`}${ev.e.raison? ` <span class="small muted">(${esc(ev.e.raison)})</span>`:""}</span>
+                <div class="tl-body"><span>${ev.e.de_etape? `${esc(etapeAff(ev.e.de_etape))} → <b>${esc(etapeAff(ev.e.vers_etape))}</b>` : `Nouveau dossier — <b>${esc(etapeAff(ev.e.vers_etape))}</b>`}${ev.e.raison? ` <span class="small muted">(${esc(ev.e.raison)})</span>`:""}</span>
                   <div class="tl-meta">Affaire · ${esc(consName(ev.e.conseiller_id))} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
               </div>`).join("") || `<div class="empty">Aucun événement pour l'instant — ajoute un appel, un RDV ou une note ci-dessus</div>`}</div>
           </div>
@@ -3803,7 +3806,7 @@ function viewClients(root){
     <button class="btn secondary" id="cli-new">＋ Nouveau client</button>`)}
   <div class="tiles" style="margin-bottom:14px">
     ${tile("Pondéré", eur(gOpen.pond), `${gOpen.rows.length} dossier(s)${gOpen.relance? " · "+gOpen.relance+" à relancer" : ""}`)}
-    ${tile("Dont signé", eur(gOpen.signe))}
+    ${tile("Dont validé", eur(gOpen.signe))}
     ${tile("Collecte potentielle", eur(gOpen.coll))}
     ${gOpen.info.encours != null && gOpen.info.encours !== ""? tile("Encours O2S", eur(+gOpen.info.encours), gOpen.info.encours_maj? "au "+new Date(String(gOpen.info.encours_maj).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR") : "") : ""}
     ${tile("Dernier contact", dj===null? "—" : dj===0? "aujourd'hui" : "il y a "+dj+" j",
@@ -3832,7 +3835,7 @@ function viewClients(root){
   </div>
   <div class="card tbl-scroll"><table class="tbl">
     <thead><tr><th>Client</th><th>Statut</th><th>Conseiller(s)</th><th class="num">Dossiers</th>
-    <th class="num">Collecte pot.</th><th class="num">Pondéré</th><th class="num">Dont signé</th><th>À relancer</th></tr></thead>
+    <th class="num">Collecte pot.</th><th class="num">Pondéré</th><th class="num">Dont validé</th><th>À relancer</th></tr></thead>
     <tbody>${list.map((g,i)=>`
       <tr class="clickable cli-row" data-key="${esc(g.key)}" title="Ouvrir la fiche client">
         <td>${g.info.morale? `<span title="Personne morale">🏢</span> `:""}<b>${esc(g.disp)}</b></td>
@@ -7096,10 +7099,10 @@ function rmConsPageHTML(c, m){
         <tr class="total"><td><b>Total</b></td><td class="num"><b>${eur(w.collecte_totale)}</b></td><td class="num"><b>${eur(w.ca_total)}</b></td></tr>
       </tbody></table></div>
     <div class="pd-sec"><h3>Affaires</h3>
-      <p>Mouvements du mois : <b>${crees}</b> dossier(s) créé(s) · <b>${signes}</b> passé(s) en Signé · <b>${perdus.length}</b> perdu(s)${perdus.length? ` (${[...new Set(perdus.map(e=>e.raison).filter(Boolean))].map(esc).join(", ")||"sans raison saisie"})`:""}.<br>
-      État à date : <b>${pa.count}</b> dossier(s) actif(s) · pondéré <b>${eur(pa.pond)}</b> · dont signé <b>${eur(pa.signe)}</b>.</p></div>
+      <p>Mouvements du mois : <b>${crees}</b> dossier(s) créé(s) · <b>${signes}</b> passé(s) en Validé · <b>${perdus.length}</b> perdu(s)${perdus.length? ` (${[...new Set(perdus.map(e=>e.raison).filter(Boolean))].map(esc).join(", ")||"sans raison saisie"})`:""}.<br>
+      État à date : <b>${pa.count}</b> dossier(s) actif(s) · pondéré <b>${eur(pa.pond)}</b> · dont validé <b>${eur(pa.signe)}</b>.</p></div>
     ${camps.length? `<div class="pd-sec"><h3>Campagnes produit en cours</h3>
-      <table class="pd-tbl"><thead><tr><th>Campagne</th><th class="num">Objectif</th><th class="num">Signé</th><th class="num">Pondéré</th><th class="num">Atteinte</th></tr></thead>
+      <table class="pd-tbl"><thead><tr><th>Campagne</th><th class="num">Objectif</th><th class="num">Validé</th><th class="num">Pondéré</th><th class="num">Atteinte</th></tr></thead>
       <tbody>${camps.map(({cp,st})=>`<tr><td>${esc(cp.nom)} <span class="pd-note">(fin ${new Date(cp.date_fin+"T00:00:00").toLocaleDateString("fr-FR")})</span></td>
         <td class="num">${eur(st.obj)}</td><td class="num">${eur(st.signe)}</td><td class="num">${eur(st.pond)}</td><td class="num">${rmPct(st.signe,st.obj)}</td></tr>`).join("")}</tbody></table></div>`:""}
     ${mis.length? `<div class="pd-sec"><h3>Missions de conseil — état à date</h3>
