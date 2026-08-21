@@ -1006,6 +1006,12 @@ class SupaDB {
     const {error} = await this.c.from("clients_infos").upsert(row, {onConflict:"client_key"});
     if (error) throw error;
   }
+  async setStatutBulk(keys, statut){ /* v50 */
+    for (let i=0; i<keys.length; i+=200){
+      const {error} = await this.c.from("clients_infos").update({statut, maj_le:new Date().toISOString()}).in("client_key", keys.slice(i, i+200));
+      if (error) throw error;
+    }
+  }
   async deleteClientFiche(key){
     let r = await this.c.from("interactions").delete().eq("client_key", key);
     if (r.error) throw r.error;
@@ -1262,6 +1268,10 @@ class DemoDB {
     if (info.encours_maj !== undefined) row.encours_maj = info.encours_maj || null;
     if (i>=0) Object.assign(this.clientsInfos[i], row);
     else this.clientsInfos.push({id:this._id++, ...row});
+  }
+  async setStatutBulk(keys, statut){ /* v50 */
+    const set = new Set(keys);
+    for (const ci of this.clientsInfos) if (set.has(ci.client_key)){ ci.statut = statut; ci.maj_le = new Date().toISOString(); }
   }
   async deleteClientFiche(key){
     this.interactions = this.interactions.filter(x=>x.client_key!==key);
@@ -4990,6 +5000,18 @@ function dernierContactT(key){
   return t;
 }
 function contactJours(key){ const t = dernierContactT(key); return t? Math.floor((Date.now()-t)/86400000) : null; }
+function vraiContactT(key){ /* v50 : comme dernierContactT mais SANS le repli « fiche mise à jour » — pour détecter les dormants même après un import */
+  let t = 0;
+  for (const i of state.interactions) if (i.client_key===key) t = Math.max(t, new Date(i.quand||0).getTime());
+  for (const p of state.pipeline) if (normName(p.client||"")===key) t = Math.max(t, new Date(p.updated_at||p.created_at||0).getTime());
+  for (const m of state.missions) if (m.client_key===key){
+    t = Math.max(t, new Date(m.created_at||0).getTime());
+    for (const j of (m.journal||[])) t = Math.max(t, new Date(j.q||0).getTime());
+  }
+  const ci = state.clientsInfos.find(x=>x.client_key===key);
+  if (ci?.derniere_revue) t = Math.max(t, new Date(ci.derniere_revue+"T12:00:00").getTime());
+  return t || null;
+}
 function sansContact(){
   const seuil = contactAlerteJ();
   return state.clientsInfos.filter(ci=>ci.statut==="Client")
@@ -6184,6 +6206,19 @@ function viewParam(root){
     </div>
   </div>
 
+  <div class="sect sect-head"><h2>Clients dormants</h2>
+    <span class="sub">après un gros import : passer en « Inactif » les fiches sans signe de vie depuis longtemps — elles sortent des alertes 💤 mais restent consultables</span></div>
+  <div class="card" id="dorm-card">
+    <p class="small muted" style="margin-top:0">L'alerte « sans contact » du cockpit ne surveille que le statut <b>Client</b> : reclasser les dormants en Inactif rend ces alertes de nouveau lisibles.
+      Le scan s'appuie sur les vrais signes de vie (échanges, pipeline, missions, revue annuelle) — pas sur la date de mise à jour de la fiche. Réversible fiche par fiche (statut → Client).</p>
+    <div class="inline-controls">
+      <label class="fld" style="max-width:240px"><span>Sans aucun signe de vie depuis plus de</span>
+        <select id="dorm-mois">${[12,18,24,36,48,60].map(m=>`<option value="${m}" ${m===24?"selected":""}>${m} mois</option>`).join("")}</select></label>
+      <button class="btn secondary" id="dorm-scan" style="margin-bottom:9px">Voir les fiches concernées</button>
+    </div>
+    <div id="dorm-liste"></div>
+  </div>
+
   <div class="sect sect-head"><h2>Import O2S</h2>
     <span class="sub">reprise du référentiel clients (requête « Analyse ») et des fiches de suivi — dédoublonné et réimportable sans risque</span></div>
   <div class="card" id="o2s-card">
@@ -6303,6 +6338,59 @@ function viewParam(root){
   });
   $("#bkp-json")?.addEventListener("click", backupJSON);
   $("#bkp-xlsx")?.addEventListener("click", backupXLSX);
+  /* ---- v50 : reclassement des clients dormants ---- */
+  $("#dorm-scan")?.addEventListener("click", ()=>{
+    const mois = +$("#dorm-mois").value;
+    const seuil = Date.now() - mois*30.44*86400000;
+    const rows = [];
+    for (const ci of state.clientsInfos){
+      if (ci.statut === "Inactif") continue;
+      const t = vraiContactT(ci.client_key);
+      if (t === null) rows.push({ci, t:null, jours:null});
+      else if (t < seuil) rows.push({ci, t, jours:Math.floor((Date.now()-t)/86400000)});
+    }
+    rows.sort((a,b)=> (a.t===null) - (b.t===null) || (a.t||0) - (b.t||0));
+    const box = $("#dorm-liste");
+    if (!rows.length){ box.innerHTML = `<div class="empty">Aucune fiche Client ou Prospect sans signe de vie depuis plus de ${mois} mois — rien à reclasser 👍</div>`; return; }
+    const nNull = rows.filter(r=>r.t===null).length;
+    box.innerHTML = `
+      <div class="helpbox" style="margin:4px 0">
+        <b>${rows.length} fiche(s)</b> sans signe de vie depuis plus de ${mois} mois${nNull? `, dont <b>${nNull}</b> sans aucun échange enregistré (⚠️ décochez celles créées récemment à la main)`:""}.
+        <a href="#" id="dorm-all" class="small" style="margin-left:8px">tout cocher / décocher</a>
+      </div>
+      <div class="tbl-scroll" style="max-height:320px"><table class="tbl dense"><tbody>
+        ${rows.map(r=>`<tr>
+          <td style="width:26px"><input type="checkbox" class="dorm-ck" data-key="${esc(r.ci.client_key)}" checked style="width:auto"></td>
+          <td>${r.ci.morale? "🏢 ":""}<b>${esc(r.ci.nom||r.ci.client_key)}</b></td>
+          <td>${esc(r.ci.statut||"Prospect")}</td>
+          <td class="small">${r.t===null? `<span class="muted">aucun échange enregistré</span>` : `dernier signe : ${new Date(r.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})} (${Math.round(r.jours/30.44)} mois)`}</td>
+          <td class="small">${r.ci.conseiller_id? esc(consName(r.ci.conseiller_id)) : ""}</td>
+        </tr>`).join("")}
+      </tbody></table></div>
+      <div class="modal-actions" style="justify-content:flex-start;margin-top:8px">
+        <button class="btn danger" id="dorm-go">Passer <span id="dorm-n">${rows.length}</span> fiche(s) en Inactif</button>
+      </div>`;
+    const majN = ()=>{ const el = $("#dorm-n"); if (el) el.textContent = box.querySelectorAll(".dorm-ck:checked").length; };
+    box.querySelectorAll(".dorm-ck").forEach(c=>c.addEventListener("change", majN));
+    $("#dorm-all").addEventListener("click", e=>{
+      e.preventDefault();
+      const cks = [...box.querySelectorAll(".dorm-ck")];
+      const tous = cks.every(c=>c.checked);
+      cks.forEach(c=>{ c.checked = !tous; });
+      majN();
+    });
+    $("#dorm-go").addEventListener("click", async ()=>{
+      const keys = [...box.querySelectorAll(".dorm-ck:checked")].map(c=>c.dataset.key);
+      if (!keys.length){ toast("Aucune fiche cochée"); return; }
+      if (!confirm(`Passer ${keys.length} fiche(s) en statut Inactif ?\n(réversible fiche par fiche — statut → Client)`)) return;
+      try{
+        await state.db.setStatutBulk(keys, "Inactif");
+        await state.db.loadAll();
+        toast(`${keys.length} fiche(s) passée(s) en Inactif ✓`);
+        render();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+  });
   $("#o2s-file")?.addEventListener("change", async e=>{
     const f = e.target.files[0]; if (!f) return;
     if (!window.XLSX){ toast("Librairie Excel non chargée — réessaie une fois la page rechargée en ligne"); return; }
