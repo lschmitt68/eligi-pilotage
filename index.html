@@ -210,6 +210,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 
 /* ============ Kanban ============ */
 .kanban{display:grid; grid-auto-flow:column; grid-auto-columns:minmax(215px,1fr); gap:10px; overflow-x:auto; padding-bottom:8px; align-items:start}
+.mi-arch-btn{border:none; background:none; cursor:pointer; opacity:0; font-size:12px; padding:0 2px; transition:opacity .15s}
+.kcard:hover .mi-arch-btn{opacity:.65}
+.mi-arch-btn:hover{opacity:1 !important}
 .kcol{background:color-mix(in srgb, var(--surface-2) 60%, transparent); border:1px solid var(--border); border-radius:12px; padding:9px; min-height:120px}
 .kcol.dragover{outline:2px dashed var(--s1); outline-offset:-2px}
 .kcol-head{display:flex; align-items:baseline; gap:7px; padding:2px 5px 8px}
@@ -839,7 +842,9 @@ class SupaDB {
     const cx = await this.c.from("connexions").select("*").order("id", {ascending:false}).limit(400);
     state.connexions = cx.error? [] : (cx.data||[]);   // tolérant : le journal ne bloque jamais l'appli
     const mi = await this.c.from("missions").select("*").order("id", {ascending:false});
-    state.missions = mi.error? [] : (mi.data||[]).map(m=>({...m, statut: miStNorm(m.statut)}));     // tolérant tant que la migration v15 n'est pas passée
+    const misTous = mi.error? [] : (mi.data||[]).map(m=>({...m, statut: miStNorm(m.statut)}));     // tolérant tant que la migration v15 n'est pas passée
+    state.missionsArch = misTous.filter(m=>m.archive);      /* v56 : les archivées sortent de tous les écrans */
+    state.missions = misTous.filter(m=>!m.archive);
     const cg = await this.c.from("campagnes").select("*").order("date_fin");
     state.campagnes = cg.error? [] : (cg.data||[]);    // tolérant tant que la migration v22 n'est pas passée
     const op = await this.c.from("operations").select("*").order("id", {ascending:false});
@@ -880,6 +885,11 @@ class SupaDB {
   }
   async renameMissionStatut(old, nv){ /* v55 */
     const {error} = await this.c.from("missions").update({statut:nv}).eq("statut", old);
+    if (error) throw error;
+  }
+  async archiverMission(id, flag){ /* v56 */
+    const {error} = await this.c.from("missions").update({archive:!!flag}).eq("id", id);
+    if (error && /archive/.test(error.message||"")) throw new Error("Archivage pas encore activé sur la base (migration v56 en attente) — réessaie un peu plus tard");
     if (error) throw error;
   }
   _opRow(o){
@@ -1175,7 +1185,9 @@ class DemoDB {
     state.propositions = (this.propositions||[]).filter(p=>this._mine(p.conseiller_id)).map(p=>({...p}));
     state.paramsCabinet = this.paramsCabinet || {};
     state.connexions = (this.connexions||[]).filter(cx=>isManager() || cx.email===state.profile?.email).map(c=>({...c}));
-    state.missions = (this.missions||[]).map(m=>({...m, statut: miStNorm(m.statut), etapes:(m.etapes||[]).map(e=>({...e})), journal:(m.journal||[]).map(j=>({...j}))}));
+    const misTous = (this.missions||[]).map(m=>({...m, statut: miStNorm(m.statut), etapes:(m.etapes||[]).map(e=>({...e})), journal:(m.journal||[]).map(j=>({...j}))}));
+    state.missionsArch = misTous.filter(m=>m.archive);
+    state.missions = misTous.filter(m=>!m.archive);
     state.campagnes = (this.campagnes||[]).map(c=>({...c, objectifs:{...(c.objectifs||{})}}));
     state.operations = (this.operations||[]).map(o=>({...o, etapes:(o.etapes||[]).map(e=>({...e})), journal:(o.journal||[]).map(j=>({...j}))}));
   }
@@ -1201,6 +1213,10 @@ class DemoDB {
   }
   async renameMissionStatut(old, nv){ /* v55 */
     for (const m of this.missions) if (m.statut===old) m.statut = nv;
+  }
+  async archiverMission(id, flag){ /* v56 */
+    const m = this.missions.find(x=>x.id===id);
+    if (m) m.archive = !!flag;
   }
   async deleteMission(id){
     const i = this.missions.findIndex(x=>x.id===id);
@@ -5187,6 +5203,7 @@ function miCardHTML(m){
   return `<div class="kcard mi-card" data-mid="${m.id}" draggable="true" title="Cliquer pour ouvrir — glisser pour changer de statut">
     <div class="kclient"><span class="cdot" style="background:${consColor(m.conseiller_id)}" title="${esc(consName(m.conseiller_id))}"></span>
       <span class="kc-name">${esc(miClientNom(m.client_key))}</span>
+      <button class="mi-arch-btn" data-mid="${m.id}" title="Archiver — la carte disparaît du tableau (récupérable via le filtre 🗄 Archivées)">🗄</button>
       ${pr.total? `<span class="kpond">${pr.done}/${pr.total}</span>`:""}</div>
     <div class="kmeta"><span class="tag">${esc(m.type||"Mission")}</span>${m.titre && m.titre!==miClientNom(m.client_key)? ` <span class="small">${esc(m.titre)}</span>`:""}</div>
     <div class="kmeta" style="margin-top:4px">${miEcheanceHTML(m)}${+m.hono_facture? ` <span class="small muted">${eur(m.hono_facture)} facturés</span>`:""}</div>
@@ -5223,6 +5240,7 @@ function viewMissions(root){
     ${voitTout()? `<label class="fld"><span>Conseiller</span><select id="mi-cons"><option value="">Tous</option>
       ${activeConseillers().map(c=>`<option value="${c.id}" ${String(c.id)===String(fCons)?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`:""}
     ${nSuivre? `<button class="chip ${state._miSuivre?"warn":""}" id="mi-suivre" style="margin-bottom:8px" title="Échéance dépassée ou pas de prochaine échéance">⚠ À suivre (${nSuivre})</button>`:""}
+    ${(state.missionsArch||[]).length? `<button class="chip ${state._miArch?"warn":""}" id="mi-arch-toggle" style="margin-bottom:8px" title="Missions archivées — hors du tableau et des compteurs">🗄 Archivées (${(state.missionsArch||[]).length})</button>`:""}
     <span style="flex:1"></span>
     <div class="small muted" style="padding-bottom:8px">
       <b>${ouvertes.length}</b> mission(s) ouvertes · honoraires attendus <b>${eur(attendu)}</b> <span title="somme des devis des missions non terminées">(devis)</span> · facturé <b>${eur(fact)}</b> · encaissé <b>${eur(enc)}</b></div>
@@ -5230,6 +5248,31 @@ function viewMissions(root){
   <div id="mi-body"></div>`;
 
   const body = $("#mi-body");
+  if (state._miArch && !(state.missionsArch||[]).length) state._miArch = false;   /* plus rien d'archivé → retour au tableau */
+  if (state._miArch){ /* v56 : consultation des archivées */
+    const arch = [...(state.missionsArch||[])].sort((a,b)=>String(b.updated_at||"").localeCompare(String(a.updated_at||"")));
+    body.innerHTML = `<div class="card tbl-scroll"><table class="tbl dense">
+      <thead><tr><th>Client</th><th>Mission</th><th>Statut</th><th class="num">Facturé</th><th></th></tr></thead>
+      <tbody>${arch.map(m=>`<tr>
+        <td><b>${esc(miClientNom(m.client_key))}</b></td>
+        <td style="white-space:normal">${esc(m.titre||m.type)}</td>
+        <td class="small">${esc(m.statut)}</td>
+        <td class="num">${eur(m.hono_facture)}</td>
+        <td><button class="btn secondary small mi-desarch" data-mid="${m.id}">↩ Désarchiver</button></td>
+      </tr>`).join("") || `<tr><td colspan="5" class="empty">Aucune mission archivée</td></tr>`}</tbody></table></div>
+      <p class="small muted">Une mission désarchivée revient dans sa colonne d'origine.</p>`;
+    body.querySelectorAll(".mi-desarch").forEach(b=>b.addEventListener("click", async ()=>{
+      try{
+        await state.db.archiverMission(+b.dataset.mid, false);
+        await state.db.loadAll();
+        toast("Mission désarchivée ✓ — de retour dans le tableau"); render();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+    }));
+    $("#mi-arch-toggle")?.addEventListener("click", ()=>{ state._miArch = false; viewMissions(root); });
+    $("#mi-seg")?.querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{ state._miArch = false; state._miView = b.dataset.v; viewMissions(root); }));
+    $("#mi-add")?.addEventListener("click", ()=>missionModal(null));
+    return;
+  }
   if (state._miView === "kanban"){
     const cols = miStatuts();
     const orphelines = rows.filter(m=>!cols.includes(m.statut));
@@ -5244,6 +5287,16 @@ function viewMissions(root){
         <div class="kcol-head"><b style="color:var(--warn)">⚠ À reclasser</b><span class="kcount">${orphelines.length}</span></div>
         <div class="kcol-cards">${orphelines.map(miCardHTML).join("")}</div>
       </div>`:""}</div>`;
+    body.querySelectorAll(".mi-arch-btn").forEach(b=>b.addEventListener("click", async e=>{
+      e.stopPropagation();
+      const m = state.missions.find(x=>x.id===+b.dataset.mid);
+      if (!m || !confirm(`Archiver « ${m.titre||m.type} » (${miClientNom(m.client_key)}) ?\nLa carte disparaît du tableau et des cockpits — récupérable via le filtre 🗄 Archivées.`)) return;
+      try{
+        await state.db.archiverMission(m.id, true);
+        await state.db.loadAll();
+        toast("Mission archivée 🗄"); render();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+    }));
     body.querySelectorAll(".mi-card").forEach(card=>{
       card.addEventListener("click", ()=>missionModal(state.missions.find(m=>m.id===+card.dataset.mid)));
       card.addEventListener("dragstart", e=>{ e.dataTransfer.setData("text/plain", card.dataset.mid); e.dataTransfer.effectAllowed="move"; card.classList.add("dragging"); });
@@ -5289,6 +5342,7 @@ function viewMissions(root){
   $("#mi-seg").querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{ state._miView = b.dataset.v; render(); }));
   $("#mi-add").addEventListener("click", ()=>missionModal(null));
   $("#mi-suivre")?.addEventListener("click", ()=>{ state._miSuivre = !state._miSuivre; render(); });
+  $("#mi-arch-toggle")?.addEventListener("click", ()=>{ state._miArch = !state._miArch; render(); });
   $("#mi-search").addEventListener("input", e=>{ state._miSearch = e.target.value; viewMissions(root); relanceFocus(root, "#mi-search"); });
   $("#mi-type").addEventListener("change", e=>{ state._miType = e.target.value; render(); });
   $("#mi-cons")?.addEventListener("change", e=>{ state._miCons = e.target.value; render(); });
@@ -5357,6 +5411,7 @@ function missionModal(m, opts={}){
       </div>
     </div>
     <div class="modal-actions">
+      ${!isNew? `<button class="btn secondary" id="mi-archiver" style="${isManager()? "":"margin-right:auto"}" title="La mission disparaît du tableau et des cockpits — récupérable via le filtre 🗄 Archivées">🗄 Archiver</button>`:""}
       ${!isNew && isManager()? `<button class="btn danger" id="mi-del" style="margin-right:auto">Supprimer</button>`:""}
       <button class="btn secondary" id="mi-cancel">Annuler</button>
       <button class="btn" id="mi-save">Enregistrer</button>
@@ -5406,6 +5461,14 @@ function missionModal(m, opts={}){
     back.querySelector("#mi-addnote").addEventListener("click", addNote);
     back.querySelector("#mi-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
     back.querySelector("#mi-statut").addEventListener("change", ()=>{ readForm(); renderModal(); });
+    back.querySelector("#mi-archiver")?.addEventListener("click", async ()=>{
+      if (!confirm(`Archiver cette mission ?\nElle disparaît du tableau et des cockpits — récupérable via le filtre 🗄 Archivées de la vue Missions.`)) return;
+      try{
+        await state.db.archiverMission(m.id, true);
+        back.remove(); await state.db.loadAll();
+        toast("Mission archivée 🗄"); render();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
     back.querySelector("#mi-del")?.addEventListener("click", async ()=>{
       if (!confirm("Supprimer définitivement cette mission et son historique ?")) return;
       try{ await state.db.deleteMission(m.id); back.remove(); await state.db.loadAll(); toast("Mission supprimée"); render(); }
