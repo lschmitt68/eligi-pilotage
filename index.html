@@ -2591,7 +2591,10 @@ function pipeModal(p, etapeInit){
         ${activeConseillers().map(c=>`<option value="${c.id}" ${c.id===p.conseiller_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`
         : `<label class="fld"><span>Conseiller</span><input type="text" value="${esc(consName(p.conseiller_id))}" disabled></label>`}
       <label class="fld"><span>Client</span><input type="text" id="pm-client" value="${esc(p.client)}" list="pm-clients-list" autocomplete="off">
-        <datalist id="pm-clients-list">${[...new Map(state.pipeline.map(x=>[normName(x.client), (x.client||"").trim()])).values()].filter(Boolean).sort((a,b)=>a.localeCompare(b,"fr")).map(nm=>`<option value="${esc(nm)}">`).join("")}</datalist></label>
+        <datalist id="pm-clients-list">${[...new Map([
+          ...state.clientsInfos.map(ci=>[ci.client_key, (ci.nom||ci.client_key).trim()]),   /* v50.2 : toutes les fiches clients, pas seulement celles ayant déjà un dossier */
+          ...state.pipeline.map(x=>[normName(x.client), (x.client||"").trim()])
+        ]).values()].filter(Boolean).sort((a,b)=>a.localeCompare(b,"fr")).map(nm=>`<option value="${esc(nm)}">`).join("")}</datalist></label>
       <label class="fld"><span>Support</span><select id="pm-support">${SUPPORTS.map(s=>`<option ${s===p.support?"selected":""}>${s}</option>`).join("")}</select></label>
       ${(campagnesActives().length || p.campagne_id)? `<label class="fld"><span>Campagne produit</span><select id="pm-camp"><option value="">—</option>
         ${[...new Map([...campagnesActives(), ...state.campagnes.filter(c=>c.id===p.campagne_id)].map(c=>[c.id,c])).values()].map(c=>`<option value="${c.id}" ${c.id===p.campagne_id?"selected":""}>${esc(c.nom)} (fin ${new Date(String(c.date_fin).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})})</option>`).join("")}</select></label>`:""}
