@@ -2897,6 +2897,7 @@ function viewJourIngenieur(root){
   const bo = state.operations.filter(o=>o.statut!=="Terminé")
     .sort((a,b)=>String(a.echeance||"9999").localeCompare(String(b.echeance||"9999")));
   const aEncaisser = state.missions.reduce((a,m)=>a+Math.max(0, (+m.hono_facture||0)-(+m.hono_encaisse||0)), 0);
+  const aFact = missionsAFacturer();   /* v54 */
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const miRow = m => `<tr class="clickable ji-mi" data-mid="${m.id}">
     <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
@@ -2907,9 +2908,15 @@ function viewJourIngenieur(root){
     ${tile("Missions en cours", ouvertes.length)}
     ${tile("Échéances dépassées", retard.length, retard.length? "à traiter en priorité" : "rien en retard ✓")}
     ${tile("Échéances sous 14 jours", proches.length)}
+    ${tile("💶 À facturer", aFact.length, aFact.length? "livrées, en attente de facture" : "rien en attente ✓")}
     ${tile("À encaisser", eur(aEncaisser), "honoraires facturés non encaissés")}
     ${tile("Back-office ouvert", bo.length, "opérations sur contrats")}
   </div>
+  ${aFact.length? `<div class="card sect" style="margin-top:10px">
+    <h3 class="mt0">💶 Missions livrées — à facturer</h3>
+    <div class="jr-wrap"><table class="tbl dense"><tbody>${aFact.slice(0,8).map(miRow).join("")}</tbody></table></div>
+    <p class="small muted" style="margin-bottom:0">Visible aussi sur l'« Aujourd'hui » de la facturation et du manager — la facture saisie, la mission sort de la liste.</p>
+  </div>`:""}
   <div class="row sect">
     <div class="card grow">
       <h3 class="mt0">⏰ Échéances dépassées ou absentes</h3>
@@ -2936,9 +2943,56 @@ function viewJourIngenieur(root){
   root.querySelectorAll(".ji-bo").forEach(r=>r.addEventListener("click", ()=>{ const o = state.operations.find(x=>x.id===+r.dataset.oid); if (o) boModal(o); }));
 }
 
+function viewJourSuivi(root){ /* v54 : l'aujourd'hui de la facturation et du back-office */
+  const aFact = missionsAFacturer();
+  const mtFact = aFact.reduce((a,m)=>a+(+m.hono_devis||0), 0);
+  const aEncaisser = state.missions.reduce((a,m)=>a+Math.max(0, (+m.hono_facture||0)-(+m.hono_encaisse||0)), 0);
+  const today = new Date().toISOString().slice(0,10);
+  const bo = state.operations.filter(o=>o.statut!=="Terminé")
+    .sort((a,b)=>String(a.echeance||"9999").localeCompare(String(b.echeance||"9999")));
+  const boUrgent = bo.filter(o=>o.statut==="À faire" || o.statut==="Relance" || (o.echeance && String(o.echeance).slice(0,10) < today));
+  const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
+  root.innerHTML = `
+  ${vhead("Aujourd'hui", dateStr.charAt(0).toUpperCase()+dateStr.slice(1), "")}
+  <div class="tiles">
+    ${tile("💶 Missions à facturer", aFact.length, aFact.length? (mtFact? eur(mtFact)+" au devis" : "montants au devis à vérifier") : "rien en attente ✓")}
+    ${tile("À encaisser", eur(aEncaisser), "facturé non encaissé")}
+    ${tile("Back-office à traiter", boUrgent.length, "à faire, relances, échéances dépassées")}
+    ${tile("Back-office ouvert", bo.length)}
+  </div>
+  <div class="row sect">
+    <div class="card grow" id="js-afact">
+      <h3 class="mt0">💶 Missions livrées — à facturer</h3>
+      ${aFact.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${aFact.slice(0,10).map(m=>`
+        <tr class="clickable js-mi" data-mid="${m.id}">
+          <td><b>${esc(miClientNom(m.client_key))}</b></td>
+          <td class="small">${esc(m.titre||m.type)}</td>
+          <td class="num">${+m.hono_devis? eur(m.hono_devis) : `<span class="muted small">devis ?</span>`}</td>
+          <td class="num small muted">${m.livree_le? "livrée le "+new Date(m.livree_le+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}) : ""}</td>
+        </tr>`).join("")}</tbody></table></div>
+        <p class="small muted" style="margin-bottom:0">Clique sur la mission, saisis le montant <b>facturé</b> — elle sort de cette liste. Encaissée et terminée ? statut → Close.</p>`
+      : `<div class="empty">Aucune mission en attente de facturation ✓</div>`}
+    </div>
+    <div class="card grow" id="js-bo">
+      <h3 class="mt0">📥 Back-office à traiter</h3>
+      ${boUrgent.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${boUrgent.slice(0,10).map(o=>`
+        <tr class="clickable js-bo" data-oid="${o.id}">
+          <td><b>${esc(o.client_key? nomAffiche(o.client_key, o.client_key) : "à rattacher")}</b></td>
+          <td class="small">${esc(o.titre)}</td><td class="small">${esc(o.statut)}</td>
+          <td class="num small">${o.echeance? new Date(String(o.echeance).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}) : ""}</td>
+        </tr>`).join("")}</tbody></table></div>
+        ${boUrgent.length>10? `<p class="small muted" style="margin-bottom:0">le reste dans la vue Back-office</p>`:""}`
+      : `<div class="empty">Rien d'urgent au back-office ✓</div>`}
+    </div>
+  </div>`;
+  root.querySelectorAll(".js-mi").forEach(r=>r.addEventListener("click", ()=>{ const m = state.missions.find(x=>x.id===+r.dataset.mid); if (m) missionModal(m); }));
+  root.querySelectorAll(".js-bo").forEach(r=>r.addEventListener("click", ()=>{ const o = state.operations.find(x=>x.id===+r.dataset.oid); if (o) boModal(o); }));
+}
+
 /* ---------------- Cockpit « Ma journée » ---------------- */
 function viewJour(root){
   if (isIngenieur()) return viewJourIngenieur(root);
+  if (isSuivi()) return viewJourSuivi(root);
   /* v45 : un manager qui est aussi conseiller (Loïc) peut basculer sur SA journée */
   const perso = !!(isManager() && state.profile.conseiller_id && state._jourMoi);
   const mgr = isManager() && !perso;
@@ -2964,6 +3018,7 @@ function viewJour(root){
   const noSaisie = mgr? activeConseillers().filter(c=>!isConge(c.id,cur) && !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===cur)) : [];
   const sansCx = sansContact().filter(x=>{ if (mgr) return true; const cc = clientConseillers(x.key); return !cc.length || cc.includes(meId); });
   const props = propoARelancer().sort((a,b)=>propoJours(b)-propoJours(a));
+  const aFact = missionsAFacturer();   /* v54 : la facturation concerne le cabinet, pas un conseiller */
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const opRow = (p, extra="") => `<tr class="clickable jr-op" data-id="${p.id}">
     ${mgr? `<td><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span></td>`:""}
@@ -2986,6 +3041,7 @@ function viewJour(root){
       closings.length? {ico:"📅", txt:`${closings.length} closing(s) sous 14 jours`, sc:"#jr-closings"} : null,
       props.length? {ico:"📄", txt:`${props.length} proposition(s) sans réponse ≥ ${PROPO_RELANCE_J} j`, sc:"#jr-props"} : null,
       (missTard.length + missSans.length)? {ico:"🧰", txt:`${missTard.length + missSans.length} mission(s) à suivre (échéance dépassée ou absente)`, sc:"#jr-missions"} : null,
+      aFact.length? {ico:"💶", txt:`${aFact.length} mission(s) livrée(s) à facturer${(()=>{ const t = aFact.reduce((a,m)=>a+(+m.hono_devis||0),0); return t? " — "+eur(t)+" au devis" : ""; })()}`, sc:"#jr-afact"} : null,
       revues.length? {ico:"📆", txt:`${revues.length} revue(s) annuelle(s) à programmer`, sc:"#jr-revues"} : null,
       sansCx.length? {ico:"💤", txt:`${sansCx.length} client(s) sans contact depuis ≥ ${contactAlerteJ()} j`, sc:"#jr-sanscx"} : null,
       (mgr && (mj===null || mj>30))? {ico:"📈", txt:`Contexte macro ${mj===null? "jamais actualisé" : "actualisé il y a "+mj+" jours"} — un point par mois`, nav:"param"} : null,
@@ -3023,7 +3079,7 @@ function viewJour(root){
   </div>` : `
   <div class="sect sect-head"><h2>🔥 Affaires — priorités</h2><span class="sub">rien à relancer, aucun closing sous 14 jours, pas de signature en attente — affaires vivantes ✓</span></div>`}
 
-  ${(props.length || missTard.length || missSans.length || revues.length || sansCx.length)? `
+  ${(props.length || missTard.length || missSans.length || revues.length || sansCx.length || aFact.length)? `
   <div class="sect sect-head"><h2>🗂 Relation & suivi</h2><span class="sub">propositions envoyées, missions, revues annuelles, clients sans nouvelles</span></div>
   <div class="row">
     ${props.length? `<div class="card grow" id="jr-props">
@@ -3035,6 +3091,15 @@ function viewJour(root){
           <td class="num">${eur(+pr.data?.montant||0)}</td>
           <td class="num"><span class="ksleep">💤 ${propoJours(pr)} j</span></td></tr>`).join("")}</tbody></table></div>
       ${props.length>6? `<p class="small muted" style="margin-bottom:0">+ ${props.length-6} autres dans les Propositions</p>`:""}
+    </div>`:""}
+    ${aFact.length? `<div class="card grow" id="jr-afact">
+      <h3 class="mt0">💶 Missions livrées — à facturer</h3>
+      <div class="jr-wrap"><table class="tbl dense"><tbody>${aFact.slice(0,6).map(m=>`
+        <tr class="clickable jr-mi" data-mid="${m.id}">
+          <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
+          <td class="num">${+m.hono_devis? eur(m.hono_devis) : `<span class="muted small">devis ?</span>`}</td>
+        </tr>`).join("")}</tbody></table></div>
+      <p class="small muted" style="margin-bottom:0">Saisir le montant facturé dans la mission la sort de cette liste.</p>
     </div>`:""}
     ${(missTard.length || missSans.length)? `<div class="card grow" id="jr-missions">
       <h3 class="mt0">🧰 Missions à suivre</h3>
@@ -5054,6 +5119,10 @@ function sansContact(){
     .filter(x=>x.j===null || x.j>=seuil)
     .sort((a,b)=>(b.j??99999)-(a.j??99999));
 }
+function missionsAFacturer(){ /* v54 : livrées, aucun honoraire facturé — la file d'attente de la facturation */
+  return state.missions.filter(m=>m.statut==="Livrée" && !(+m.hono_facture))
+    .sort((a,b)=>String(a.livree_le||a.updated_at||"").localeCompare(String(b.livree_le||b.updated_at||"")));
+}
 function miProgress(m){
   const et = m.etapes||[]; const done = et.filter(e=>e.done).length;
   return {done, total:et.length, pct: et.length? done/et.length : 0};
@@ -5336,7 +5405,7 @@ function missionModal(m, opts={}){
             }catch(err){ toast("CA non ajouté : "+(err.message||err)); }
           }
         }
-        toast("Mission enregistrée ✓"); render();
+        toast(m.statut==="Livrée" && !(+m.hono_facture)? "Mission livrée ✓ — signalée « à facturer » sur l'Aujourd'hui de la facturation et du manager" : "Mission enregistrée ✓"); render();
       }catch(err){ toast("Erreur : "+(err.message||err)); }
     });
   };
@@ -6904,7 +6973,7 @@ const VIEWS = {
 };
 function allowedViews(){
   if (isIngenieur()) return ["jour","clients","pipeline","missions","backoffice"].map(k=>[k, k==="jour"? {...VIEWS.jour, label:"Ma journée"} : VIEWS[k]]);
-  if (isSuivi()) return suiviVues().filter(k=>VIEWS[k]).map(k=>[k, VIEWS[k]]);
+  if (isSuivi()) return ["jour", ...suiviVues()].filter(k=>VIEWS[k]).map(k=>[k, k==="jour"? {...VIEWS.jour, label:"Aujourd'hui"} : VIEWS[k]]);
   return Object.entries(VIEWS).filter(([k,v]) => isManager() || !v.manager)
     .map(([k,v]) => [k, k==="fiche" && !isManager() ? {...v, label:"Ma semaine"}
                        : k==="jour" && isManager() ? {...v, label:"Aujourd'hui"} : v]);
