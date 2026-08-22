@@ -1729,29 +1729,52 @@ async function boCreerDepuisAffaire(p, mod){
   await state.db.loadAll();
   toast(`📥 « ${titre} » créée pour ${cliAff(p.client)} — visible au Back-office`); render();
 }
+async function miCreerDepuisAffaire(p){ /* v62 : la validation d'une affaire d'honoraires crée la mission pour l'ingénierie */
+  const key = normName(p.client||"");
+  const titre = (p.support||"Audit / Conseil").trim();
+  if (state.missions.some(m=>m.client_key===key && miOuverte(m) && normName(m.titre)===normName(titre))){
+    toast(`Une mission « ${titre} » est déjà ouverte pour ce client`); return;
+  }
+  await state.db.saveMission({client_key:key, titre, type: trelloMissionType(p.support||"audit"),
+    statut: miStatuts()[0], conseiller_id: p.conseiller_id||null,
+    description:"Créée à la validation de l'affaire.",
+    hono_devis:+p.ca_potentiel||0, hono_facture:0, hono_encaisse:0,
+    echeance:null, echeance_note:"", etapes:[], journal:[]});
+  await state.db.loadAll();
+  toast(`🧰 Mission « ${titre} » créée pour ${cliAff(p.client)}${+p.ca_potentiel? ` — devis ${eur(p.ca_potentiel)}`:""} — visible chez l'ingénierie`); render();
+}
 function boDepuisSignature(p){
   try{
     const key = normName(p.client||"");
     if (!key) return;
     const mods = boModeles();
+    const honoraires = /audit|honorair|conseil/.test(String(p.support||"").toLowerCase());   /* v62 */
+    const blocOps = `<p class="small muted" style="margin:${honoraires? "10px":"0"} 0 4px"><b>📥 Opération sur contrat</b> (back-office) :</p>
+      <div style="display:flex;flex-wrap:wrap;gap:6px">
+        ${mods.map((m,i)=>`<button class="btn ${honoraires? "secondary ":""}bo-sig-mod" data-i="${i}">${esc(m.nom)}</button>`).join("")}
+        <button class="btn secondary" id="bo-sig-perso">Autre / personnaliser…</button>
+      </div>`;
+    const blocMission = `<p class="small muted" style="margin:${honoraires? "0":"10px"} 0 4px"><b>🧰 Mission de conseil</b> (honoraires — pilotée par l'ingénierie patrimoniale) :</p>
+      <div><button class="btn ${honoraires? "":"secondary "}" id="bo-sig-mission">🧰 Créer la mission${+p.ca_potentiel? ` — devis ${eur(p.ca_potentiel)}`:""}</button></div>`;
     const back = document.createElement("div");
     back.className = "modal-back";
-    back.innerHTML = `<div class="modal" style="width:560px">
-      <h3>📥 Et côté back-office ? — ${esc(cliAff(p.client))}</h3>
-      <p class="small muted" style="margin-top:0">Signature enregistrée ✓ &nbsp;Quelle opération l'équipe back-office doit-elle traiter${p.support? ` pour <b>${esc(p.support)}</b>`:""} ?
-        Elle arrivera dans le kanban Back-office avec sa check-list, rattachée au client${p.campagne_id? " et à la campagne":""}.</p>
-      <div style="display:flex;flex-wrap:wrap;gap:6px">
-        ${mods.map((m,i)=>`<button class="btn secondary bo-sig-mod" data-i="${i}">${esc(m.nom)}</button>`).join("")}
-        <button class="btn secondary" id="bo-sig-perso">Autre / personnaliser…</button>
-      </div>
+    back.innerHTML = `<div class="modal" style="width:580px">
+      <h3>Et maintenant ? — ${esc(cliAff(p.client))}</h3>
+      <p class="small muted" style="margin-top:0">Validation enregistrée ✓ &nbsp;Qui prend le relais${p.support? ` pour <b>${esc(p.support)}</b>`:""} ?</p>
+      ${honoraires? blocMission + blocOps : blocOps + blocMission}
       <div class="modal-actions">
-        <button class="btn secondary" id="bo-sig-non">Pas d'opération back-office</button>
+        <button class="btn secondary" id="bo-sig-non">Rien à créer</button>
       </div>
     </div>`;
     document.body.appendChild(back);
     back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
     back.querySelector("#bo-sig-non").addEventListener("click", ()=>back.remove());
     back.querySelector("#bo-sig-perso").addEventListener("click", ()=>{ back.remove(); boModal(null, "À faire", key); });
+    back.querySelector("#bo-sig-mission").addEventListener("click", async ()=>{
+      back.remove();
+      try{ await miCreerDepuisAffaire(p); }
+      catch(e){ toast("Erreur : "+(e.message||e)); }
+    });
     back.querySelectorAll(".bo-sig-mod").forEach(b=>b.addEventListener("click", async ()=>{
       back.remove();
       try{ await boCreerDepuisAffaire(p, mods[+b.dataset.i]); }
