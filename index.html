@@ -5749,10 +5749,25 @@ function viewBackoffice(root){
       const o = state.operations.find(x=>x.id===+e.dataTransfer.getData("text/plain"));
       const st = col.dataset.bost;
       if (!o || o.statut===st) return;
-      try{ await state.db.saveOperation({...o, statut:st}); await state.db.loadAll(); toast(`${o.titre} → ${st} ✓`); render(); }
-      catch(err){ toast("Erreur : "+(err.message||err)); }
+      try{
+        await state.db.saveOperation({...o, statut:st});
+        await boNotifierTermine(o, {...o, statut:st});
+        await state.db.loadAll(); toast(`${o.titre} → ${st} ✓`); render();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
     });
   });
+}
+async function boNotifierTermine(oAvant, oApres){ /* v60 : prévenir le commercial à la clôture */
+  try{
+    if (oApres.statut !== "Terminé" || (oAvant && oAvant.statut === "Terminé")) return;
+    const cid = oApres.conseiller_id;
+    if (!cid || cid === state.profile?.conseiller_id) return;   /* pas de notification à soi-même */
+    const texte = `✅ Back-office terminé : ${oApres.titre}${oApres.client_key? " — " + nomAffiche(oApres.client_key, oApres.client_key) : ""}`;
+    if (state.actions.some(a=>!a.fait && a.conseiller_id===cid && a.texte===texte)) return;   /* déjà signalé */
+    await state.db.saveAction({conseiller_id:cid, texte, echeance:new Date().toISOString().slice(0,10),
+      fait:false, client_key:oApres.client_key||null});
+    toast(`📣 ${consName(cid)} sera prévenu(e) sur son Aujourd'hui`);
+  }catch(e){ /* la notification ne doit jamais bloquer la clôture */ }
 }
 function boResoudreClient(txt){
   const t = normName(txt);
@@ -5851,7 +5866,9 @@ function boModal(o, statutInitial, clientKey){
       if (key) o.conseiller_id = state.clientsInfos.find(ci=>ci.client_key===key)?.conseiller_id || o.conseiller_id || null;
       try{
         const {_clientTxt, ...row} = o;
+        const avant = creation? null : state.operations.find(x=>x.id===o.id);
         await state.db.saveOperation(row);
+        await boNotifierTermine(avant, row);
         await state.db.loadAll(); back.remove(); toast(creation? "Opération créée ✓" : "Opération enregistrée ✓"); render();
       }catch(err){ toast("Erreur : "+(err.message||err)); }
     });
