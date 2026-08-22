@@ -1528,6 +1528,7 @@ function mixBars(el, items){
    ================================================================ */
 const ICONS = {
   dash:'<svg class="ic" viewBox="0 0 24 24"><rect x="3" y="3" width="7" height="9" rx="1.5"/><rect x="14" y="3" width="7" height="5" rx="1.5"/><rect x="14" y="12" width="7" height="9" rx="1.5"/><rect x="3" y="16" width="7" height="5" rx="1.5"/></svg>',
+  inbox:'<svg class="ic" viewBox="0 0 24 24"><path d="M4 4h16v16H4Z" fill="none"/><path d="M4 13h5l1.5 3h3L15 13h5"/><path d="M4 13V6a2 2 0 0 1 2-2h12a2 2 0 0 1 2 2v7"/><path d="M4 13v5a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2v-5"/></svg>',
   edit:'<svg class="ic" viewBox="0 0 24 24"><path d="M12 20h9"/><path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z"/></svg>',
   funnel:'<svg class="ic" viewBox="0 0 24 24"><path d="M3 4h18l-7 8v6l-4 2v-8Z"/></svg>',
   kit:'<svg class="ic" viewBox="0 0 24 24"><rect x="3" y="7" width="18" height="13" rx="2"/><path d="M9 7V5a2 2 0 0 1 2-2h2a2 2 0 0 1 2 2v2"/><path d="M3 13h18"/></svg>',
@@ -7340,7 +7341,7 @@ const VIEWS = {
   clients:{label:"Clients", icon:ICONS.people, fn:viewClients},
   propositions:{label:"Propositions", icon:ICONS.pie, fn:viewPropositions},
   missions:{label:"Missions", icon:ICONS.kit, fn:viewMissions},
-  backoffice:{label:"Back-office", icon:"📥", fn:viewBackoffice},
+  backoffice:{label:"Back-office", icon:ICONS.inbox, fn:viewBackoffice},
   fiche:{label:"Fiches", icon:ICONS.user, fn:viewFiche},
   rapport:{label:"Rapport hebdo", icon:ICONS.doc, fn:viewRapport, manager:true},
   progression:{label:"Progression", icon:ICONS.chart, fn:viewProgression, manager:true},
