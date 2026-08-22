@@ -3,7 +3,7 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>ELIGI — Pilotage commercial</title>
+<title>Portail Eligi</title>
 <link rel="icon" type="image/png" href="favicon.png">
 <style>
 /* ============ Tokens (palette validée, clair + sombre) ============ */
@@ -7367,7 +7367,7 @@ function render(){
   <div class="layout${SIDE_MIN? " snarrow":""}">
     <aside class="sidebar">
       <button class="side-toggle" id="side-toggle" title="${SIDE_MIN? "Déplier le menu" : "Replier le menu (plus de place pour le contenu)"}">${SIDE_MIN? "⟩" : "⟨"}</button>
-      <div class="logo"><img src="logo-blanc.png" alt="Eligi" style="width:96px;display:block;margin-bottom:4px" onerror="this.remove()"><small>Pilotage commercial</small></div>
+      <div class="logo"><img src="logo-blanc.png" alt="Eligi" style="width:96px;display:block;margin-bottom:4px" onerror="this.remove()"><small>Portail Eligi</small></div>
       <button class="gs-open" id="gs-open" title="Recherche globale (Ctrl+K)">🔍<span class="nav-label">Rechercher…</span><kbd>Ctrl K</kbd></button>
       <nav class="snav">${views.map(([k,v])=>`<button data-nav="${k}" class="${k===state.view?"active":""}" title="${esc(v.label)}">${v.icon}<span class="nav-label">${v.label}</span></button>`).join("")}</nav>
       <div class="side-bottom">
@@ -7407,7 +7407,7 @@ function renderLogin(app){
   app.innerHTML = `
   <div class="login-shell"><div class="card login-card">
     <img src="logo-teal.png" alt="Eligi" style="width:150px;display:block;margin-bottom:6px" onerror="this.outerHTML='<div class=brandbig>ELIGI</div>'">
-    <div class="sub">Pilotage commercial hebdomadaire</div>
+    <div class="sub">Portail Eligi — CRM & pilotage du cabinet</div>
     ${demo? `<div class="demo-note"><b>Mode démo</b> — données d'exemple, sans base. Choisis un profil :</div>
       <div style="display:flex;flex-direction:column;gap:8px" id="demo-btns"></div>`
     : `<label class="fld"><span>Email</span><input type="email" id="lg-email" autocomplete="username"></label>
