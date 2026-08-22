@@ -535,6 +535,13 @@ function isoWeek(d){
 }
 const weekCode = (y,w) => `${y}-S${String(w).padStart(2,"0")}`;
 function todayWeekCode(){ const {year,week} = isoWeek(new Date()); return weekCode(year,week); }
+function rdvSemaine(consId, code){ /* v64 : RDV notés dans les fiches clients pour cette semaine */
+  return state.interactions.filter(i=>{
+    if (i.type!=="RDV" || i.conseiller_id!==consId || !i.quand) return false;
+    const w = isoWeek(new Date(i.quand));
+    return wcmp(weekCode(w.year, w.week), code) === 0;
+  }).length;
+}
 
 /* Normalisation du code semaine pour comparaison/tri : S9 -> S09 */
 function wkey(code){ return String(code||"").replace(/-S(\d)$/, "-S0$1"); }
@@ -2210,6 +2217,7 @@ function viewSaisie(root){
 
   const numFld = (id,label,val) =>
     `<label class="fld"><span>${label}</span><input type="number" id="${id}" value="${val??0}" min="0" step="any"></label>`;
+  const rdvAuto = rdvSemaine(consId, state.week);   /* v64 */
 
   root.innerHTML = `
   ${vhead("Saisie hebdomadaire", "1 ligne = 1 conseiller × 1 semaine — uniquement le réalisé", weekNavHTML())}
@@ -2232,7 +2240,8 @@ function viewSaisie(root){
       ${locked? `<div class="helpbox" style="margin-bottom:12px">🔒 <b>Semaine ${esc(state.week)} validée en réunion.</b>
         ${isManager()? "Tu peux encore la modifier (manager) ou la rouvrir depuis le Rapport hebdo." : "La saisie est verrouillée — contacte le manager si une correction est nécessaire."}</div>`:""}
       <div class="form-grid" id="sa-form">
-        ${numFld("sa-rdv","RDV réalisés", v.rdv)}
+        ${numFld("sa-rdv","RDV réalisés", ex? v.rdv : (v.rdv || rdvAuto))}
+        ${rdvAuto? `<label class="fld"><span>&nbsp;</span><span class="small muted" style="padding-top:9px">🤝 <b>${rdvAuto}</b> RDV noté(s) dans les fiches cette semaine${ex && (+v.rdv||0)!==rdvAuto? ` — <a href="#" id="sa-rdv-sync">reprendre ce nombre</a>`:" ✓"}</span></label>`:""}
         <label class="fld"><span>Signatures (automatique)</span>
           <input type="text" value="${fmtNum.format(v.nb_signatures||0)}" disabled
             title="Ce compteur s'alimente tout seul : passe une affaire en « Validé » dans les Affaires et confirme le report."></label>
@@ -2305,6 +2314,7 @@ function viewSaisie(root){
     }catch(err){ toast("Erreur : "+(err.message||err)); }
   });
   $("#sa-form").querySelectorAll("input[type=number]").forEach(i=>i.addEventListener("keydown", e=>{ if(e.key==="Enter") save(); }));
+  $("#sa-rdv-sync")?.addEventListener("click", e=>{ e.preventDefault(); $("#sa-rdv").value = rdvAuto; toast("Nombre de RDV repris des fiches — pense à enregistrer"); });
   if (isManager()) $("#sa-cons").addEventListener("change", e=>{ state.saisieConseillerId = +e.target.value; render(); });
   bindWeekNav();
   if (prev) $("#sa-copy")?.addEventListener("click", ()=>{
