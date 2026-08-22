@@ -3017,6 +3017,9 @@ function viewJourIngenieur(root){
     .sort((a,b)=>String(a.echeance||"9999").localeCompare(String(b.echeance||"9999")));
   const aEncaisser = state.missions.reduce((a,m)=>a+Math.max(0, (+m.hono_facture||0)-(+m.hono_encaisse||0)), 0);
   const aFact = missionsAFacturer();   /* v54 */
+  const miJ7 = Date.now() - 7*86400000;
+  const miNouvelles = state.missions.filter(m=>miOuverte(m) && new Date(m.created_at||0).getTime() >= miJ7)
+    .sort((a,b)=>String(b.created_at||"").localeCompare(String(a.created_at||"")));   /* v61 */
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const miRow = m => `<tr class="clickable ji-mi" data-mid="${m.id}">
     <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
@@ -3024,6 +3027,7 @@ function viewJourIngenieur(root){
   root.innerHTML = `
   ${vhead("Ma journée — missions", dateStr.charAt(0).toUpperCase()+dateStr.slice(1), `<button class="btn" id="ji-new">＋ Mission</button>`)}
   <div class="tiles">
+    ${tile("🆕 Nouvelles (7 j)", miNouvelles.length, miNouvelles.length? "missions arrivées récemment" : "rien de nouveau")}
     ${tile("Missions en cours", ouvertes.length)}
     ${tile("Échéances dépassées", retard.length, retard.length? "à traiter en priorité" : "rien en retard ✓")}
     ${tile("Échéances sous 14 jours", proches.length)}
@@ -3031,6 +3035,15 @@ function viewJourIngenieur(root){
     ${tile("À encaisser", eur(aEncaisser), "honoraires facturés non encaissés")}
     ${tile("Back-office ouvert", bo.length, "opérations sur contrats")}
   </div>
+  ${miNouvelles.length? `<div class="card sect" style="margin-top:10px" id="ji-nouvelles">
+    <h3 class="mt0">🆕 Nouvelles missions (7 jours)</h3>
+    <div class="jr-wrap"><table class="tbl dense"><tbody>${miNouvelles.slice(0,8).map(m=>`
+      <tr class="clickable ji-mi" data-mid="${m.id}">
+        <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
+        <td class="small">${esc(m.statut)}</td>
+        <td class="num small muted">${m.created_at? "créée le "+new Date(m.created_at).toLocaleDateString("fr-FR",{day:"numeric",month:"short"}) : ""}</td>
+      </tr>`).join("")}</tbody></table></div>
+  </div>`:""}
   ${aFact.length? `<div class="card sect" style="margin-top:10px">
     <h3 class="mt0">💶 Missions à facturer</h3>
     <div class="jr-wrap"><table class="tbl dense"><tbody>${aFact.slice(0,8).map(miRow).join("")}</tbody></table></div>
@@ -3070,15 +3083,31 @@ function viewJourSuivi(root){ /* v54 : l'aujourd'hui de la facturation et du bac
   const bo = state.operations.filter(o=>o.statut!=="Terminé")
     .sort((a,b)=>String(a.echeance||"9999").localeCompare(String(b.echeance||"9999")));
   const boUrgent = bo.filter(o=>o.statut==="À faire" || o.statut==="Relance" || (o.echeance && String(o.echeance).slice(0,10) < today));
+  const J7 = Date.now() - 7*86400000;
+  const boNouvelles = state.operations.filter(o=>o.statut!=="Terminé" && new Date(o.created_at||0).getTime() >= J7)
+    .sort((a,b)=>String(b.created_at||"").localeCompare(String(a.created_at||"")));   /* v61 : ce qui vient d'arriver */
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
   root.innerHTML = `
   ${vhead("Aujourd'hui", dateStr.charAt(0).toUpperCase()+dateStr.slice(1), "")}
   <div class="tiles">
+    ${tile("🆕 Arrivées (7 j)", boNouvelles.length, boNouvelles.length? "nouvelles opérations à prendre en charge" : "rien de nouveau")}
     ${tile("💶 Missions à facturer", aFact.length, aFact.length? (mtFact? eur(mtFact)+" au devis" : "montants au devis à vérifier") : "rien en attente ✓")}
     ${tile("À encaisser", eur(aEncaisser), "facturé non encaissé")}
     ${tile("Back-office à traiter", boUrgent.length, "à faire, relances, échéances dépassées")}
     ${tile("Back-office ouvert", bo.length)}
   </div>
+  ${boNouvelles.length? `<div class="card sect" style="margin-top:10px" id="js-nouvelles">
+    <h3 class="mt0">🆕 Arrivées au back-office (7 jours)</h3>
+    <div class="jr-wrap"><table class="tbl dense"><tbody>${boNouvelles.slice(0,8).map(o=>`
+      <tr class="clickable js-bo" data-oid="${o.id}">
+        <td><b>${esc(o.client_key? nomAffiche(o.client_key, o.client_key) : "à rattacher")}</b></td>
+        <td class="small">${esc(o.titre)}</td>
+        <td class="small">${esc(o.statut)}</td>
+        <td class="small">${esc(o.responsable||"")}</td>
+        <td class="num small muted">${o.created_at? "créée le "+new Date(o.created_at).toLocaleDateString("fr-FR",{day:"numeric",month:"short"}) : ""}</td>
+      </tr>`).join("")}</tbody></table></div>
+    <p class="small muted" style="margin-bottom:0">Créées à la signature d'une affaire ou directement — à prendre en charge et à faire avancer dans le kanban.</p>
+  </div>`:""}
   <div class="row sect">
     <div class="card grow" id="js-afact">
       <h3 class="mt0">💶 Missions à facturer</h3>
