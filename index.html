@@ -3398,7 +3398,7 @@ function viewJour(root){
           ${mgr? `<td><span class="cdot" style="background:${consColor(pr.conseiller_id)}" title="${esc(consName(pr.conseiller_id))}"></span></td>`:""}
           <td><b>${esc(nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key))}</b></td>
           <td class="num">${eur(+pr.data?.montant||0)}</td>
-          <td class="num"><span class="ksleep">💤 ${propoJours(pr)} j</span></td></tr>`).join("")}</tbody></table></div>
+          <td class="num">${propoExpiree(pr)? `<span class="badge urgent"><span class="dot"></span>⌛ ${propoJoursEnvoi(pr)} j</span>` : `<span class="ksleep">💤 ${propoJours(pr)} j</span>`}</td></tr>`).join("")}</tbody></table></div>
       ${props.length>6? `<p class="small muted" style="margin-bottom:0">+ ${props.length-6} autres dans les Propositions</p>`:""}
     </div>`:""}
     ${aFact.length? `<div class="card grow" id="jr-afact">
@@ -5083,7 +5083,13 @@ function propoDoc(p){
 
 /* ---------- Suivi des propositions envoyées (v27) ---------- */
 const PROPO_RELANCE_J = 10;
-function propoJours(pr){ return Math.floor((Date.now() - new Date(pr.updated_at||pr.created_at).getTime())/86400000); }
+const PROPO_VALID_J = 30;   /* v67 : au-delà, une proposition envoyée est expirée — à refaire ou à abandonner */
+function propoEnvoiLe(pr){ return pr.data?.envoyee_le || String(pr.updated_at||pr.created_at||"").slice(0,10); }
+function propoDernierContact(pr){ const rl = pr.data?.relances||[]; return rl.length? rl[rl.length-1] : propoEnvoiLe(pr); }
+const _propoJ = d => Math.max(0, Math.floor((Date.now() - new Date(String(d).slice(0,10)+"T00:00:00").getTime())/86400000));
+function propoJours(pr){ return _propoJ(propoDernierContact(pr)); }   /* v67 : depuis l'envoi ou la dernière relance */
+function propoJoursEnvoi(pr){ return _propoJ(propoEnvoiLe(pr)); }
+function propoExpiree(pr){ return pr.statut==="Envoyée" && propoJoursEnvoi(pr) >= PROPO_VALID_J; }
 function propoARelancer(){ return state.propositions.filter(pr=>pr.statut==="Envoyée" && propoJours(pr) >= PROPO_RELANCE_J); }
 function propoTaux(list){
   const acc = list.filter(pr=>pr.statut==="Acceptée").length, ref = list.filter(pr=>pr.statut==="Refusée").length;
@@ -5093,16 +5099,28 @@ function propoTaux(list){
 /* ---------- Statuts & intégrations ---------- */
 async function propoSetStatut(propo, statut){
   try{
+    const avant = state.propositions.find(x=>x.id===propo.id);
     propo.statut = statut;
+    if (statut==="Envoyée" && (!avant || avant.statut!=="Envoyée" || !propo.data?.envoyee_le)){
+      /* v67 : on pose la vraie date d'envoi ; un renvoi remet la validité et les relances à zéro */
+      propo.data = {...(propo.data||{}), envoyee_le:new Date().toISOString().slice(0,10), relances:[]};
+    }
     await state.db.saveProposition(propo);
     if (statut==="Envoyée" || statut==="Acceptée" || statut==="Refusée"){
       await state.db.addInteraction({client_key:propo.client_key, conseiller_id:state.profile.conseiller_id||null,
         type:"Note", note:`📄 Proposition ${eur(+propo.data?.montant||0)} — ${statut.toLowerCase()}`});
     }
     if (statut==="Acceptée" && propo.pipeline_id){
+      /* v67 : accepter = le client a validé → l'affaire suit le circuit complet */
       const op = state.pipeline.find(x=>x.id===propo.pipeline_id);
-      if (op && (op.etape||"").toLowerCase()!=="signé" && confirm(`Proposition acceptée 🎉 — passer l'affaire « ${op.client} » en Signature probable ?`)){
-        await state.db.savePipeline({...op, etape:"Signature probable", signature_probable:true});
+      if (op && (op.etape||"").toLowerCase()!=="signé" && confirm(`Proposition acceptée 🎉 — passer l'affaire « ${op.client} » en « Validé » ?
+Le report en saisie hebdo puis la question « Et maintenant ? » (back-office / mission) suivent — zéro ressaisie.`)){
+        const upd = {...op, etape:"Signé", probabilite:1};
+        await state.db.savePipeline(upd);
+        await state.db.loadAll();
+        toast(`Proposition acceptée ✓ — « ${cliAff(op.client)} » passe en Validé`);
+        signatureModal(upd); boDepuisSignature(upd);
+        return;
       }
     }
     await state.db.loadAll(); toast(`Proposition ${statut.toLowerCase()} ✓`);
@@ -5142,13 +5160,14 @@ function propoRowsHTML(props, showClient){
   return props.map(pr=>{
     return `<tr class="clickable propo-row" data-id="${pr.id}">
       ${showClient? `<td><b>${esc(nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key))}</b></td>`:""}
-      <td>${new Date(pr.updated_at||pr.created_at).toLocaleDateString("fr-FR")}${pr.statut==="Envoyée" && propoJours(pr)>=PROPO_RELANCE_J? ` <span class="ksleep">💤 ${propoJours(pr)} j</span>`:""}</td>
+      <td>${new Date(pr.updated_at||pr.created_at).toLocaleDateString("fr-FR")}${pr.statut==="Envoyée"? `${propoExpiree(pr)? ` <span class="badge urgent"><span class="dot"></span>⌛ expirée (${propoJoursEnvoi(pr)} j)</span>` : propoJours(pr)>=PROPO_RELANCE_J? ` <span class="ksleep">💤 ${propoJours(pr)} j</span>`:""}${(pr.data?.relances||[]).length? ` <span class="small muted">· ${pr.data.relances.length} relance(s)</span>`:""}` : ""}</td>
       <td><span class="cdot" style="background:${consColor(pr.conseiller_id)}"></span>${esc(consName(pr.conseiller_id))}</td>
       <td class="num"><b>${eur(+pr.data?.montant||0)}</b></td>
       <td>${esc(PROPO_PROFILS[(+pr.data?.profil||3)-1])}</td>
       <td>${esc(pr.mode)}</td>
       <td>${isSuivi()? esc(pr.statut) : `<select class="propo-statut" data-id="${pr.id}">${PROPO_STATUTS.map(s=>`<option ${s===pr.statut?"selected":""}>${s}</option>`).join("")}</select>`}</td>
       <td style="white-space:nowrap">
+        ${pr.statut==="Envoyée" && !isSuivi()? `<button class="btn secondary small propo-rel" data-id="${pr.id}" title="Noter une relance client — le compteur 💤 repart de zéro">📞 Relance</button>`:""}
         <button class="btn secondary small propo-doc" data-id="${pr.id}">${ICONS.doc} Document</button>
         ${isSuivi()? "" : `<button class="btn danger small propo-del" data-id="${pr.id}">✕</button>`}
       </td></tr>`;
@@ -5167,6 +5186,34 @@ function bindPropoRows(scope, refresh){
     e.stopPropagation();
     const pr = state.propositions.find(x=>x.id===+sel.dataset.id);
     if (pr){ await propoSetStatut({...pr}, sel.value); refresh(); }
+  }));
+  scope.querySelectorAll(".propo-rel").forEach(b=>b.addEventListener("click", async e=>{   /* v67 */
+    e.stopPropagation();
+    const pr = state.propositions.find(x=>x.id===+b.dataset.id);
+    if (!pr) return;
+    const nom = nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key);
+    const moi = state.profile.conseiller_id;
+    if (pr.conseiller_id && moi !== pr.conseiller_id && isManager()){
+      /* le manager demande la relance : tâche signée chez le conseiller */
+      if (!confirm(`Demander à ${consName(pr.conseiller_id)} de relancer ${nom} ?
+Une tâche signée arrive sur son « Aujourd'hui » (le compteur 💤 ne bouge pas tant que la relance n'est pas faite).`)) return;
+      try{
+        await state.db.saveAction({conseiller_id:pr.conseiller_id, texte:`📞 Relancer la proposition ${eur(+pr.data?.montant||0)} — ${nom}`,
+          echeance:new Date().toISOString().slice(0,10), fait:false, client_key:pr.client_key||null});
+        await state.db.loadAll(); toast(`Tâche envoyée à ${consName(pr.conseiller_id)} ✓`); refresh();
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+      return;
+    }
+    if (!confirm(`Relance faite auprès de ${nom} ?
+Elle sera notée dans sa fiche et le compteur 💤 repart de zéro.`)) return;
+    try{
+      const today = new Date().toISOString().slice(0,10);
+      const relances = [...(pr.data?.relances||[]), today];
+      await state.db.saveProposition({...pr, data:{...(pr.data||{}), relances}});
+      await state.db.addInteraction({client_key:pr.client_key, conseiller_id:pr.conseiller_id||moi||null,
+        type:"Note", note:`📞 Relance proposition ${eur(+pr.data?.montant||0)} (relance n°${relances.length})`});
+      await state.db.loadAll(); toast(`Relance notée ✓ (n°${relances.length})`); refresh();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
   scope.querySelectorAll(".propo-doc").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
@@ -5198,6 +5245,8 @@ function viewPropositions(root){
     ${tile("En cours", enCours, "brouillons + envoyées")}
     ${tile("Acceptées", acceptees.length, eur(acceptees.reduce((a,pr)=>a+(+pr.data?.montant||0),0)) + " placés")}
     ${tile("Taux d'acceptation", (()=>{ const t = list.filter(pr=>pr.statut==="Acceptée"||pr.statut==="Refusée").length; return t? fmtPct(acceptees.length/t) : "—"; })(), "sur les propositions tranchées")}
+    ${(()=>{ const n = state.propositions.filter(propoExpiree).length;
+      return tile("⌛ Expirées", n, n? `envoyées il y a ${PROPO_VALID_J} j+ sans réponse — à refaire ou à classer` : "aucune ✓"); })()}
   </div>
   <div class="inline-controls" style="margin:12px 0">
     <label class="fld" style="min-width:240px"><span>Recherche</span>
