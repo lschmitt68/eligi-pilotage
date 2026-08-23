@@ -455,6 +455,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .cli-detail td{background:color-mix(in srgb, var(--surface-2) 45%, transparent)}
 .reminder{border-left:4px solid var(--warn); display:flex; align-items:center; gap:12px; padding:11px 16px; margin-bottom:14px; flex-wrap:wrap}
 .ksleep{color:var(--muted); font-weight:700; font-size:10.5px}
+.pj-item{display:flex; gap:8px; align-items:center; padding:4px 2px; border-bottom:1px solid var(--grid); font-size:13px}
+.pj-item:last-of-type{border-bottom:0}
+.pj-item a{color:var(--s1); text-decoration:none; overflow-wrap:anywhere}
+.pj-item a:hover{text-decoration:underline}
+.pj-del{border:none; background:none; cursor:pointer; color:var(--muted); font-size:12px; padding:0 3px; opacity:.55}
+.pj-del:hover{opacity:1; color:var(--bad)}
 .print-head{display:none}
 @media print{
   .print-head{display:flex; align-items:center; gap:14px; margin-bottom:14px; border-bottom:1px solid #ccc; padding-bottom:10px}
@@ -479,6 +485,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
   .main{padding:14px 14px 60px}
   .form-grid{grid-template-columns:1fr}
   .meeting{padding:20px 16px 90px}
+  .tiles{grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)) !important; gap:8px}
+  .kanban{grid-auto-columns:minmax(190px, 78vw)}
+  .modal{padding:16px 14px}
+  .modal-back{padding:8px}
+  .vhead{flex-wrap:wrap}
+  .inline-controls{flex-wrap:wrap}
 }
 </style>
 </head>
@@ -1154,6 +1166,28 @@ class SupaDB {
     const {error} = await this.c.from("profiles").delete().eq("email", email);
     if (error) throw error;
   }
+  /* ---- v71 : pièces jointes (bucket privé « documents ») ---- */
+  async listFiles(prefix){
+    const {data, error} = await this.c.storage.from("documents").list(prefix, {limit:100, sortBy:{column:"created_at", order:"desc"}});
+    if (error) throw new Error(/bucket|not found/i.test(error.message||"")? "📎 Stockage pas encore activé (migration v71 : bucket « documents »)" : error.message);
+    return (data||[]).filter(f=>f.name && !f.name.startsWith(".")).map(f=>({name:f.name, path:prefix+"/"+f.name, size:f.metadata?.size||0, at:f.created_at||null}));
+  }
+  async uploadFile(prefix, file){
+    const ext = (file.name.match(/\.[A-Za-z0-9]+$/)||[""])[0].toLowerCase();
+    const base = pjKey(file.name.replace(/\.[^.]+$/,"")) || "fichier";
+    const path = prefix+"/"+Date.now().toString(36)+"_"+base+ext;
+    const {error} = await this.c.storage.from("documents").upload(path, file, {upsert:false, contentType:file.type||undefined});
+    if (error) throw new Error(/bucket|not found/i.test(error.message||"")? "Stockage pas encore activé (migration v71 : bucket « documents »)" : error.message);
+  }
+  async fileUrl(path){
+    const {data, error} = await this.c.storage.from("documents").createSignedUrl(path, 3600);
+    if (error) throw error;
+    return data.signedUrl;
+  }
+  async deleteFile(path){
+    const {error} = await this.c.storage.from("documents").remove([path]);
+    if (error) throw error;
+  }
   async saveParamsCabinet(data){
     const {error} = await this.c.from("params_cabinet").upsert({id:1, data, maj_le:new Date().toISOString()});
     if (error) throw error;
@@ -1438,6 +1472,16 @@ class DemoDB {
     const i = this.profiles.findIndex(x=>x.email===email);
     if (i>=0) this.profiles.splice(i,1);
   }
+  async listFiles(prefix){ this._files = this._files||{}; return (this._files[prefix]||[]).slice(); }
+  async uploadFile(prefix, file){
+    this._files = this._files||{};
+    (this._files[prefix] = this._files[prefix]||[]).unshift({name:Date.now().toString(36)+"_"+file.name, path:prefix+"/"+Date.now().toString(36)+"_"+file.name, size:file.size, at:new Date().toISOString(), _url:URL.createObjectURL(file)});
+  }
+  async fileUrl(path){
+    for (const k in (this._files||{})){ const f = (this._files[k]||[]).find(x=>x.path===path); if (f) return f._url; }
+    throw new Error("fichier introuvable");
+  }
+  async deleteFile(path){ for (const k in (this._files||{})) this._files[k] = (this._files[k]||[]).filter(x=>x.path!==path); }
   async saveParamsCabinet(data){
     if (!isManager()) throw new Error("Réservé au manager");
     this.paramsCabinet = data;
@@ -3343,6 +3387,8 @@ function viewJour(root){
       revues.length? {ico:"📆", txt:`${revues.length} revue(s) annuelle(s) à programmer`, sc:"#jr-revues"} : null,
       sansCx.length? {ico:"💤", txt:`${sansCx.length} client(s) sans contact depuis ≥ ${contactAlerteJ()} j`, sc:"#jr-sanscx"} : null,
       (mgr && (mj===null || mj>30))? {ico:"📈", txt:`Contexte macro ${mj===null? "jamais actualisé" : "actualisé il y a "+mj+" jours"} — un point par mois`, nav:"param"} : null,
+      (mgr && !CFG.DEMO && (()=>{ const e = state.paramsCabinet?.export_le; return !e || (Date.now()-new Date(e).getTime()) > 30*86400000; })())?
+        {ico:"💾", txt:`Sauvegarde des données ${state.paramsCabinet?.export_le? "faite il y a "+Math.floor((Date.now()-new Date(state.paramsCabinet.export_le).getTime())/86400000)+" jours" : "jamais faite"} — un export par mois (Paramétrage)`, nav:"param"} : null,
     ].filter(Boolean);
     return `<div class="row sect">
       <div class="card grow" style="min-width:360px">
@@ -4075,8 +4121,12 @@ function viewClients(root){
     ${tile("Conformité", ce.faits+"/"+ce.total, ce.faits===ce.total? "complète ✓" : "coches sur la fiche ci-dessous")}
   </div>
   <div class="cli-detail" data-for="${esc(gOpen.key)}">${clientDetailHTML(gOpen)}</div>
+  <div class="card" style="margin-top:12px" id="pj-cli"><h3 class="mt0">📎 Documents du client</h3>
+    <p class="small muted" style="margin-top:0">CNI, RIB, bulletins, courriers — visibles par tout le cabinet, stockés en privé.</p>
+    <div class="pj-zone"></div></div>
   ${datalistGroupes}`;
     bindClients(root);
+    pjMount($("#pj-cli"), "cli/"+pjKey(gOpen.key));   /* v71 */
     return;
   }
   root.innerHTML = `
@@ -5133,6 +5183,48 @@ Le report en saisie hebdo puis la question « Et maintenant ? » (back-office / 
     await state.db.loadAll(); toast(`Proposition ${statut.toLowerCase()} ✓`);
   }catch(err){ toast("Erreur : "+(err.message||err)); }
 }
+/* ---------- v71 : pièces jointes ---------- */
+function pjKey(s){ return String(s).toLowerCase().replace(/[^a-z0-9._-]+/g,"_").replace(/^_+|_+$/g,"").slice(0,80) || "x"; }
+function pjFmtSize(b){ b = +b||0; return b>1048576? (b/1048576).toFixed(1)+" Mo" : b>1024? Math.round(b/1024)+" Ko" : b+" o"; }
+function pjMount(container, prefix, canEdit=true){
+  const zone = container?.querySelector(".pj-zone");
+  if (!zone) return;
+  const refresh = async ()=>{
+    let files = [];
+    try{ files = await state.db.listFiles(prefix); }
+    catch(e){ zone.innerHTML = `<span class="small muted">${esc(e.message||String(e))}</span>`; return; }
+    zone.innerHTML = `
+      ${files.map(f=>`<div class="pj-item"><span>📄</span>
+        <a href="#" class="pj-dl" data-p="${esc(f.path)}" title="Ouvrir / télécharger">${esc(f.name.replace(/^[a-z0-9]+_/,""))}</a>
+        <span class="small muted" style="margin-left:auto;white-space:nowrap">${pjFmtSize(f.size)}${f.at? " · "+new Date(f.at).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"2-digit"}):""}</span>
+        ${canEdit? `<button class="pj-del" data-p="${esc(f.path)}" title="Supprimer le fichier">✕</button>`:""}</div>`).join("")
+        || `<p class="small muted" style="margin:2px 0">aucun fichier</p>`}
+      ${canEdit? `<label class="btn secondary small" style="margin-top:7px;display:inline-flex;cursor:pointer">📎 Ajouter un fichier<input type="file" class="pj-add" style="display:none" multiple></label>
+        <span class="small muted" style="margin-left:8px">15 Mo max par fichier</span>`:""}`;
+    zone.querySelectorAll(".pj-dl").forEach(a=>a.addEventListener("click", async e=>{
+      e.preventDefault();
+      try{ const url = await state.db.fileUrl(a.dataset.p); window.open(url, "_blank"); }
+      catch(err){ toast("Erreur : "+(err.message||err)); }
+    }));
+    zone.querySelectorAll(".pj-del").forEach(b=>b.addEventListener("click", async ()=>{
+      if (!confirm("Supprimer définitivement ce fichier ?")) return;
+      try{ await state.db.deleteFile(b.dataset.p); toast("Fichier supprimé"); refresh(); }
+      catch(err){ toast("Erreur : "+(err.message||err)); }
+    }));
+    zone.querySelector(".pj-add")?.addEventListener("change", async e=>{
+      let n = 0;
+      for (const f of e.target.files){
+        if (f.size > 15*1048576){ toast(`« ${f.name} » dépasse 15 Mo — non ajouté`); continue; }
+        try{ await state.db.uploadFile(prefix, f); n++; }
+        catch(err){ toast("Erreur : "+(err.message||err)); }
+      }
+      if (n) toast(`📎 ${n} fichier(s) ajouté(s)`);
+      refresh();
+    });
+  };
+  zone.innerHTML = `<span class="small muted">chargement…</span>`;
+  refresh();
+}
 function noteViewer(titre, texte, meta){ /* v69 : lire une note en entier */
   const back = document.createElement("div");
   back.className = "modal-back";
@@ -5757,6 +5849,8 @@ function missionModal(m, opts={}){
         <button class="btn secondary small" id="mi-addet">Ajouter</button>
       </div>
     </div>
+    ${!isNew? `<div class="card" style="margin-top:10px" id="pj-mi"><h3 class="mt0" style="font-size:14px">📎 Pièces jointes</h3><div class="pj-zone"></div></div>`
+            : `<p class="small muted" style="margin:8px 0 0">📎 Les pièces jointes s'ajoutent une fois la mission créée.</p>`}
     </div>
     <div style="flex:1;min-width:310px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;max-height:640px">
       <h3 class="mt0" style="font-size:14px">💬 Journal du dossier</h3>
@@ -5821,6 +5915,7 @@ function missionModal(m, opts={}){
       renderModal();
     };
     back.querySelector("#mi-addnote").addEventListener("click", addNote);
+    if (!isNew && m.id) pjMount(back.querySelector("#pj-mi"), "mi/"+m.id);   /* v71 */
     back.querySelectorAll(".mi-jnote").forEach(el=>el.addEventListener("click", ()=>{   /* v69/v70 */
       const j = (m.journal||[]).slice().reverse()[+el.dataset.ri];
       if (j) noteViewer(m.titre||m.type, j.n, [(j.c? consName(j.c) : "Équipe"), (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "")].filter(Boolean).join(" · "));
@@ -6100,6 +6195,8 @@ function boModal(o, statutInitial, clientKey){
           ${o.etapes.map((e,i)=>`<div class="inline-controls" style="gap:6px;margin:2px 0"><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span><button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune étape</p>`}
           <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newet" placeholder="nouvelle étape… (CNI, RIB, bulletin signé…)" style="flex:1"><button class="btn secondary small" id="bo-addet">Ajouter</button></div>
         </div>
+        ${!creation? `<div class="full" id="pj-bo"><span class="small muted" style="font-weight:600">📎 Pièces jointes</span><div class="pj-zone"></div></div>`
+                   : `<div class="full small muted">📎 Les pièces jointes s'ajoutent une fois l'opération créée.</div>`}
       </div>
       </div>
       <div style="flex:1;min-width:310px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;max-height:560px">
@@ -6136,6 +6233,7 @@ function boModal(o, statutInitial, clientKey){
       if (j) noteViewer(o.titre, j.n, (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : ""));
     }));
     back.querySelector("#bo-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
+    if (!creation) pjMount(back.querySelector("#pj-bo"), "op/"+o.id);   /* v71 */
     back.querySelectorAll(".bo-et-done").forEach(c=>c.addEventListener("change", ()=>{ lireForm(); o.etapes[+c.dataset.i].done = c.checked; rendre(); }));
     back.querySelectorAll(".bo-et-del").forEach(b=>b.addEventListener("click", ()=>{ lireForm(); o.etapes.splice(+b.dataset.i,1); rendre(); }));
     back.querySelector("#bo-archiver")?.addEventListener("click", async ()=>{
@@ -6828,14 +6926,60 @@ function bindPropoParamsEditor(root){
 }
 function viewParam(root){
   const lastSem = [...state.semaines].sort((a,b)=>wcmp(a.code,b.code)).slice(-1)[0];
+  /* v71 : export de sauvegarde */
+  const expTables = ()=>({
+    export_du: new Date().toISOString(), version: "v71",
+    conseillers: state.conseillers, semaines: state.semaines, saisies: state.saisies,
+    objectifs_semaine: state.objSemaine, absences: state.absences, validations: state.validations,
+    pipeline: [...state.pipeline, ...(state.pipelineArch||[])], pipe_events: state.pipeEvents,
+    clients: state.clientsInfos, interactions: state.interactions, actions: state.actions,
+    propositions: state.propositions, campagnes: state.campagnes,
+    missions: [...state.missions, ...(state.missionsArch||[])],
+    operations: [...state.operations, ...(state.operationsArch||[])],
+    params_cabinet: state.paramsCabinet,
+  });
+  const expDownload = (nom, contenu, type)=>{
+    const a = document.createElement("a");
+    a.href = URL.createObjectURL(new Blob([contenu], {type}));
+    a.download = nom; a.click();
+    setTimeout(()=>URL.revokeObjectURL(a.href), 5000);
+  };
+  const expNoter = async ()=>{
+    try{ await state.db.saveParamsCabinet({...state.paramsCabinet, export_le:new Date().toISOString()}); await state.db.loadAll(); render(); }catch(e){}
+  };
+  const expXml = s => String(s??"").replace(/&/g,"&amp;").replace(/</g,"&lt;").replace(/>/g,"&gt;").replace(/"/g,"&quot;").replace(/[\x00-\x08\x0b\x0c\x0e-\x1f]/g,"");
+  const expExcel = ()=>{
+    const T = expTables();
+    let xml = `<?xml version="1.0"?><?mso-application progid="Excel.Sheet"?>
+<Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">`;
+    for (const [nom, rows] of Object.entries(T)){
+      if (!Array.isArray(rows)) continue;
+      const cols = [...new Set(rows.flatMap(r=>Object.keys(r||{})))].filter(c=>!/^(etapes|journal|data)$/.test(c));
+      const cell = v => `<Cell><Data ss:Type="${typeof v==="number"? "Number":"String"}">${expXml(typeof v==="object"&&v!==null? JSON.stringify(v) : v)}</Data></Cell>`;
+      xml += `<Worksheet ss:Name="${expXml(nom).slice(0,28)}"><Table>`
+        + `<Row>${cols.map(c=>`<Cell><Data ss:Type="String">${expXml(c)}</Data></Cell>`).join("")}</Row>`
+        + rows.map(r=>`<Row>${cols.map(c=>cell(r?.[c])).join("")}</Row>`).join("")
+        + `</Table></Worksheet>`;
+    }
+    xml += `</Workbook>`;
+    expDownload(`portail-eligi-sauvegarde-${new Date().toISOString().slice(0,10)}.xls`, xml, "application/vnd.ms-excel");
+  };
   const fcx = t => new Date(t).toLocaleString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"});
   const lastCx = em => {
     const t = state.connexions.filter(c=>(c.email||"").toLowerCase()===String(em).toLowerCase())
       .reduce((a,c)=>Math.max(a, new Date(c.quand).getTime()), 0);
     return t? fcx(t) : "—";
   };
+  const expLe = state.paramsCabinet?.export_le || null;
   root.innerHTML = `
   ${vhead("Paramétrage","objectifs, calendrier et accès")}
+  <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="flex:1;min-width:260px"><b>💾 Sauvegarde des données</b>
+      <div class="small muted">Toutes les tables (clients, échanges, affaires, missions, back-office, saisies…) dans un fichier à garder au chaud.
+      Dernière sauvegarde : <b>${expLe? new Date(expLe).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "jamais"}</b>.</div></div>
+    <button class="btn" id="exp-json">⬇ Export JSON (complet)</button>
+    <button class="btn secondary" id="exp-xls">⬇ Export Excel</button>
+  </div>
   <div class="row">
     <div class="card grow">
       <h3 class="mt0">Conseillers et objectifs hebdomadaires</h3>
@@ -7062,6 +7206,11 @@ function viewParam(root){
       await state.db.loadAll(); toast("Conseiller enregistré ✓"); render();
     }catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
+  $("#exp-json")?.addEventListener("click", ()=>{
+    expDownload(`portail-eligi-sauvegarde-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(expTables(), null, 1), "application/json");
+    toast("Sauvegarde JSON téléchargée 💾"); expNoter();
+  });
+  $("#exp-xls")?.addEventListener("click", ()=>{ expExcel(); toast("Sauvegarde Excel téléchargée 💾"); expNoter(); });
   $("#pc-add").addEventListener("click", async ()=>{
     const nom = prompt("Nom du nouveau conseiller :");
     if (!nom) return;
@@ -7593,6 +7742,16 @@ function allowedViews(){
                        : k==="jour" && isManager() ? {...v, label:"Aujourd'hui"} : v]);
 }
 function go(view){ state.view = view; render(); }
+/* v71 : rafraîchissement silencieux — jamais pendant une saisie, une modale ou la réunion */
+setInterval(async ()=>{
+  try{
+    if (!state.profile || CFG.DEMO || document.hidden) return;
+    if (document.querySelector(".modal-back") || document.querySelector(".meeting")) return;
+    const ae = document.activeElement;
+    if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
+    await state.db.loadAll(); render();
+  }catch(e){ /* silencieux : le prochain tour réessaiera */ }
+}, 180000);
 let SIDE_MIN = (()=>{ try{ return localStorage.getItem("eligi_side")==="min"; }catch(e){ return false; } })();
 
 function render(){
