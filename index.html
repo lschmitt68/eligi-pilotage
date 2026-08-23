@@ -4471,7 +4471,8 @@ function viewClients(root){
    ================================================================ */
 const PROPO_CLASSES = ["Sécurisé","Obligataire","Actions","Immobilier","Diversification"];
 const PROPO_PROFILS = ["Prudent","Équilibré prudent","Équilibré","Dynamique","Offensif"];
-const PROPO_STATUTS = ["Brouillon","Envoyée","Acceptée","Refusée"];
+const PROPO_STATUTS = ["Brouillon","Envoyée","Acceptée","Refusée","Remplacée"];
+const PROPO_MOTIFS = ["Frais / tarif","Timing — projet reporté","Parti à la concurrence","Projet abandonné","Autre"];
 const PROPO_CIBLES  = ["Dirigeant","Frontalier"];
 const PROPO_OBJ_LIQ = ["Non","Partielle","Oui"];
 const PROPO_QUESTIONS = [
@@ -5202,18 +5203,46 @@ function propoTaux(list){
 }
 
 /* ---------- Statuts & intégrations ---------- */
+function propoRefusModal(propo){ /* v76 : le refus se motive — c'est ce qui nourrit les stats */
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal" style="width:480px">
+    <h3>Motif du refus — ${esc(nomAffiche(propo.client_key, propo.data?.nomClient||propo.client_key))}</h3>
+    <p class="small muted" style="margin-top:0">Un motif + une précision : c'est ce qui alimente le bloc « pourquoi on perd » du pilotage.</p>
+    <label class="fld"><span>Précision (facultatif)</span><input type="text" id="pr-refnote" placeholder="ex : est resté chez son banquier, trouve les frais SCPI élevés…"></label>
+    <div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:8px">
+      ${PROPO_MOTIFS.map((m,i)=>`<button class="btn secondary pr-mot" data-i="${i}">${esc(m)}</button>`).join("")}
+    </div>
+    <div class="modal-actions"><button class="btn secondary" id="pr-refcancel">Annuler — la proposition reste en l'état</button></div>
+  </div>`;
+  document.body.appendChild(back);
+  const annule = ()=>{ back.remove(); render(); };
+  back.addEventListener("click", e=>{ if (e.target===back) annule(); });
+  back.querySelector("#pr-refcancel").addEventListener("click", annule);
+  back.querySelectorAll(".pr-mot").forEach(b=>b.addEventListener("click", async ()=>{
+    propo.data = {...(propo.data||{}), refus_motif:PROPO_MOTIFS[+b.dataset.i],
+      refus_note:back.querySelector("#pr-refnote").value.trim()};
+    back.remove();
+    await propoSetStatut(propo, "Refusée");
+    render();
+  }));
+}
 async function propoSetStatut(propo, statut){
   try{
+    if (statut==="Refusée" && !propo.data?.refus_motif){ propoRefusModal(propo); return; }   /* v76 */
     const avant = state.propositions.find(x=>x.id===propo.id);
     propo.statut = statut;
     if (statut==="Envoyée" && (!avant || avant.statut!=="Envoyée" || !propo.data?.envoyee_le)){
       /* v67 : on pose la vraie date d'envoi ; un renvoi remet la validité et les relances à zéro */
-      propo.data = {...(propo.data||{}), envoyee_le:new Date().toISOString().slice(0,10), relances:[]};
+      propo.data = {...(propo.data||{}), envoyee_le:new Date().toISOString().slice(0,10), relances:[],
+        refus_motif:undefined, refus_note:undefined, decide_le:undefined};
     }
+    if (statut==="Acceptée" || statut==="Refusée")
+      propo.data = {...(propo.data||{}), decide_le:new Date().toISOString().slice(0,10)};   /* v76 : délai de réponse */
     await state.db.saveProposition(propo);
     if (statut==="Envoyée" || statut==="Acceptée" || statut==="Refusée"){
       await state.db.addInteraction({client_key:propo.client_key, conseiller_id:state.profile.conseiller_id||null,
-        type:"Note", note:`📄 Proposition ${eur(+propo.data?.montant||0)} — ${statut.toLowerCase()}`});
+        type:"Note", note:`📄 Proposition ${eur(+propo.data?.montant||0)} — ${statut.toLowerCase()}${statut==="Refusée" && propo.data?.refus_motif? ` (${propo.data.refus_motif}${propo.data.refus_note? " — "+propo.data.refus_note : ""})` : ""}`});
     }
     if (statut==="Acceptée" && propo.pipeline_id){
       /* v67 : accepter = le client a validé → l'affaire suit le circuit complet */
@@ -5346,7 +5375,7 @@ function propoClientPicker(){
 function propoRowsHTML(props, showClient){
   return props.map(pr=>{
     return `<tr class="clickable propo-row" data-id="${pr.id}">
-      ${showClient? `<td><b>${esc(nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key))}</b></td>`:""}
+      ${showClient? `<td><b>${esc(nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key))}</b>${(+pr.data?.v||1)>1? ` <span class="badge neutral" title="Version ${pr.data.v} — remplace la précédente"><span class="dot"></span>V${pr.data.v}</span>`:""}${pr.statut==="Refusée" && pr.data?.refus_motif? ` <span class="small muted" title="${esc(pr.data.refus_note||"")}">· ${esc(pr.data.refus_motif)}</span>`:""}</td>`:""}
       <td>${new Date(pr.updated_at||pr.created_at).toLocaleDateString("fr-FR")}${pr.statut==="Envoyée"? `${propoExpiree(pr)? ` <span class="badge urgent"><span class="dot"></span>⌛ expirée (${propoJoursEnvoi(pr)} j)</span>` : propoJours(pr)>=PROPO_RELANCE_J? ` <span class="ksleep">💤 ${propoJours(pr)} j</span>`:""}${(pr.data?.relances||[]).length? ` <span class="small muted">· ${pr.data.relances.length} relance(s)</span>`:""}` : ""}</td>
       <td><span class="cdot" style="background:${consColor(pr.conseiller_id)}"></span>${esc(consName(pr.conseiller_id))}</td>
       <td class="num"><b>${eur(+pr.data?.montant||0)}</b></td>
@@ -5355,6 +5384,7 @@ function propoRowsHTML(props, showClient){
       <td>${isSuivi()? esc(pr.statut) : `<select class="propo-statut" data-id="${pr.id}">${PROPO_STATUTS.map(s=>`<option ${s===pr.statut?"selected":""}>${s}</option>`).join("")}</select>`}</td>
       <td style="white-space:nowrap">
         ${pr.statut==="Envoyée" && !isSuivi()? `<button class="btn secondary small propo-rel" data-id="${pr.id}" title="Noter une relance client — le compteur 💤 repart de zéro">📞 Relance</button>`:""}
+        ${(pr.statut!=="Brouillon" && pr.statut!=="Remplacée" && !isSuivi())? `<button class="btn secondary small propo-v2" data-id="${pr.id}" title="Créer la version suivante en brouillon (après un retour client) — l'envoyée d'origine passe en « Remplacée »">⧉ V2</button>`:""}
         <button class="btn secondary small propo-doc" data-id="${pr.id}">${ICONS.doc} Document</button>
         ${isSuivi()? "" : `<button class="btn danger small propo-del" data-id="${pr.id}">✕</button>`}
       </td></tr>`;
@@ -5373,6 +5403,23 @@ function bindPropoRows(scope, refresh){
     e.stopPropagation();
     const pr = state.propositions.find(x=>x.id===+sel.dataset.id);
     if (pr){ await propoSetStatut({...pr}, sel.value); refresh(); }
+  }));
+  scope.querySelectorAll(".propo-v2").forEach(b=>b.addEventListener("click", async e=>{   /* v76 */
+    e.stopPropagation();
+    const pr = state.propositions.find(x=>x.id===+b.dataset.id);
+    if (!pr) return;
+    try{
+      const d = JSON.parse(JSON.stringify(pr.data||{}));
+      delete d.envoyee_le; delete d.relances; delete d.refus_motif; delete d.refus_note; delete d.decide_le;
+      d.v = (+pr.data?.v||1)+1; d.remplace_id = pr.id;
+      const newId = await state.db.saveProposition({client_key:pr.client_key, pipeline_id:pr.pipeline_id||null,
+        conseiller_id:pr.conseiller_id, statut:"Brouillon", mode:pr.mode, data:d});
+      if (pr.statut==="Envoyée") await state.db.saveProposition({...pr, statut:"Remplacée"});
+      await state.db.loadAll(); refresh();
+      toast(`Version ${d.v} créée en brouillon — ajuste-la puis renvoie-la`);
+      const nv = state.propositions.find(x=>x.id===newId);
+      if (nv) propoWizard(JSON.parse(JSON.stringify(nv)));
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
   scope.querySelectorAll(".propo-rel").forEach(b=>b.addEventListener("click", async e=>{   /* v67 */
     e.stopPropagation();
@@ -5435,6 +5482,29 @@ function viewPropositions(root){
     ${(()=>{ const n = state.propositions.filter(propoExpiree).length;
       return tile("⌛ Expirées", n, n? `envoyées il y a ${PROPO_VALID_J} j+ sans réponse — à refaire ou à classer` : "aucune ✓"); })()}
   </div>
+  ${isManager()? (()=>{ /* v76 : le pilotage des propositions */
+    const rows = activeConseillers().map(c=>{
+      const mine = state.propositions.filter(pr=>pr.conseiller_id===c.id);
+      const acc = mine.filter(pr=>pr.statut==="Acceptée").length;
+      const ref = mine.filter(pr=>pr.statut==="Refusée").length;
+      const att = mine.filter(pr=>pr.statut==="Envoyée").length;
+      const dels = mine.filter(pr=>(pr.statut==="Acceptée"||pr.statut==="Refusée") && pr.data?.envoyee_le)
+        .map(pr=>Math.max(0, (new Date(String(pr.data.decide_le||pr.updated_at||pr.created_at).slice(0,10)+"T00:00:00") - new Date(pr.data.envoyee_le+"T00:00:00"))/86400000));
+      const dm = dels.length? Math.round(dels.reduce((a,b)=>a+b,0)/dels.length) : null;
+      return {c, acc, ref, att, dm};
+    }).filter(r=>r.acc+r.ref+r.att);
+    const motifs = {};
+    for (const pr of state.propositions) if (pr.statut==="Refusée" && pr.data?.refus_motif) motifs[pr.data.refus_motif] = (motifs[pr.data.refus_motif]||0)+1;
+    return rows.length? `<div class="card" style="margin-bottom:12px"><h3 class="mt0">📊 Le pilotage des propositions</h3>
+      <div class="tbl-scroll"><table class="tbl dense">
+        <thead><tr><th>Conseiller</th><th class="num">En attente</th><th class="num">Acceptées</th><th class="num">Refusées</th><th class="num">Taux d'acceptation</th><th class="num">Délai moyen de réponse</th></tr></thead>
+        <tbody>${rows.map(r=>`<tr><td><span class="cdot" style="background:${consColor(r.c.id)}"></span><b>${esc(r.c.nom)}</b></td>
+          <td class="num">${r.att||"—"}</td><td class="num">${r.acc||"—"}</td><td class="num">${r.ref||"—"}</td>
+          <td class="num"><b>${(r.acc+r.ref)? fmtPct(r.acc/(r.acc+r.ref)) : "—"}</b></td>
+          <td class="num">${r.dm!=null? r.dm+" j" : "—"}</td></tr>`).join("")}</tbody></table></div>
+      ${Object.keys(motifs).length? `<p class="small" style="margin:8px 0 0"><b>Pourquoi on perd :</b> ${Object.entries(motifs).sort((a,b)=>b[1]-a[1]).map(([m,n])=>`${esc(m)} <b>× ${n}</b>`).join(" &nbsp;·&nbsp; ")}</p>`
+        : `<p class="small muted" style="margin:8px 0 0">Les motifs de refus s'accumuleront ici au fil des décisions.</p>`}
+    </div>` : ""; })() : ""}
   <div class="inline-controls" style="margin:12px 0">
     <label class="fld" style="min-width:240px"><span>Recherche</span>
       <input type="search" id="prop-search" placeholder="nom du client…" value="${esc(state._propSearch||"")}"></label>
