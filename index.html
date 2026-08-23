@@ -1607,6 +1607,7 @@ function applyTheme(t){
   if (t === "auto") document.documentElement.removeAttribute("data-theme");
   else document.documentElement.setAttribute("data-theme", t);
 }
+function setTheme(t){ try{ localStorage.setItem("eligi-theme", t); }catch(e){} applyTheme(t); }
 function cycleTheme(){
   const next = {auto:"dark", dark:"light", light:"auto"}[getTheme()] || "auto";
   try{ localStorage.setItem("eligi-theme", next); }catch(e){}
@@ -6980,6 +6981,14 @@ function viewParam(root){
     <button class="btn" id="exp-json">⬇ Export JSON (complet)</button>
     <button class="btn secondary" id="exp-xls">⬇ Export Excel</button>
   </div>
+  <div class="card" style="margin-bottom:14px;display:flex;align-items:center;gap:14px;flex-wrap:wrap">
+    <div style="flex:1;min-width:220px"><b>🎨 Thème de l'interface</b>
+      <div class="small muted">Préférence propre à ce navigateur — chaque poste garde son propre réglage.</div></div>
+    <div class="seg" id="th-seg">
+      ${[["light","☀️ Clair"],["dark","🌙 Sombre"],["auto","🖥 Automatique"]].map(([v,l])=>
+        `<button data-th="${v}" class="${getTheme()===v?"active":""}">${l}</button>`).join("")}
+    </div>
+  </div>
   <div class="row">
     <div class="card grow">
       <h3 class="mt0">Conseillers et objectifs hebdomadaires</h3>
@@ -7205,6 +7214,11 @@ function viewParam(root){
       });
       await state.db.loadAll(); toast("Conseiller enregistré ✓"); render();
     }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  $("#th-seg")?.querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{
+    setTheme(b.dataset.th);
+    toast(b.dataset.th==="auto"? "Thème : automatique (suit le système)" : b.dataset.th==="dark"? "Thème : sombre" : "Thème : clair");
+    viewParam(root);
   }));
   $("#exp-json")?.addEventListener("click", ()=>{
     expDownload(`portail-eligi-sauvegarde-${new Date().toISOString().slice(0,10)}.json`, JSON.stringify(expTables(), null, 1), "application/json");
@@ -7769,7 +7783,6 @@ function render(){
       <button class="gs-open" id="gs-open" title="Recherche globale (Ctrl+K)">🔍<span class="nav-label">Rechercher…</span><kbd>Ctrl K</kbd></button>
       <nav class="snav">${views.map(([k,v])=>`<button data-nav="${k}" class="${k===state.view?"active":""}" title="${esc(v.label)}">${v.icon}<span class="nav-label">${v.label}</span></button>`).join("")}</nav>
       <div class="side-bottom">
-        <button class="theme-btn" id="theme-toggle" title="Changer de thème">${ICONS.sun}<span class="nav-label">Thème</span></button>
         <div class="user-mini">
           <b>${esc(String(state.profile.nom_affichage||"").trim() || myConseiller()?.nom || state.profile.email)}</b>
           <span>${state.profile.role==="manager"?"Manager":state.profile.role==="suivi"?"Suivi":state.profile.role==="ingenieur"?"Ingénieur patrimonial":"Conseiller"}</span><br>
@@ -7785,7 +7798,6 @@ function render(){
   }));
   $("#gs-open").addEventListener("click", globalSearchModal);
   $("#logout").addEventListener("click", logout);
-  $("#theme-toggle").addEventListener("click", cycleTheme);
   $("#side-toggle").addEventListener("click", ()=>{
     SIDE_MIN = !SIDE_MIN;
     try{ localStorage.setItem("eligi_side", SIDE_MIN? "min" : "full"); }catch(e){}
