@@ -426,6 +426,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 /* v46 — clic sur une priorité du cockpit : la carte visée est surlignée */
 .flash-cible{outline:2px solid var(--s1); outline-offset:3px}
 .tl-item.tl-lien{cursor:pointer; border-radius:8px}
+.tl-note{cursor:zoom-in}
+.tl-note:hover > span:first-child{text-decoration:underline dotted; text-underline-offset:3px}
 .tl-item.tl-lien:hover{background:var(--surface-2)}
 @media (max-width:1100px){
   .cli-detail > .row{grid-template-columns:1fr; grid-template-areas:"ident" "suivi"}
@@ -4035,7 +4037,7 @@ function viewClients(root){
                 <div class="tl-body"><span>Revue annuelle réalisée</span>
                   <div class="tl-meta">Conformité · ${new Date(ev.rv+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})}</div></div>
               </div>` : ev.kind==="ix" ? `
-              <div class="tl-item"><span class="tl-ico">${IX_ICO[ev.i.type]||"📝"}</span>
+              <div class="tl-item tl-note ix-note-full" data-ixid="${ev.i.id}" title="Cliquer pour lire la note en entier"><span class="tl-ico">${IX_ICO[ev.i.type]||"📝"}</span>
                 <div class="tl-body"><span>${esc(ev.i.note)}</span>
                   <div class="tl-meta">${esc(ev.i.type)} · ${esc(ev.i.auteur || (ev.i.conseiller_id? consName(ev.i.conseiller_id) : "Manager"))} · ${ev.t? new Date(ev.t).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div>
                 ${(isManager()||ev.i.conseiller_id===state.profile.conseiller_id)? `<button class="btn danger small ix-del" data-id="${ev.i.id}" style="padding:1px 7px">✕</button>`:""}
@@ -4226,6 +4228,11 @@ function viewClients(root){
       }
       await state.db.loadAll(); toast(type==="Tâche"? "Tâche ajoutée ✓":"Suivi ajouté ✓"); viewClients(root);
     }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  root.querySelectorAll(".ix-note-full").forEach(el=>el.addEventListener("click", e=>{   /* v69 */
+    if (e.target.closest("button,input")) return;
+    const i = state.interactions.find(x=>x.id===+el.dataset.ixid);
+    if (i) noteViewer(i.type||"Échange", i.note, [i.auteur || (i.conseiller_id? consName(i.conseiller_id) : ""), (i.quand? new Date(i.quand).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "")].filter(Boolean).join(" · "));
   }));
   root.querySelectorAll(".ix-del").forEach(b=>b.addEventListener("click", async e=>{
     e.stopPropagation();
@@ -5126,6 +5133,20 @@ Le report en saisie hebdo puis la question « Et maintenant ? » (back-office / 
     await state.db.loadAll(); toast(`Proposition ${statut.toLowerCase()} ✓`);
   }catch(err){ toast("Erreur : "+(err.message||err)); }
 }
+function noteViewer(titre, texte, meta){ /* v69 : lire une note en entier */
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  const txt = String(texte||"").replace(/\s+·\s+/g, "\n");   /* les imports repliaient les sauts de ligne en « · » */
+  back.innerHTML = `<div class="modal" style="width:660px">
+    <h3>🗒 ${esc(titre||"Note")}</h3>
+    ${meta? `<p class="small muted" style="margin-top:0">${esc(meta)}</p>`:""}
+    <div class="card" style="max-height:55vh;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13.5px;line-height:1.6;padding:12px 14px">${esc(txt)}</div>
+    <div class="modal-actions"><button class="btn secondary" id="nv-close">Fermer</button></div>
+  </div>`;
+  document.body.appendChild(back);
+  back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
+  back.querySelector("#nv-close").addEventListener("click", ()=>back.remove());
+}
 function propoStatutBadge(s){
   const cls = s==="Acceptée"?"ok":s==="Refusée"?"urgent":s==="Envoyée"?"watch":"neutral";
   return `<span class="badge ${cls}"><span class="dot"></span>${esc(s)}</span>`;
@@ -5742,7 +5763,7 @@ function missionModal(m, opts={}){
           <button class="btn secondary small" id="mi-addnote">Noter</button>
         </div>
         <div class="tl" style="max-height:230px;overflow-y:auto">
-          ${(m.journal||[]).map(j=>`<div class="tl-item"><span class="tl-ico">📝</span>
+          ${(m.journal||[]).map((j,i)=>`<div class="tl-item tl-note mi-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">📝</span>
             <div class="tl-body"><span>${esc(j.n)}</span>
               <div class="tl-meta">${j.c? esc(consName(j.c)) : "Équipe"} · ${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("")
           || `<div class="empty">Aucune note pour l'instant</div>`}
@@ -5798,6 +5819,10 @@ function missionModal(m, opts={}){
       renderModal();
     };
     back.querySelector("#mi-addnote").addEventListener("click", addNote);
+    back.querySelectorAll(".mi-jnote").forEach(el=>el.addEventListener("click", ()=>{   /* v69 */
+      const j = (m.journal||[])[+el.dataset.i];
+      if (j) noteViewer(m.titre||m.type, j.n, [(j.c? consName(j.c) : "Équipe"), (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "")].filter(Boolean).join(" · "));
+    }));
     back.querySelector("#mi-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
     back.querySelector("#mi-statut").addEventListener("change", ()=>{ readForm(); renderModal(); });
     back.querySelector("#mi-archiver")?.addEventListener("click", async ()=>{
@@ -6072,7 +6097,7 @@ function boModal(o, statutInitial, clientKey){
           <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newet" placeholder="nouvelle étape… (CNI, RIB, bulletin signé…)" style="flex:1"><button class="btn secondary small" id="bo-addet">Ajouter</button></div>
         </div>
         <div class="full"><span class="small muted" style="font-weight:600">Journal</span>
-          <div class="tl" style="max-height:150px">${(o.journal||[]).slice().reverse().map(j=>`<div class="tl-item"><span class="tl-ico">🗒</span><div class="tl-body"><span>${esc(j.n)}</span><div class="tl-meta">${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune note</p>`}</div>
+          <div class="tl" style="max-height:150px">${(o.journal||[]).slice().reverse().map((j,i)=>`<div class="tl-item tl-note bo-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">🗒</span><div class="tl-body"><span>${esc(j.n)}</span><div class="tl-meta">${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune note</p>`}</div>
           <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newnote" placeholder="note d'avancement…" style="flex:1"><button class="btn secondary small" id="bo-addnote">Noter</button></div>
         </div>
       </div>
@@ -6098,6 +6123,11 @@ function boModal(o, statutInitial, clientKey){
     back.querySelector("#bo-newet").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addEt(); } });
     const addNote = ()=>{ const el = back.querySelector("#bo-newnote"); const n = el.value.trim(); if (!n) return; lireForm(); o.journal.push({q:new Date().toISOString(), n:monNom()+" — "+n}); rendre(); };
     back.querySelector("#bo-addnote").addEventListener("click", addNote);
+    back.querySelectorAll(".bo-jnote").forEach(el=>el.addEventListener("click", ()=>{   /* v69 */
+      const list = (o.journal||[]).slice().reverse();
+      const j = list[+el.dataset.i];
+      if (j) noteViewer(o.titre, j.n, (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : ""));
+    }));
     back.querySelector("#bo-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
     back.querySelectorAll(".bo-et-done").forEach(c=>c.addEventListener("change", ()=>{ lireForm(); o.etapes[+c.dataset.i].done = c.checked; rendre(); }));
     back.querySelectorAll(".bo-et-del").forEach(b=>b.addEventListener("click", ()=>{ lireForm(); o.etapes.splice(+b.dataset.i,1); rendre(); }));
@@ -6181,7 +6211,7 @@ function trelloAnalyse(d){
   const comByCard = {};
   for (const a of (d.actions||[])) if (a.type==="commentCard" && a.data?.card?.id && a.data.text)
     (comByCard[a.data.card.id] = comByCard[a.data.card.id]||[]).push({q:a.date,
-      n:"💬 "+(a.memberCreator?.fullName? (splitNomPrenom(a.memberCreator.fullName).prenom||a.memberCreator.fullName)+" — " : "")+String(a.data.text).replace(/\s*\n\s*/g," · ").slice(0,300)});
+      n:"💬 "+(a.memberCreator?.fullName? (splitNomPrenom(a.memberCreator.fullName).prenom||a.memberCreator.fullName)+" — " : "")+String(a.data.text).replace(/\s*\n\s*/g," · ").slice(0,2000)});
   const idx = trelloIndexClients();
   const dejaT = new Set(state.operations.map(o=>o.trello_id).filter(Boolean));
   const modeles = [];
@@ -6283,7 +6313,7 @@ function trelloAnalyseMissions(d){
   const comByCard = {};
   for (const a of (d.actions||[])) if (a.type==="commentCard" && a.data?.card?.id && a.data.text)
     (comByCard[a.data.card.id] = comByCard[a.data.card.id]||[]).push({q:a.date,
-      n:(a.memberCreator?.fullName? (splitNomPrenom(a.memberCreator.fullName).prenom||a.memberCreator.fullName)+" — " : "")+String(a.data.text).replace(/\s*\n\s*/g," · ").slice(0,300)});
+      n:(a.memberCreator?.fullName? (splitNomPrenom(a.memberCreator.fullName).prenom||a.memberCreator.fullName)+" — " : "")+String(a.data.text).replace(/\s*\n\s*/g," · ").slice(0,2000)});
   const idx = trelloIndexClients();
   const dejaM = new Set();
   for (const m of state.missions){ const mt = String(m.description||"").match(/\[Trello ([\w-]+)\]/); if (mt) dejaM.add(mt[1]); }
@@ -6575,7 +6605,7 @@ function o2sAnalyseSuivis(objs){
     if (!brut || !date) continue;
     const key = (res.get(brut)?.key) || normName(brut);
     const objet = O2S_VIDE(o["Objet du suivi"])? "" : String(o["Objet du suivi"]).trim();
-    const noteC = O2S_VIDE(o["Note"])? "" : String(o["Note"]).replace(/\s*\n\s*/g," · ").trim().slice(0,400);
+    const noteC = O2S_VIDE(o["Note"])? "" : String(o["Note"]).replace(/\s*\n\s*/g," · ").trim().slice(0,1000);
     const note = [objet, noteC].filter(Boolean).join(" — ") || String(o["Type du suivi"]||"Suivi O2S").trim();
     const sig = key+"|"+date+"|"+note;
     if (vus.has(sig)){ out.doublons++; continue; }
