@@ -1516,6 +1516,7 @@ function lineChart(el, {labels, series, height=260}){
   const y = v => padT + ih - (v/top)*ih;
 
   let g = "";
+  const _lbls = [];   /* v73 : positions déjà prises par les étiquettes de fin */
   for (const t of ticks){
     g += `<line x1="${padL}" y1="${y(t)}" x2="${W-padR}" y2="${y(t)}" stroke="var(--grid)" stroke-width="1"/>`;
     g += `<text x="${padL-8}" y="${y(t)+4}" text-anchor="end" font-size="10.5" fill="var(--muted)">${fmtShort(t)}</text>`;
@@ -1531,7 +1532,11 @@ function lineChart(el, {labels, series, height=260}){
           ${s.dashed?'stroke-dasharray="5 4"':''} stroke-linejoin="round" stroke-linecap="round"/>`;
     const last = s.values[s.values.length-1];
     g += `<circle cx="${x(s.values.length-1)}" cy="${y(last)}" r="3" fill="${s.color}" stroke="var(--surface)" stroke-width="2"/>`;
-    g += `<text x="${x(s.values.length-1)+8}" y="${y(last)+4}" font-size="11" font-weight="600" fill="var(--ink-2)">${esc(s.name)}</text>`;
+    /* v73 : anti-chevauchement des étiquettes de fin de courbe */
+    let ly = y(last)+4;
+    while (_lbls.some(v=>Math.abs(v-ly)<13)) ly += 13;
+    _lbls.push(ly);
+    g += `<text x="${x(s.values.length-1)+8}" y="${ly}" font-size="11" font-weight="600" fill="var(--ink-2)">${esc(s.name)}</text>`;
   }
   g += `<line id="xh" x1="0" y1="${padT}" x2="0" y2="${padT+ih}" stroke="var(--baseline)" stroke-width="1" style="display:none"/>`;
   series.forEach((s,si)=>{ g += `<circle id="hp${si}" r="4" fill="${s.color}" stroke="var(--surface)" stroke-width="2" style="display:none"/>`; });
