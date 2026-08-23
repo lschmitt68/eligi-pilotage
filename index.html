@@ -3138,6 +3138,8 @@ function viewJourIngenieur(root){
   const miJ7 = Date.now() - 7*86400000;
   const miNouvelles = state.missions.filter(m=>miOuverte(m) && new Date(m.created_at||0).getTime() >= miJ7)
     .sort((a,b)=>String(b.created_at||"").localeCompare(String(a.created_at||"")));   /* v61 */
+  const miStag = ouvertes.filter(m=>!miStFini(m.statut) && staleDays(m) >= 21)
+    .sort((a,b)=>staleDays(b)-staleDays(a));   /* v66 : cartes immobiles — les mêmes qu'en réunion */
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const miRow = m => `<tr class="clickable ji-mi" data-mid="${m.id}">
     <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
@@ -3150,9 +3152,20 @@ function viewJourIngenieur(root){
     ${tile("Échéances dépassées", retard.length, retard.length? "à traiter en priorité" : "rien en retard ✓")}
     ${tile("Échéances sous 14 jours", proches.length)}
     ${tile("💶 À facturer", aFact.length, aFact.length? "en attente de facture" : "rien en attente ✓")}
+    ${tile("🐌 Sans mouvement", miStag.length, miStag.length? "21 jours ou plus" : "tableau vivant ✓")}
     ${tile("À encaisser", eur(aEncaisser), "honoraires facturés non encaissés")}
     ${tile("Back-office ouvert", bo.length, "opérations sur contrats")}
   </div>
+  ${miStag.length? `<div class="card sect" style="margin-top:10px" id="ji-stag">
+    <h3 class="mt0">🐌 Cartes qui n'ont pas bougé (21 j+)</h3>
+    <div class="jr-wrap"><table class="tbl dense"><tbody>${miStag.slice(0,8).map(m=>`
+      <tr class="clickable ji-mi" data-mid="${m.id}">
+        <td><b>${esc(miClientNom(m.client_key))}</b></td><td class="small">${esc(m.titre||m.type)}</td>
+        <td class="small">${esc(m.statut)}</td>
+        <td class="num"><span class="ksleep">💤 ${staleDays(m)} j</span></td>
+      </tr>`).join("")}</tbody></table></div>
+    <p class="small muted" style="margin-bottom:0">Qu'est-ce qui bloque — pièces client, partenaire, arbitrage interne ? Une relance notée dans la fiche remet la carte en mouvement. Cette liste est reprise en réunion hebdo.</p>
+  </div>`:""}
   ${miNouvelles.length? `<div class="card sect" style="margin-top:10px" id="ji-nouvelles">
     <h3 class="mt0">🆕 Nouvelles missions (7 jours)</h3>
     <div class="jr-wrap"><table class="tbl dense"><tbody>${miNouvelles.slice(0,8).map(m=>`
@@ -3204,11 +3217,13 @@ function viewJourSuivi(root){ /* v54 : l'aujourd'hui de la facturation et du bac
   const J7 = Date.now() - 7*86400000;
   const boNouvelles = state.operations.filter(o=>o.statut!=="Terminé" && new Date(o.created_at||0).getTime() >= J7)
     .sort((a,b)=>String(b.created_at||"").localeCompare(String(a.created_at||"")));   /* v61 : ce qui vient d'arriver */
+  const boStag = bo.filter(o=>staleDays(o) >= STALE_JOURS).sort((a,b)=>staleDays(b)-staleDays(a));   /* v66 */
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
   root.innerHTML = `
   ${vhead("Aujourd'hui", dateStr.charAt(0).toUpperCase()+dateStr.slice(1), "")}
   <div class="tiles">
     ${tile("🆕 Arrivées (7 j)", boNouvelles.length, boNouvelles.length? "nouvelles opérations à prendre en charge" : "rien de nouveau")}
+    ${tile("💤 Sans mouvement", boStag.length, boStag.length? STALE_JOURS+" jours ou plus" : "tableau vivant ✓")}
     ${tile("💶 Missions à facturer", aFact.length, aFact.length? (mtFact? eur(mtFact)+" au devis" : "montants au devis à vérifier") : "rien en attente ✓")}
     ${tile("À encaisser", eur(aEncaisser), "facturé non encaissé")}
     ${tile("Back-office à traiter", boUrgent.length, "à faire, relances, échéances dépassées")}
@@ -3250,6 +3265,17 @@ function viewJourSuivi(root){ /* v54 : l'aujourd'hui de la facturation et du bac
         ${boUrgent.length>10? `<p class="small muted" style="margin-bottom:0">le reste dans la vue Back-office</p>`:""}`
       : `<div class="empty">Rien d'urgent au back-office ✓</div>`}
     </div>
+    ${boStag.length? `<div class="card grow" id="js-stag">
+      <h3 class="mt0">💤 Sans mouvement (${STALE_JOURS} j+)</h3>
+      <div class="jr-wrap"><table class="tbl dense"><tbody>${boStag.slice(0,10).map(o=>{ const pr = boProgress(o);
+        return `<tr class="clickable js-bo" data-oid="${o.id}">
+          <td><b>${esc(o.client_key? nomAffiche(o.client_key, o.client_key) : "à rattacher")}</b></td>
+          <td class="small">${esc(o.titre)}</td><td class="small">${esc(o.statut)}</td>
+          <td class="small">${pr.total? pr.done+"/"+pr.total : "—"}</td>
+          <td class="num"><span class="ksleep">💤 ${staleDays(o)} j</span></td>
+        </tr>`; }).join("")}</tbody></table></div>
+      <p class="small muted" style="margin-bottom:0">En attente d'une pièce, d'un partenaire, du client ? Relance et note-le dans le journal de l'opération. Cette liste est reprise en réunion hebdo.</p>
+    </div>`:""}
   </div>`;
   root.querySelectorAll(".js-mi").forEach(r=>r.addEventListener("click", ()=>{ const m = state.missions.find(x=>x.id===+r.dataset.mid); if (m) missionModal(m); }));
   root.querySelectorAll(".js-bo").forEach(r=>r.addEventListener("click", ()=>{ const o = state.operations.find(x=>x.id===+r.dataset.oid); if (o) boModal(o); }));
@@ -3284,7 +3310,11 @@ function viewJour(root){
   const noSaisie = mgr? activeConseillers().filter(c=>!isConge(c.id,cur) && !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===cur)) : [];
   const sansCx = sansContact().filter(x=>{ if (mgr) return true; const cc = clientConseillers(x.key); return !cc.length || cc.includes(meId); });
   const props = propoARelancer().sort((a,b)=>propoJours(b)-propoJours(a));
-  const aFact = missionsAFacturer();   /* v54 : la facturation concerne le cabinet, pas un conseiller */
+  const aFact = mgr? missionsAFacturer() : [];   /* v54/v66 : la file 💶 est l'affaire du manager, de la facturation et de l'ingénierie — pas du conseiller */
+  const enTrait = (!mgr && meId)? [                /* v66 : où en sont MES dossiers confiés au back-office / à l'ingénierie */
+    ...state.operations.filter(o=>o.statut!=="Terminé" && o.conseiller_id===meId).map(o=>({t:"bo", r:o})),
+    ...state.missions.filter(m=>miOuverte(m) && m.conseiller_id===meId).map(m=>({t:"mi", r:m})),
+  ].sort((a,b)=>staleDays(b.r)-staleDays(a.r)) : [];
   const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
   const opRow = (p, extra="") => `<tr class="clickable jr-op" data-id="${p.id}">
     ${mgr? `<td><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span></td>`:""}
@@ -3345,9 +3375,22 @@ function viewJour(root){
   </div>` : `
   <div class="sect sect-head"><h2>🔥 Affaires — priorités</h2><span class="sub">rien à relancer, aucun closing sous 14 jours, pas de signature en attente — affaires vivantes ✓</span></div>`}
 
-  ${(props.length || missTard.length || missSans.length || revues.length || sansCx.length || aFact.length)? `
-  <div class="sect sect-head"><h2>🗂 Relation & suivi</h2><span class="sub">propositions envoyées, missions, revues annuelles, clients sans nouvelles</span></div>
+  ${(props.length || missTard.length || missSans.length || revues.length || sansCx.length || aFact.length || enTrait.length)? `
+  <div class="sect sect-head"><h2>🗂 Relation & suivi</h2><span class="sub">propositions envoyées, dossiers en traitement, missions, revues annuelles, clients sans nouvelles</span></div>
   <div class="row">
+    ${enTrait.length? `<div class="card grow" id="jr-encours">
+      <h3 class="mt0">📥 Mes dossiers en traitement <span class="small muted" style="font-weight:400">(${enTrait.length})</span></h3>
+      <div class="jr-wrap"><table class="tbl dense"><tbody>${enTrait.slice(0,8).map(x=>`
+        <tr class="clickable jr-enc" data-t="${x.t}" data-id="${x.r.id}">
+          <td style="width:26px">${x.t==="bo"? "📥" : "🧰"}</td>
+          <td><b>${esc(x.t==="bo"? nomAffiche(x.r.client_key, x.r.client_key||"—") : miClientNom(x.r.client_key))}</b></td>
+          <td class="small" style="white-space:normal">${esc(x.r.titre||x.r.type||"")}</td>
+          <td class="small">${esc(x.r.statut)}</td>
+          <td class="num small">${staleDays(x.r)>=14? `<span class="ksleep">💤 ${staleDays(x.r)} j</span>` : `<span class="muted">${staleDays(x.r)} j</span>`}</td>
+        </tr>`).join("")}</tbody></table></div>
+      ${enTrait.length>8? `<p class="small muted" style="margin-bottom:0">+ ${enTrait.length-8} autres dans le Back-office / les Missions</p>`:""}
+      <p class="small muted" style="margin-bottom:0">Tes opérations au back-office et tes missions chez l'ingénierie — tu seras prévenu ici quand une opération se termine.</p>
+    </div>`:""}
     ${props.length? `<div class="card grow" id="jr-props">
       <h3 class="mt0">📄 Propositions à relancer</h3>
       <div class="jr-wrap"><table class="tbl dense"><tbody>${props.slice(0,6).map(pr=>`
@@ -3429,6 +3472,10 @@ function viewJour(root){
   root.querySelectorAll(".jr-mi").forEach(r=>r.addEventListener("click", ()=>{
     const m = state.missions.find(x=>x.id===+r.dataset.mid);
     if (m) missionModal(m);
+  }));
+  root.querySelectorAll(".jr-enc").forEach(r=>r.addEventListener("click", ()=>{  /* v66 */
+    if (r.dataset.t==="bo"){ const o = state.operations.find(x=>x.id===+r.dataset.id); if (o) boModal(o); }
+    else { const m = state.missions.find(x=>x.id===+r.dataset.id); if (m) missionModal(m); }
   }));
 }
 
