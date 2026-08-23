@@ -5725,8 +5725,10 @@ function missionModal(m, opts={}){
   const IXN = {};
   const renderModal = ()=>{
     const pr = miProgress(m);
-    back.innerHTML = `<div class="modal" style="width:760px;max-width:96vw">
+    back.innerHTML = `<div class="modal" style="width:1080px;max-width:96vw">
     <h3>${isNew? "Nouvelle mission" : `Mission — ${esc(miClientNom(m.client_key))}`}</h3>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch">
+    <div style="flex:1.35;min-width:400px">
     <div class="form-grid">
       <label class="fld"><span>Client</span><input type="text" id="mi-client" value="${esc(clientNom)}" list="mi-clients" autocomplete="off">
         <datalist id="mi-clients">${[...clientsMap.values()].sort((a,b)=>a.localeCompare(b,"fr")).map(n=>`<option value="${esc(n)}">`).join("")}</datalist></label>
@@ -5743,32 +5745,32 @@ function missionModal(m, opts={}){
       <label class="fld"><span>Encaissé (€ HT)</span><input type="number" id="mi-enc" value="${+m.hono_encaisse||0}" min="0" step="any"></label>
       <label class="fld full"><span>Contexte / notes du dossier</span><textarea id="mi-desc" rows="2">${esc(m.description||"")}</textarea></label>
     </div>
-    <div class="row" style="margin-top:10px">
-      <div class="card grow" style="min-width:300px">
-        <h3 class="mt0" style="display:flex;justify-content:space-between;align-items:center"><span>Check-list ${pr.total? `<span class="small muted">${pr.done}/${pr.total}</span>`:""}</span>
-          ${!m.etapes.length? `<select id="mi-modele" class="small" style="max-width:230px"><option value="">Appliquer un modèle…</option>
-            ${missionModeles().map((mo,i)=>`<option value="${i}">${esc(mo.nom)} (${mo.items.length})</option>`).join("")}</select>`:""}</h3>
-        <div id="mi-etapes" style="max-height:260px;overflow-y:auto">
-          ${m.etapes.map((e,i)=>`<label class="mi-et"><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span><button class="mi-etdel" data-ei="${i}" title="Retirer l'étape">✕</button></label>`).join("") || `<div class="empty">Aucune étape — applique un modèle ou ajoute les tiennes</div>`}
-        </div>
-        <div class="inline-controls" style="margin-top:8px">
-          <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newet" placeholder="Nouvelle étape…"></label>
-          <button class="btn secondary small" id="mi-addet">Ajouter</button>
-        </div>
+    <div class="card" style="margin-top:10px">
+      <h3 class="mt0" style="display:flex;justify-content:space-between;align-items:center"><span>Check-list ${pr.total? `<span class="small muted">${pr.done}/${pr.total}</span>`:""}</span>
+        ${!m.etapes.length? `<select id="mi-modele" class="small" style="max-width:230px"><option value="">Appliquer un modèle…</option>
+          ${missionModeles().map((mo,i)=>`<option value="${i}">${esc(mo.nom)} (${mo.items.length})</option>`).join("")}</select>`:""}</h3>
+      <div id="mi-etapes" style="max-height:220px;overflow-y:auto">
+        ${m.etapes.map((e,i)=>`<label class="mi-et"><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span><button class="mi-etdel" data-ei="${i}" title="Retirer l'étape">✕</button></label>`).join("") || `<div class="empty">Aucune étape — applique un modèle ou ajoute les tiennes</div>`}
       </div>
-      <div class="card grow" style="min-width:300px">
-        <h3 class="mt0">Journal du dossier</h3>
-        <div class="inline-controls">
-          <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newnote" placeholder="Relance mail, retour client, décision…"></label>
-          <button class="btn secondary small" id="mi-addnote">Noter</button>
-        </div>
-        <div class="tl" style="max-height:230px;overflow-y:auto">
-          ${(m.journal||[]).map((j,i)=>`<div class="tl-item tl-note mi-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">📝</span>
-            <div class="tl-body"><span>${esc(j.n)}</span>
-              <div class="tl-meta">${j.c? esc(consName(j.c)) : "Équipe"} · ${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("")
-          || `<div class="empty">Aucune note pour l'instant</div>`}
-        </div>
+      <div class="inline-controls" style="margin-top:8px">
+        <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newet" placeholder="Nouvelle étape…"></label>
+        <button class="btn secondary small" id="mi-addet">Ajouter</button>
       </div>
+    </div>
+    </div>
+    <div style="flex:1;min-width:310px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;max-height:640px">
+      <h3 class="mt0" style="font-size:14px">💬 Journal du dossier</h3>
+      <div class="inline-controls" style="margin-bottom:8px">
+        <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newnote" placeholder="Écrire une note…"></label>
+        <button class="btn secondary small" id="mi-addnote">Noter</button>
+      </div>
+      <div class="tl" style="flex:1;overflow-y:auto;min-height:120px">
+        ${(m.journal||[]).slice().reverse().map((j,i)=>`<div class="tl-item tl-note mi-jnote" data-ri="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">📝</span>
+          <div class="tl-body"><span>${esc(j.n)}</span>
+            <div class="tl-meta">${j.c? esc(consName(j.c)) : "Équipe"} · ${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("")
+        || `<div class="empty">Aucune note pour l'instant</div>`}
+      </div>
+    </div>
     </div>
     <div class="modal-actions">
       ${!isNew? `<button class="btn secondary" id="mi-archiver" style="${isManager()? "":"margin-right:auto"}" title="La mission disparaît du tableau et des cockpits — récupérable via le filtre 🗄 Archivées">🗄 Archiver</button>`:""}
@@ -5819,8 +5821,8 @@ function missionModal(m, opts={}){
       renderModal();
     };
     back.querySelector("#mi-addnote").addEventListener("click", addNote);
-    back.querySelectorAll(".mi-jnote").forEach(el=>el.addEventListener("click", ()=>{   /* v69 */
-      const j = (m.journal||[])[+el.dataset.i];
+    back.querySelectorAll(".mi-jnote").forEach(el=>el.addEventListener("click", ()=>{   /* v69/v70 */
+      const j = (m.journal||[]).slice().reverse()[+el.dataset.ri];
       if (j) noteViewer(m.titre||m.type, j.n, [(j.c? consName(j.c) : "Équipe"), (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "")].filter(Boolean).join(" · "));
     }));
     back.querySelector("#mi-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
@@ -6078,8 +6080,10 @@ function boModal(o, statutInitial, clientKey){
     o.campagne_id = back.querySelector("#bo-campagne")? (+back.querySelector("#bo-campagne").value || null) : (o.campagne_id||null);
   };
   const rendre = ()=>{
-    back.innerHTML = `<div class="modal" style="width:640px">
+    back.innerHTML = `<div class="modal" style="width:1040px;max-width:96vw">
       <h3>${creation? "Nouvelle opération back-office" : "Opération back-office"}</h3>
+      <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch">
+      <div style="flex:1.25;min-width:360px">
       <div class="form-grid">
         <label class="fld full"><span>Opération *</span><input type="text" id="bo-titre" value="${esc(o.titre)}" placeholder="Arbitrage Himalia, Rachat partiel, Souscription SCPI…"></label>
         <label class="fld"><span>Client</span><input type="text" id="bo-client" list="bo-fiches" autocomplete="off" value="${esc(o._clientTxt !== undefined? o._clientTxt : boClientDisp(o))}" placeholder="choisir dans la liste…"><datalist id="bo-fiches">${fiches.map(f=>`<option value="${esc(f)}">`).join("")}</datalist></label>
@@ -6096,10 +6100,13 @@ function boModal(o, statutInitial, clientKey){
           ${o.etapes.map((e,i)=>`<div class="inline-controls" style="gap:6px;margin:2px 0"><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span><button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune étape</p>`}
           <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newet" placeholder="nouvelle étape… (CNI, RIB, bulletin signé…)" style="flex:1"><button class="btn secondary small" id="bo-addet">Ajouter</button></div>
         </div>
-        <div class="full"><span class="small muted" style="font-weight:600">Journal</span>
-          <div class="tl" style="max-height:150px">${(o.journal||[]).slice().reverse().map((j,i)=>`<div class="tl-item tl-note bo-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">🗒</span><div class="tl-body"><span>${esc(j.n)}</span><div class="tl-meta">${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune note</p>`}</div>
-          <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newnote" placeholder="note d'avancement…" style="flex:1"><button class="btn secondary small" id="bo-addnote">Noter</button></div>
-        </div>
+      </div>
+      </div>
+      <div style="flex:1;min-width:310px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;max-height:560px">
+        <h3 class="mt0" style="font-size:14px">💬 Journal du dossier</h3>
+        <div class="inline-controls" style="gap:6px;margin-bottom:8px"><input type="text" id="bo-newnote" placeholder="Écrire une note…" style="flex:1"><button class="btn secondary small" id="bo-addnote">Noter</button></div>
+        <div class="tl" style="flex:1;overflow-y:auto;min-height:120px">${(o.journal||[]).slice().reverse().map((j,i)=>`<div class="tl-item tl-note bo-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">🗒</span><div class="tl-body"><span>${esc(j.n)}</span><div class="tl-meta">${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune note pour l'instant</p>`}</div>
+      </div>
       </div>
       <div class="modal-actions">
         ${!creation? `<button class="btn secondary" id="bo-archiver" title="L'opération disparaît du tableau — récupérable via le filtre 🗄 Archivées">🗄 Archiver</button>`:""}
