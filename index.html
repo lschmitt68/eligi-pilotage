@@ -5885,6 +5885,17 @@ function o2sCol(o, ...cands){
    v37 — BACK-OFFICE : opérations sur contrats (ex-tableau Trello)
    ================================================================ */
 const BO_STATUTS = ["À faire","Attente retour client","En cours","En cours partenaire","Relance","Terminé"];
+const BO_COL_COLORS = { /* v68 : les couleurs de colonnes du Trello historique de Malay */
+  "À faire":"#e3c94f", "Attente retour client":"#bb87e0", "En cours":"#5cbd77",
+  "En cours partenaire":"#6da9dd", "Relance":"#e8756a", "Terminé":"" };
+function boColStyle(st){
+  const c = BO_COL_COLORS[st];
+  return c? ` style="background:color-mix(in srgb, ${c} 22%, var(--surface)); border-color:color-mix(in srgb, ${c} 45%, var(--border))"` : "";
+}
+function boColDot(st){
+  const c = BO_COL_COLORS[st];
+  return c? `<span class="cdot" style="background:${c};width:9px;height:9px"></span>` : "";
+}
 function boModelesDefaults(){
   return [
     {nom:"Souscription", items:["CNI","Justificatif de domicile","RIB","Profil investisseur / DER à jour","Origine des fonds (LCB-FT)","Bulletin de souscription signé","Versement reçu","Confirmation assureur reçue","Mise à jour O2S","Classement OneDrive"]},
@@ -5941,8 +5952,8 @@ function viewBackoffice(root){
   </div>
   <div class="kanban">${BO_STATUTS.map(st=>{
     const items = visibles.filter(o=>o.statut===st);
-    return `<div class="kcol" data-bost="${esc(st)}">
-      <div class="kcol-head"><b>${esc(st)}</b><span class="kcount">${items.length}</span></div>
+    return `<div class="kcol" data-bost="${esc(st)}"${boColStyle(st)}>
+      <div class="kcol-head">${boColDot(st)}<b>${esc(st)}</b><span class="kcount">${items.length}</span></div>
       <div class="kcol-cards">${items.map(boCardHTML).join("")}</div>
       <button class="kcol-add" data-boaddcol="${esc(st)}">+ ajouter ici</button>
     </div>`;}).join("")}</div>
