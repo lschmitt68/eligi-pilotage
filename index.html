@@ -2178,6 +2178,10 @@ function meetingMode(){
     const cu = cumul(c.id, state.week);
     const top = state.pipeline.filter(x=>x.conseiller_id===c.id && (x.etape||"").toLowerCase()!=="signé")
       .sort((a,b)=>pondere(b)-pondere(a)).slice(0,5);
+    const comm = (state.saisies.find(s=>s.conseiller_id===c.id && s.semaine===state.week)?.commentaire||"").trim();   /* v74 */
+    const sesRelances = aRelancer(state.pipeline.filter(x=>x.conseiller_id===c.id)).sort((a,b)=>pondere(b)-pondere(a));
+    const sesProps = state.propositions.filter(pr=>pr.conseiller_id===c.id && pr.statut==="Envoyée")
+      .sort((a,b)=>propoJours(b)-propoJours(a));
     return `<h1><span class="cdot" style="background:${consColor(c.id)};width:14px;height:14px"></span> ${esc(c.nom)} &nbsp;${badgeHTML(al)} <span class="small muted" style="font-weight:500">· ${esc(weekDates(state.week))}</span></h1>
     ${conge? `<p class="muted" style="margin:8px 0 0">✈ En congés cette semaine — pas d'objectif ni d'alerte.</p>`:""}
     <div class="bigtiles tiles">
@@ -2187,7 +2191,10 @@ function meetingMode(){
       ${tile("Projection", eur(proj))}
       ${tile("CA cumulé", eur(cu.ca), `${cu.objCA?fmtPct(cu.ca/cu.objCA):"—"} de l'objectif`)}
     </div>
-    <div class="row">
+    ${comm? `<div class="card" style="margin-top:12px;border-left:4px solid var(--s1);padding:11px 16px">
+      <b>💬 Son commentaire de la semaine :</b> <span style="white-space:pre-wrap">${esc(comm)}</span></div>`
+      : `<div class="card" style="margin-top:12px;padding:11px 16px"><span class="small muted">💬 Pas de commentaire sur sa saisie ${esc(state.week)} — à demander de vive voix.</span></div>`}
+    <div class="row" style="margin-top:12px">
       <div class="card grow" style="min-width:min(420px,100%)"><h3 class="mt0">Son entonnoir</h3>${meetStagesHTML(c.id)}</div>
       <div class="card grow"><h3 class="mt0">Top affaires en cours</h3>
         ${top.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${top.map(x=>`<tr>
@@ -2197,7 +2204,20 @@ function meetingMode(){
       </div>
     </div>
     <div class="row" style="margin-top:14px">
-      <div class="card" style="width:340px;max-width:100%"><h3 class="mt0">Points à challenger</h3>
+      <div class="card grow" style="min-width:min(360px,100%)"><h3 class="mt0">🔍 À surveiller</h3>
+        ${(sesRelances.length || sesProps.length)? `<div class="jr-wrap"><table class="tbl dense"><tbody>
+          ${sesRelances.slice(0,4).map(x=>`<tr><td style="width:24px">🔥</td><td><b>${esc(cliAff(x.client))}</b></td>
+            <td class="small">${esc(x.support)}</td><td class="small">${isOverdue(x)? "⏰ closing dépassé" : `💤 ${staleDays(x)} j`}</td>
+            <td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}
+          ${sesProps.slice(0,3).map(pr=>`<tr><td style="width:24px">📄</td><td><b>${esc(nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key))}</b></td>
+            <td class="small">proposition ${eur(+pr.data?.montant||0)}</td>
+            <td class="small">${propoExpiree(pr)? `<span class="badge urgent"><span class="dot"></span>⌛ expirée</span>` : `💤 ${propoJours(pr)} j sans réponse`}</td>
+            <td class="num">${(pr.data?.relances||[]).length? (pr.data.relances.length+" relance(s)") : ""}</td></tr>`).join("")}
+        </tbody></table></div>
+        ${sesRelances.length>4? `<p class="small muted" style="margin:6px 0 0">+ ${sesRelances.length-4} autre(s) affaire(s) à relancer</p>`:""}`
+        : `<div class="empty">Rien à relancer, aucune proposition en attente ✓</div>`}
+      </div>
+      <div class="card" style="width:320px;max-width:100%"><h3 class="mt0">Points à challenger</h3>
         <ol class="challenge"><li>Quels dossiers doivent signer cette semaine ?</li>
         <li>Quel blocage empêche la signature ?</li><li>Quelle action concrète d'ici la prochaine réunion ?</li></ol></div>
       ${actionsCardHTML(c.id, `Actions — ${esc(c.nom)}`)}
@@ -2242,6 +2262,7 @@ function meetingMode(){
       ${tile("Missions en cours", fmtNum.format(ouvertes.length), `${fmtNum.format(nouvelles.length)} arrivée(s) sur 7 j`)}
       ${tile("Honoraires attendus", eur(attendu), "devis des missions en cours")}
       ${tile("💶 À facturer", fmtNum.format(aFact.length), mtFact? eur(mtFact) + " au devis" : "")}
+      ${tile("À encaisser", eur(state.missions.reduce((a,m)=>a+Math.max(0,(+m.hono_facture||0)-(+m.hono_encaisse||0)),0)), "facturé non encaissé")}
       ${tile("🐌 Sans mouvement", fmtNum.format(stag.length), stag.length? "21 jours ou plus" : "tableau vivant ✓")}
     </div>
     <div class="row">
