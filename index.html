@@ -2086,7 +2086,7 @@ function meetStagesHTML(consId){
 function meetingMode(){
   const cons = activeConseillers();
   let slide = 0;
-  const total = cons.length + 2;
+  const total = cons.length + 4;   /* v65 : + Missions (Lina) + Back-office (Malay) */
   const back = document.createElement("div");
   back.className = "meeting";
 
@@ -2172,8 +2172,92 @@ function meetingMode(){
       </div>
     </div>`;
   }
+  function slideMissions(){ /* v65 : le point Missions de conseil (Lina) */
+    const ouvertes = state.missions.filter(miOuverte);
+    const aFact = missionsAFacturer();
+    const mtFact = aFact.reduce((a,m)=>a+(+m.hono_devis||0),0);
+    const attendu = ouvertes.filter(m=>!miStFini(m.statut)).reduce((a,m)=>a+(+m.hono_devis||0),0);
+    const J7 = Date.now() - 7*86400000;
+    const nouvelles = ouvertes.filter(m=>new Date(m.created_at||0).getTime() >= J7);
+    const stag = ouvertes.filter(m=>!miStFini(m.statut) && staleDays(m) >= 21)
+      .sort((a,b)=>staleDays(b)-staleDays(a));
+    const retard = ouvertes.filter(m=>!miStFini(m.statut) && miEcheanceDepassee(m) && staleDays(m) < 21);
+    const miRow = (m, extra) => `<tr><td><b>${esc(miClientNom(m.client_key))}</b></td>
+      <td class="small" style="white-space:normal">${esc(m.titre||m.type)}</td>
+      <td class="small">${esc(m.statut)}</td>${extra}</tr>`;
+    return `<h1>🧰 Missions de conseil <span class="small muted" style="font-weight:500">· ingénierie patrimoniale</span></h1>
+    <div class="bigtiles tiles">
+      ${tile("Missions en cours", fmtNum.format(ouvertes.length), `${fmtNum.format(nouvelles.length)} arrivée(s) sur 7 j`)}
+      ${tile("Honoraires attendus", eur(attendu), "devis des missions en cours")}
+      ${tile("💶 À facturer", fmtNum.format(aFact.length), mtFact? eur(mtFact) + " au devis" : "")}
+      ${tile("🐌 Sans mouvement", fmtNum.format(stag.length), stag.length? "21 jours ou plus" : "tableau vivant ✓")}
+    </div>
+    <div class="row">
+      <div class="card grow" style="min-width:min(460px,100%)"><h3 class="mt0">🐌 Cartes qui n'ont pas bougé (21 j+)</h3>
+        ${stag.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${stag.slice(0,8).map(m=>miRow(m,
+          `<td class="small"><span class="ksleep">💤 ${staleDays(m)} j</span></td><td class="num">${+m.hono_devis? `<b>${eur(m.hono_devis)}</b>`:""}</td>`)).join("")}</tbody></table></div>
+          ${stag.length>8? `<p class="small muted" style="margin:6px 0 0">… et ${stag.length-8} autre(s)</p>`:""}`
+          : `<div class="empty">Aucune carte immobile — tout avance ✓</div>`}
+      </div>
+      <div class="card grow"><h3 class="mt0">⏰ Échéance dépassée</h3>
+        ${retard.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${retard.slice(0,6).map(m=>miRow(m,
+          `<td class="small">${miEcheanceHTML(m)}</td>`)).join("")}</tbody></table></div>`
+          : `<div class="empty">Aucune échéance dépassée ✓</div>`}
+        <h3 style="margin-top:14px">💶 File à facturer</h3>
+        ${aFact.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${aFact.slice(0,6).map(m=>miRow(m,
+          `<td class="num"><b>${+m.hono_devis? eur(m.hono_devis) : "devis ?"}</b></td>`)).join("")}</tbody></table></div>`
+          : `<div class="empty">Rien en attente de facturation</div>`}
+      </div>
+      <div class="card" style="width:320px;max-width:100%"><h3 class="mt0">Points à challenger</h3>
+        <ol class="challenge"><li>Qu'est-ce qui bloque les cartes immobiles — pièces client, partenaire, arbitrage interne ?</li>
+        <li>Lesquelles passent en « ${esc(miStFacturer()||"Terminé à facturer")} » cette semaine ?</li>
+        <li>Chaque mission a-t-elle une échéance et un devis ?</li></ol></div>
+    </div>`;
+  }
+  function slideBO(){ /* v65 : le point Back-office (Malay) */
+    const ops = state.operations.filter(o=>o.statut!=="Terminé");
+    const J7 = Date.now() - 7*86400000;
+    const nouvelles = ops.filter(o=>new Date(o.created_at||0).getTime() >= J7);
+    const finies7 = state.operations.filter(o=>o.statut==="Terminé" && new Date(o.updated_at||o.created_at||0).getTime() >= J7);
+    const stag = ops.filter(o=>staleDays(o) >= STALE_JOURS).sort((a,b)=>staleDays(b)-staleDays(a));
+    const attente = ops.filter(o=>/attente|relance/i.test(o.statut||""));
+    const parStatut = BO_STATUTS.filter(st=>st!=="Terminé").map(st=>({st, n: ops.filter(o=>o.statut===st).length})).filter(x=>x.n);
+    const boRow = (o, extra) => { const pr = boProgress(o);
+      return `<tr><td><b>${esc(nomAffiche(o.client_key, o.client_key||"—"))}</b></td>
+      <td class="small" style="white-space:normal">${esc(o.titre)}</td>
+      <td class="small">${esc(o.statut)}</td>
+      <td class="small">${pr.total? `${pr.done}/${pr.total}` : "—"}</td>${extra}</tr>`; };
+    return `<h1>📥 Back-office <span class="small muted" style="font-weight:500">· opérations sur contrats</span></h1>
+    <div class="bigtiles tiles">
+      ${tile("Opérations en cours", fmtNum.format(ops.length), parStatut.map(x=>`${x.st} : ${x.n}`).join(" · ") || "")}
+      ${tile("🆕 Arrivées (7 j)", fmtNum.format(nouvelles.length))}
+      ${tile("✅ Terminées (7 j)", fmtNum.format(finies7.length))}
+      ${tile("💤 Sans mouvement", fmtNum.format(stag.length), stag.length? `${STALE_JOURS} jours ou plus` : "tableau vivant ✓")}
+    </div>
+    <div class="row">
+      <div class="card grow" style="min-width:min(460px,100%)"><h3 class="mt0">💤 Opérations qui n'ont pas bougé (${STALE_JOURS} j+)</h3>
+        ${stag.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${stag.slice(0,8).map(o=>boRow(o,
+          `<td class="small"><span class="ksleep">💤 ${staleDays(o)} j</span></td>`)).join("")}</tbody></table></div>
+          ${stag.length>8? `<p class="small muted" style="margin:6px 0 0">… et ${stag.length-8} autre(s)</p>`:""}`
+          : `<div class="empty">Aucune opération immobile — tout avance ✓</div>`}
+      </div>
+      <div class="card grow"><h3 class="mt0">📞 En attente du client / à relancer</h3>
+        ${attente.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${attente.slice(0,6).map(o=>boRow(o,
+          `<td class="small">${staleDays(o)>=7? `<span class="ksleep">💤 ${staleDays(o)} j</span>`:""}</td>`)).join("")}</tbody></table></div>`
+          : `<div class="empty">Rien en attente côté client ✓</div>`}
+      </div>
+      <div class="card" style="width:320px;max-width:100%"><h3 class="mt0">Points à challenger</h3>
+        <ol class="challenge"><li>Qui débloque chaque opération immobile — pièce manquante, partenaire, client ?</li>
+        <li>Les relances clients sont-elles faites (et notées dans la fiche) ?</li>
+        <li>Les nouvelles arrivées ont-elles leur check-list et une échéance ?</li></ol></div>
+    </div>`;
+  }
   function renderSlide(){
-    const inner = slide===0? slideTeam() : slide<=cons.length? slideCons(cons[slide-1]) : slideSignatures();
+    const inner = slide===0? slideTeam()
+      : slide<=cons.length? slideCons(cons[slide-1])
+      : slide===cons.length+1? slideSignatures()
+      : slide===cons.length+2? slideMissions()
+      : slideBO();
     back.innerHTML = `<div class="meeting-top">
         <span class="mt-week">Réunion hebdo — ${esc(state.week)}</span>
         <button class="btn secondary meeting-close" id="mt-close">${ICONS.close} Quitter</button>
