@@ -3275,6 +3275,28 @@ function bilanCardHTML(consId, week){
   </div>`;
 }
 
+/* v82 : le bloc « À traiter aujourd'hui », partagé par toutes les journées */
+function prioBlocHTML(items){
+  items = items.filter(Boolean);
+  return `<div class="card sect" style="margin-top:10px">
+    <h3 class="mt0">🚨 À traiter aujourd'hui${items.length? ` <span class="small muted" style="font-weight:400">(${items.length})</span>`:""}</h3>
+    ${items.length? `<table class="tbl dense"><tbody>${items.map(it=>`
+      <tr class="clickable jr-go" ${it.nav? `data-nav2="${it.nav}"` : `data-sc="${it.sc}"`}><td style="width:26px">${it.ico}</td><td>${it.txt}</td><td class="num muted">›</td></tr>`).join("")}</tbody></table>
+      <p class="small muted" style="margin:8px 0 0">Traite de haut en bas — un clic descend sur le détail.</p>`
+    : `<div class="empty">Rien en souffrance — belle journée ✓</div>`}
+  </div>`;
+}
+function bindPrio(root){
+  root.querySelectorAll(".jr-go").forEach(r=>r.addEventListener("click", ()=>{
+    if (r.dataset.nav2){ go(r.dataset.nav2); return; }
+    const el = root.querySelector(r.dataset.sc) || document.querySelector(r.dataset.sc);
+    if (!el) return;
+    el.scrollIntoView({behavior:"smooth", block:"center"});
+    el.classList.add("flash-cible");
+    setTimeout(()=>el.classList.remove("flash-cible"), 2000);
+  }));
+}
+
 /* v38 : cockpit « Ma journée » de l'ingénieur patrimonial — centré missions */
 function viewJourIngenieur(root){
   const in14 = new Date(Date.now()+14*86400000).toISOString().slice(0,10);
@@ -3308,6 +3330,17 @@ function viewJourIngenieur(root){
     ${tile("À encaisser", eur(aEncaisser), "honoraires facturés non encaissés")}
     ${tile("Back-office ouvert", bo.length, "opérations sur contrats")}
   </div>
+  ${(()=>{ /* v82 : la liste des priorités de Lina */
+    const nTags = tagsPourMoi().length;
+    return prioBlocHTML([
+      nTags? {ico:"🔔", txt:`${nTags} carte(s) où on t'a taguée — quelque chose est attendu de toi`, sc:"#jr-tags"} : null,
+      retard.length? {ico:"⏰", txt:`${retard.length} mission(s) avec échéance dépassée`, sc:"#ji-retard"} : null,
+      miNouvelles.length? {ico:"🆕", txt:`${miNouvelles.length} nouvelle(s) mission(s) à prendre en charge (7 j)`, sc:"#ji-nouvelles"} : null,
+      aFact.length? {ico:"💶", txt:`${aFact.length} mission(s) à facturer${(()=>{ const t = aFact.reduce((a,m)=>a+(+m.hono_devis||0),0); return t? " — "+eur(t)+" au devis" : ""; })()}`, sc:"#ji-afact"} : null,
+      miStag.length? {ico:"🐌", txt:`${miStag.length} carte(s) sans mouvement depuis 21 j+ — reprises en réunion`, sc:"#ji-stag"} : null,
+      proches.length? {ico:"📅", txt:`${proches.length} échéance(s) sous 14 jours`, sc:"#ji-proches"} : null,
+      (aSuivre.length - retard.length)>0? {ico:"🗓", txt:`${aSuivre.length - retard.length} mission(s) sans échéance — à dater pour ne rien perdre`, sc:"#ji-retard"} : null,
+    ]); })()}
   ${miStag.length? `<div class="card sect" style="margin-top:10px" id="ji-stag">
     <h3 class="mt0">🐌 Cartes qui n'ont pas bougé (21 j+)</h3>
     <div class="jr-wrap"><table class="tbl dense"><tbody>${miStag.slice(0,8).map(m=>`
@@ -3327,19 +3360,19 @@ function viewJourIngenieur(root){
         <td class="num small muted">${m.created_at? "créée le "+new Date(m.created_at).toLocaleDateString("fr-FR",{day:"numeric",month:"short"}) : ""}</td>
       </tr>`).join("")}</tbody></table></div>
   </div>`:""}
-  ${aFact.length? `<div class="card sect" style="margin-top:10px">
+  ${aFact.length? `<div class="card sect" style="margin-top:10px" id="ji-afact">
     <h3 class="mt0">💶 Missions à facturer</h3>
     <div class="jr-wrap"><table class="tbl dense"><tbody>${aFact.slice(0,8).map(miRow).join("")}</tbody></table></div>
     <p class="small muted" style="margin-bottom:0">Visible aussi sur l'« Aujourd'hui » de la facturation et du manager — passée en « Facturé », la mission sort de la liste.</p>
   </div>`:""}
   <div class="row sect">
-    <div class="card grow">
+    <div class="card grow" id="ji-retard">
       <h3 class="mt0">⏰ Échéances dépassées ou absentes</h3>
       ${aSuivre.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${aSuivre.slice(0,8).map(miRow).join("")}</tbody></table></div>
         ${aSuivre.length>8? `<p class="small muted" style="margin-bottom:0">le reste dans la vue Missions</p>`:""}`
         : `<div class="empty">Toutes les missions ont une échéance à venir ✓</div>`}
     </div>
-    <div class="card grow">
+    <div class="card grow" id="ji-proches">
       <h3 class="mt0">📅 Prochaines échéances (14 jours)</h3>
       ${proches.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${proches.slice(0,8).map(miRow).join("")}</tbody></table></div>`
         : `<div class="empty">Aucune échéance sous 14 jours</div>`}
@@ -3354,6 +3387,7 @@ function viewJourIngenieur(root){
     </div>
   </div>`;
   $("#ji-new").addEventListener("click", ()=>missionModal(null));
+  bindPrio(root);   /* v82 */
   root.querySelectorAll(".ji-mi").forEach(r=>r.addEventListener("click", ()=>{ const m = state.missions.find(x=>x.id===+r.dataset.mid); if (m) missionModal(m); }));
   root.querySelectorAll(".ji-bo").forEach(r=>r.addEventListener("click", ()=>{ const o = state.operations.find(x=>x.id===+r.dataset.oid); if (o) boModal(o); }));
 }
@@ -3381,6 +3415,15 @@ function viewJourSuivi(root){ /* v54 : l'aujourd'hui de la facturation et du bac
     ${tile("Back-office à traiter", boUrgent.length, "à faire, relances, échéances dépassées")}
     ${tile("Back-office ouvert", bo.length)}
   </div>
+  ${(()=>{ /* v82 : la liste des priorités du back-office */
+    const nTags = tagsPourMoi().length;
+    return prioBlocHTML([
+      nTags? {ico:"🔔", txt:`${nTags} carte(s) où on t'a tagué — quelque chose est attendu de toi`, sc:"#jr-tags"} : null,
+      boUrgent.length? {ico:"📥", txt:`${boUrgent.length} opération(s) à traiter — à faire, relances, échéances dépassées`, sc:"#js-bo"} : null,
+      boNouvelles.length? {ico:"🆕", txt:`${boNouvelles.length} opération(s) arrivée(s) ces 7 jours — à prendre en charge`, sc:"#js-nouvelles"} : null,
+      aFact.length? {ico:"💶", txt:`${aFact.length} mission(s) à facturer${mtFact? " — "+eur(mtFact)+" au devis" : ""}`, sc:"#js-afact"} : null,
+      boStag.length? {ico:"💤", txt:`${boStag.length} carte(s) sans mouvement depuis ${STALE_JOURS} j+ — reprises en réunion`, sc:"#js-stag"} : null,
+    ]); })()}
   ${boNouvelles.length? `<div class="card sect" style="margin-top:10px" id="js-nouvelles">
     <h3 class="mt0">🆕 Arrivées au back-office (7 jours)</h3>
     <div class="jr-wrap"><table class="tbl dense"><tbody>${boNouvelles.slice(0,8).map(o=>`
@@ -3429,6 +3472,7 @@ function viewJourSuivi(root){ /* v54 : l'aujourd'hui de la facturation et du bac
       <p class="small muted" style="margin-bottom:0">En attente d'une pièce, d'un partenaire, du client ? Relance et note-le dans le journal de l'opération. Cette liste est reprise en réunion hebdo.</p>
     </div>`:""}
   </div>`;
+  bindPrio(root);   /* v82 */
   root.querySelectorAll(".js-mi").forEach(r=>r.addEventListener("click", ()=>{ const m = state.missions.find(x=>x.id===+r.dataset.mid); if (m) missionModal(m); }));
   root.querySelectorAll(".js-bo").forEach(r=>r.addEventListener("click", ()=>{ const o = state.operations.find(x=>x.id===+r.dataset.oid); if (o) boModal(o); }));
 }
