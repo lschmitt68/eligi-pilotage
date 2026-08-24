@@ -6113,7 +6113,7 @@ function missionModal(m, opts={}){
       <h3 class="mt0" style="display:flex;justify-content:space-between;align-items:center"><span>Check-list ${pr.total? `<span class="small muted">${pr.done}/${pr.total}</span>`:""}</span>
         ${!m.etapes.length? `<select id="mi-modele" class="small" style="max-width:230px"><option value="">Appliquer un modèle…</option>
           ${missionModeles().map((mo,i)=>`<option value="${i}">${esc(mo.nom)} (${mo.items.length})</option>`).join("")}</select>`:""}</h3>
-      <div id="mi-etapes" style="max-height:220px;overflow-y:auto">
+      <div id="mi-etapes" style="max-height:min(46vh,440px);overflow-y:auto">
         ${(()=>{ /* v80 : sections = les check-lists Trello d'origine */
           const avecG = m.etapes.some(e=>String(e.g||"").trim());
           let prev = null;
