@@ -2577,18 +2577,38 @@ function campagneDocsModal(camp){ /* v81 : la doc du produit au même endroit po
   back.querySelector("#cd-close").addEventListener("click", close);
   pjMount(back.querySelector("#pj-camp"), "camp/"+camp.id);
 }
-function campBindFiles(root){ /* v81.1 : la brochure s'ouvre depuis la carte, sans passer par la modale */
+const CAMP_DOC_LIBELLES = [["brochure","Brochure"],["plaquette","Plaquette"],["présentation","Présentation"],["presentation","Présentation"],["dici","DIC"],["dic","DIC"],["exemple","Exemple"],["proposition","Proposition"],["note","Note"]];
+function campDocPrincipal(files){ /* v81.3 : LE document à mettre en avant — la brochure d'abord */
+  const norm = s => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  for (const [k] of CAMP_DOC_LIBELLES){ const f = files.find(f=>norm(f.name).includes(norm(k))); if (f) return f; }
+  return files[0];
+}
+function campDocLibelle(f){
+  const norm = s => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  const n = norm(f.name);
+  for (const [k,l] of CAMP_DOC_LIBELLES) if (n.includes(norm(k))) return l;
+  const base = f.name.replace(/^[a-z0-9]+_/,"").replace(/\.[a-z0-9]+$/i,"");
+  return base.length>18? base.slice(0,18)+"…" : base;
+}
+function campBindFiles(root){ /* v81.1/81.3 : un seul chip court (« 📄 Brochure ») — le reste vit dans la modale */
   root.querySelectorAll(".camp-files").forEach(async el=>{
     try{
       const files = await state.db.listFiles("camp/"+el.dataset.cid);
       if (!files.length || !el.isConnected){ el.remove(); return; }
+      const doc = campDocPrincipal(files);
       el.style.display = "flex";
-      el.innerHTML = files.map(f=>`<a href="#" class="tag camp-f" data-p="${esc(f.path)}" title="Ouvrir — ${esc(f.name.replace(/^[a-z0-9]+_/,""))}${f.size? " · "+pjFmtSize(f.size):""}">📄 ${esc(f.name.replace(/^[a-z0-9]+_/,""))}</a>`).join("");
-      el.querySelectorAll(".camp-f").forEach(a=>a.addEventListener("click", async e=>{
+      el.innerHTML = `<a href="#" class="tag camp-f" data-p="${esc(doc.path)}" title="Ouvrir — ${esc(doc.name.replace(/^[a-z0-9]+_/,""))}${doc.size? " · "+pjFmtSize(doc.size):""}">📄 ${esc(campDocLibelle(doc))}</a>
+        ${files.length>1? `<a href="#" class="tag camp-f-plus small muted" title="Voir les ${files.length} documents de la campagne">+ ${files.length-1} autre${files.length>2?"s":""}</a>`:""}`;
+      el.querySelector(".camp-f").addEventListener("click", async e=>{
         e.preventDefault(); e.stopPropagation();
-        try{ const url = await state.db.fileUrl(a.dataset.p); window.open(url, "_blank"); }
+        try{ const url = await state.db.fileUrl(el.querySelector(".camp-f").dataset.p); window.open(url, "_blank"); }
         catch(err){ toast("Erreur : "+(err.message||err)); }
-      }));
+      });
+      el.querySelector(".camp-f-plus")?.addEventListener("click", e=>{
+        e.preventDefault(); e.stopPropagation();
+        const c = state.campagnes.find(x=>x.id===+el.dataset.cid);
+        if (c) campagneDocsModal(c);
+      });
     }catch(e){ el.remove(); }
   });
 }
@@ -5987,6 +6007,8 @@ function tagParseMention(txt){ /* v81.2 : @Lina dans le texte tague automatiquem
       const mots = norm(c.nom).split(/[^a-z0-9]+/).filter(Boolean);
       if (mots.includes(q)) return c;
     }
+    const pr = (state.profiles||[]).find(p=>p.nom_affichage && norm(p.nom_affichage)===q && (p.role==="ingenieur"||p.role==="suivi"));
+    if (pr){ const c = tagCibles().find(x=>x.t.r===pr.role); if (c) return c; }
     if (["missions","mission","ingenieur","ingenierie"].includes(q)){ const c = tagCibles().find(x=>x.t.r==="ingenieur"); if (c) return c; }
     if (["backoffice","back-office","suivi","bo"].includes(q)){ const c = tagCibles().find(x=>x.t.r==="suivi"); if (c) return c; }
   }
@@ -6263,11 +6285,7 @@ function missionModal(m, opts={}){
       <h3 class="mt0" style="font-size:14px">💬 Journal du dossier</h3>
       <div class="inline-controls" style="margin-bottom:8px">
         <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newnote" placeholder="Écrire une note… (@Lina tague)"></label>
-        <select id="mi-tagsel" class="small" style="max-width:120px" title="Taguer un collaborateur : la note lui apparaît dans « Aujourd'hui » et en 🔔 sur la carte, jusqu'à ce qu'il la marque traitée">
-          <option value="">🔔 Taguer…</option>
-          ${tagCibles().map((c,i)=>`<option value="${i}">${esc(c.nom)}</option>`).join("")}
-        </select>
-        <button class="btn secondary small" id="mi-addnote">Noter</button>
+        <button class="btn secondary small" id="mi-addnote" title="@Prénom dans la note tague le collaborateur : elle lui apparaît dans « Aujourd'hui » et en 🔔 sur la carte, jusqu'à ce qu'il la marque traitée">Noter</button>
       </div>
       <div class="tl" style="flex:1;overflow-y:auto;min-height:120px">
         ${(m.journal||[]).slice().reverse().map((j,i)=>`<div class="tl-item tl-note mi-jnote" data-ri="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">📝</span>
@@ -6325,11 +6343,8 @@ function missionModal(m, opts={}){
     const addNote = ()=>{
       const el = back.querySelector("#mi-newnote"); const n = el.value.trim();
       if (!n) return; readForm();
-      const ts = back.querySelector("#mi-tagsel");   /* v81 */
-      const sel = ts && ts.value!==""? tagCibles()[+ts.value] : null;
-      const men = sel? null : tagParseMention(n);   /* v81.2 : @Lina dans le texte */
-      const cible = sel || men;
-      m.journal = [cible? {q:new Date().toISOString(), n: men? n : `🔔 pour ${cible.nom} — ${n}`, c:state.profile.conseiller_id||null, tag:cible.t, fait:false}
+      const cible = tagParseMention(n);   /* v81.3 : @Lina tague, comme sur Trello */
+      m.journal = [cible? {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null, tag:cible.t, fait:false}
                         : {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null}, ...(m.journal||[])];
       renderModal();
     };
@@ -6635,7 +6650,7 @@ function boModal(o, statutInitial, clientKey){
       </div>
       <div style="flex:1;min-width:310px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;max-height:560px">
         <h3 class="mt0" style="font-size:14px">💬 Journal du dossier</h3>
-        <div class="inline-controls" style="gap:6px;margin-bottom:8px"><input type="text" id="bo-newnote" placeholder="Écrire une note… (@Elodie tague)" style="flex:1"><select id="bo-tagsel" class="small" style="max-width:120px" title="Taguer un collaborateur : la note lui apparaît dans « Aujourd'hui » et en 🔔 sur la carte, jusqu'à ce qu'il la marque traitée"><option value="">🔔 Taguer…</option>${tagCibles().map((c,i)=>`<option value="${i}">${esc(c.nom)}</option>`).join("")}</select><button class="btn secondary small" id="bo-addnote">Noter</button></div>
+        <div class="inline-controls" style="gap:6px;margin-bottom:8px"><input type="text" id="bo-newnote" placeholder="Écrire une note… (@Elodie tague)" style="flex:1"><button class="btn secondary small" id="bo-addnote" title="@Prénom dans la note tague le collaborateur : elle lui apparaît dans « Aujourd'hui » et en 🔔 sur la carte, jusqu'à ce qu'il la marque traitée">Noter</button></div>
         <div class="tl" style="flex:1;overflow-y:auto;min-height:120px">${(o.journal||[]).slice().reverse().map((j,i)=>`<div class="tl-item tl-note bo-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">🗒</span><div class="tl-body">${tagEtatHTML(j)}<span>${esc(j.n)}</span><div class="tl-meta">${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune note pour l'instant</p>`}</div>
       </div>
       </div>
@@ -6662,11 +6677,8 @@ function boModal(o, statutInitial, clientKey){
     });
     back.querySelector("#bo-newet").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addEt(); } });
     const addNote = ()=>{ const el = back.querySelector("#bo-newnote"); const n = el.value.trim(); if (!n) return; lireForm();
-      const ts = back.querySelector("#bo-tagsel");   /* v81 */
-      const sel = ts && ts.value!==""? tagCibles()[+ts.value] : null;
-      const men = sel? null : tagParseMention(n);   /* v81.2 : @Lina dans le texte */
-      const cible = sel || men;
-      o.journal.push(cible? {q:new Date().toISOString(), n: men? monNom()+" — "+n : monNom()+" — 🔔 pour "+cible.nom+" — "+n, tag:cible.t, fait:false}
+      const cible = tagParseMention(n);   /* v81.3 : @Lina tague, comme sur Trello */
+      o.journal.push(cible? {q:new Date().toISOString(), n:monNom()+" — "+n, tag:cible.t, fait:false}
                           : {q:new Date().toISOString(), n:monNom()+" — "+n});
       rendre(); };
     back.querySelector("#bo-addnote").addEventListener("click", addNote);
