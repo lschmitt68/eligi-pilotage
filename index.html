@@ -334,6 +334,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 
 /* Missions (v15) */
 .mi-et{display:flex; align-items:center; gap:8px; padding:4px 2px; font-size:13px; border-bottom:1px dashed var(--border)}
+.mi-etgrp{margin:10px 0 2px; padding:3px 6px; font-size:12px; font-weight:700; color:var(--text); background:var(--surface-2); border-radius:6px; display:flex; align-items:center; gap:6px}
+.mi-etgrp:first-child{margin-top:2px}
+.mi-etgrp .mi-etgn{font-weight:400; color:var(--muted); margin-left:auto}
 .mi-et .mi-done{text-decoration:line-through; color:var(--muted)}
 .mi-et .mi-etdel{margin-left:auto; border:0; background:none; color:var(--muted); cursor:pointer; font-size:11px; padding:2px 5px; border-radius:5px}
 .mi-et .mi-etdel:hover{color:var(--critical); background:var(--surface-2)}
@@ -6111,7 +6114,20 @@ function missionModal(m, opts={}){
         ${!m.etapes.length? `<select id="mi-modele" class="small" style="max-width:230px"><option value="">Appliquer un modèle…</option>
           ${missionModeles().map((mo,i)=>`<option value="${i}">${esc(mo.nom)} (${mo.items.length})</option>`).join("")}</select>`:""}</h3>
       <div id="mi-etapes" style="max-height:220px;overflow-y:auto">
-        ${m.etapes.map((e,i)=>`<label class="mi-et"><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span><button class="mi-etdel" data-ei="${i}" title="Retirer l'étape">✕</button></label>`).join("") || `<div class="empty">Aucune étape — applique un modèle ou ajoute les tiennes</div>`}
+        ${(()=>{ /* v80 : sections = les check-lists Trello d'origine */
+          const avecG = m.etapes.some(e=>String(e.g||"").trim());
+          let prev = null;
+          return m.etapes.map((e,i)=>{
+            const g = String(e.g||"").trim();
+            let head = "";
+            if (avecG && g !== prev){
+              const gr = m.etapes.filter(x=>String(x.g||"").trim()===g);
+              head = `<div class="mi-etgrp">${g? "📋 "+esc(g) : "Autres étapes"}<span class="mi-etgn">${gr.filter(x=>x.done).length}/${gr.length}</span></div>`;
+            }
+            prev = g;
+            return head + `<label class="mi-et"><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span><button class="mi-etdel" data-ei="${i}" title="Retirer l'étape">✕</button></label>`;
+          }).join("");
+        })() || `<div class="empty">Aucune étape — applique un modèle ou ajoute les tiennes</div>`}
       </div>
       <div class="inline-controls" style="margin-top:8px">
         <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newet" placeholder="Nouvelle étape…"></label>
@@ -6174,7 +6190,9 @@ function missionModal(m, opts={}){
     }));
     const addEt = ()=>{
       const el = back.querySelector("#mi-newet"); const t = el.value.trim();
-      if (!t) return; readForm(); m.etapes.push({t, done:false}); renderModal();
+      if (!t) return; readForm();
+      const der = m.etapes[m.etapes.length-1];   /* v80 : elle rejoint la dernière section */
+      m.etapes.push({t, done:false, ...(der?.g? {g:der.g} : {})}); renderModal();
     };
     back.querySelector("#mi-addet").addEventListener("click", addEt);
     back.querySelector("#mi-newet").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addEt(); } });
@@ -6464,7 +6482,20 @@ function boModal(o, statutInitial, clientKey){
         <div class="full"><span class="small muted" style="font-weight:600">Check-list</span>
           ${!o.etapes.length? `<select id="bo-modele" class="small" style="max-width:260px;display:block;margin:3px 0"><option value="">Appliquer un modèle… (comme les cartes modèles Trello)</option>
             ${boModeles().map((m,i)=>`<option value="${i}">${esc(m.nom)} (${m.items.length} étapes)</option>`).join("")}</select>`:""}
-          ${o.etapes.map((e,i)=>`<div class="inline-controls" style="gap:6px;margin:2px 0"><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span><button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune étape</p>`}
+          ${(()=>{ /* v80 : sections = les check-lists Trello d'origine */
+            const avecG = o.etapes.some(e=>String(e.g||"").trim());
+            let prev = null;
+            return o.etapes.map((e,i)=>{
+              const g = String(e.g||"").trim();
+              let head = "";
+              if (avecG && g !== prev){
+                const gr = o.etapes.filter(x=>String(x.g||"").trim()===g);
+                head = `<div class="mi-etgrp">${g? "📋 "+esc(g) : "Autres étapes"}<span class="mi-etgn">${gr.filter(x=>x.done).length}/${gr.length}</span></div>`;
+              }
+              prev = g;
+              return head + `<div class="inline-controls" style="gap:6px;margin:2px 0"><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span><button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`;
+            }).join("");
+          })() || `<p class="small muted" style="margin:2px 0">aucune étape</p>`}
           <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newet" placeholder="nouvelle étape… (CNI, RIB, bulletin signé…)" style="flex:1"><button class="btn secondary small" id="bo-addet">Ajouter</button></div>
         </div>
         ${!creation? `<div class="full" id="pj-bo"><span class="small muted" style="font-weight:600">📎 Pièces jointes</span><div class="pj-zone"></div></div>`
@@ -6486,7 +6517,9 @@ function boModal(o, statutInitial, clientKey){
       </div>
     </div>`;
     back.querySelector("#bo-cancel").addEventListener("click", ()=>back.remove());
-    const addEt = ()=>{ const t = back.querySelector("#bo-newet").value.trim(); if (!t) return; lireForm(); o.etapes.push({t, done:false}); rendre(); };
+    const addEt = ()=>{ const t = back.querySelector("#bo-newet").value.trim(); if (!t) return; lireForm();
+      const der = o.etapes[o.etapes.length-1];   /* v80 : elle rejoint la dernière section */
+      o.etapes.push({t, done:false, ...(der?.g? {g:der.g} : {})}); rendre(); };
     back.querySelector("#bo-addet").addEventListener("click", addEt);
     back.querySelector("#bo-modele")?.addEventListener("change", e=>{
       const m = boModeles()[+e.target.value];
@@ -6573,6 +6606,12 @@ function trelloMatchClient(titre, idx){
   const cles2 = [...new Set(avecPre.map(x=>x.key))];
   return cles2.length === 1? avecPre[0] : null;
 }
+function trelloEtapes(cls){ /* v80 : une carte Trello peut porter plusieurs check-lists — on garde leurs titres */
+  const list = (cls||[]).filter(cl=>(cl.checkItems||[]).length).sort((a,b)=>(+a.pos||0)-(+b.pos||0));
+  const multi = list.length > 1;
+  return list.flatMap(cl=>(cl.checkItems||[]).slice().sort((a,b)=>(+a.pos||0)-(+b.pos||0))
+    .map(i=>({t:i.name, done:i.state==="complete", ...(multi? {g:String(cl.name||"").trim()||"Check-list"} : {})})));
+}
 function trelloAnalyse(d){
   if (!d || !Array.isArray(d.lists) || !Array.isArray(d.cards)) throw new Error("Ce fichier n'est pas un export JSON de tableau Trello");
   const listName = Object.fromEntries(d.lists.map(l=>[l.id, l.name||""]));
@@ -6626,7 +6665,7 @@ function trelloAnalyse(d){
       conseiller_id: m? (state.clientsInfos.find(ci=>ci.client_key===m.key)?.conseiller_id||null) : null,
       description:String(c.desc||"").slice(0,2000),
       echeance:String(c.due||"").slice(0,10)||null,
-      etapes:(clByCard[c.id]||[]).flatMap(cl=>(cl.checkItems||[]).map(i=>({t:i.name, done:i.state==="complete"}))),
+      etapes:trelloEtapes(clByCard[c.id]),   /* v80 */
       journal:(comByCard[c.id]||[]).sort((a,b)=>a.q<b.q? -1 : 1)});
     if (!m) nonRattachees.push(String(c.name).trim());
   }
@@ -6722,7 +6761,7 @@ function trelloAnalyseMissions(d){
       conseiller_id: m? (state.clientsInfos.find(ci=>ci.client_key===m.key)?.conseiller_id||null) : null,
       description:(String(c.desc||"").slice(0,1900)+"\n[Trello "+tid+"]").trim(),
       echeance:String(c.due||"").slice(0,10)||null,
-      etapes:(clByCard[c.id]||[]).flatMap(cl=>(cl.checkItems||[]).map(i=>({t:i.name, done:i.state==="complete"}))),
+      etapes:trelloEtapes(clByCard[c.id]),   /* v80 */
       journal:(comByCard[c.id]||[]).sort((a,b)=>a.q<b.q? -1 : 1)});
     if (!m) nonRattachees.push(String(c.name).trim());
   }
