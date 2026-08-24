@@ -3735,16 +3735,36 @@ function briefClient(key){
           <td class="num">${pr.total? pr.done+"/"+pr.total : "—"}</td>
           <td>${mm.echeance? new Date(String(mm.echeance).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR") + (mm.echeance_note? " — "+esc(mm.echeance_note) : "") : (miSansEcheance(mm)? "⚠ à définir" : "—")}</td>
         </tr>`; }).join("")}</tbody></table></div>` : ""; })()}
+      ${(()=>{ const ops = state.operations.filter(o=>o.client_key===key && o.statut!=="Terminé");   /* v84 */
+        return ops.length? `<div class="pd-sec"><h3>📥 Back-office en cours</h3>
+        <table class="pd-tbl"><thead><tr><th>Opération</th><th>Étape</th><th class="num">Avancement</th><th>Échéance</th></tr></thead>
+        <tbody>${ops.map(o=>{ const pr = boProgress(o); return `<tr>
+          <td>${esc(o.titre)}${o.assureur? ` <span class="pd-note">(${esc(o.assureur)})</span>`:""}</td><td>${esc(o.statut)}${staleDays(o)>=STALE_JOURS? " 💤":""}</td>
+          <td class="num">${pr.total? pr.done+"/"+pr.total : "—"}</td>
+          <td>${o.echeance? new Date(String(o.echeance).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR") : "—"}</td>
+        </tr>`; }).join("")}</tbody></table></div>` : ""; })()}
       ${taches.length? `<div class="pd-sec"><h3>Tâches ouvertes</h3>
         <table class="pd-tbl"><tbody>${taches.map(a=>`<tr><td>☐</td><td>${esc(a.texte)}</td><td>${esc(consName(a.conseiller_id))}</td><td class="num">${a.echeance? new Date(a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</td></tr>`).join("")}</tbody></table></div>`:""}
+      ${(()=>{ const crs = state.interactions.filter(i=>i.client_key===key && i.type==="RDV" && (i.note||"").length>40)
+          .sort((a,b)=>new Date(b.quand||0)-new Date(a.quand||0));   /* v84 : relire le dernier CR avant d'y retourner */
+        const cr = crs[0];
+        if (!cr) return "";
+        const txt = String(cr.note).replace(/^🤝 Compte rendu de RDV\n?/,"").slice(0,2200);
+        return `<div class="pd-sec"><h3>🤝 Dernier compte rendu de RDV <span class="pd-note" style="font-weight:400">${cr.quand? new Date(cr.quand).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):""}${cr.conseiller_id? " · "+esc(consName(cr.conseiller_id)):""}</span></h3>
+          <p style="white-space:pre-wrap">${esc(txt)}${String(cr.note).length>2300? "…" : ""}</p></div>`; })()}
       <div class="pd-sec"><h3>Derniers événements</h3>
         ${suivi.length? `<table class="pd-tbl"><tbody>${suivi.map(ev=> ev.kind==="ix"
           ? `<tr><td>${IXI[ev.i.type]||"📝"}</td><td>${esc(ev.i.note)}</td><td>${esc(ev.i.auteur || (ev.i.conseiller_id? consName(ev.i.conseiller_id) : "Manager"))}</td><td class="num">${fdt(ev.t)}</td></tr>`
           : `<tr><td>${ev.e.vers_etape==="Perdu"? "❌" : ev.e.de_etape? "🧭":"✨"}</td><td>${ev.e.de_etape? `${esc(etapeAff(ev.e.de_etape))} → ${esc(etapeAff(ev.e.vers_etape))}` : `Nouveau dossier — ${esc(etapeAff(ev.e.vers_etape))}`}${ev.e.raison? ` (${esc(ev.e.raison)})`:""}</td><td>${esc(consName(ev.e.conseiller_id))}</td><td class="num">${fdt(ev.t)}</td></tr>`).join("")}</tbody></table>`
         : `<p class="pd-note">Aucun événement de suivi enregistré.</p>`}</div>
-      ${lastProp? `<div class="pd-sec"><h3>Dernière proposition</h3>
-        <p>${eur(+lastProp.data?.montant||0)} · profil ${esc(PROPO_PROFILS[(+lastProp.data?.profil||3)-1])} · ${esc(lastProp.mode)} — <b>${esc(lastProp.statut)}</b>
-        <span class="pd-note">(${new Date(lastProp.updated_at||lastProp.created_at).toLocaleDateString("fr-FR")})</span></p></div>`:""}
+      ${props.length? `<div class="pd-sec"><h3>Propositions</h3>
+        <table class="pd-tbl"><tbody>${props.slice(0,5).map(pr=>`<tr>
+          <td><b>${eur(+pr.data?.montant||0)}</b>${(+pr.data?.v||1)>1? ` <span class="pd-note">V${pr.data.v}</span>`:""}</td>
+          <td>${esc(pr.mode||"")}</td>
+          <td><b>${esc(pr.statut)}</b>${pr.statut==="Refusée" && pr.data?.refus_motif? ` <span class="pd-note">— ${esc(pr.data.refus_motif)}</span>`:""}${pr.statut==="Envoyée" && propoExpiree(pr)? " ⌛":""}</td>
+          <td class="pd-note">${pr.statut==="Envoyée" && pr.data?.envoyee_le? `envoyée le ${new Date(pr.data.envoyee_le+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}${(pr.data.relances||[]).length? ` · ${(pr.data.relances||[]).length} relance(s)`:""}` : new Date(pr.updated_at||pr.created_at).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})}</td>
+        </tr>`).join("")}</tbody></table>${props.length>5? `<p class="pd-note">+ ${props.length-5} plus anciennes dans la fiche</p>`:""}</div>`:""}
+      <div class="pd-sec no-print" id="bc-pj" style="display:none"><h3>📎 Documents de la fiche</h3><p class="pd-note" id="bc-pj-list"></p></div>
       <div class="pd-mentions">Document interne ELIGI — préparation de rendez-vous. Ne pas remettre au client.</div>
     </div>
   </div>`;
@@ -3753,6 +3773,17 @@ function briefClient(key){
   const close = ()=>{ back.remove(); document.body.classList.remove("doc-open"); };
   back.querySelector("#bc-close").addEventListener("click", close);
   back.querySelector("#bc-print").addEventListener("click", ()=>window.print());
+  (async ()=>{ try{   /* v84 : les documents de la fiche, sans bloquer l'affichage */
+    const files = await state.db.listFiles("cli/"+pjKey(key));
+    if (!files.length || !back.isConnected) return;
+    back.querySelector("#bc-pj").style.display = "";
+    back.querySelector("#bc-pj-list").innerHTML = files.map(f=>`<a href="#" class="bc-pj-dl" data-p="${esc(f.path)}">📄 ${esc(f.name.replace(/^[a-z0-9]+_/,""))}</a>`).join(" &nbsp;·&nbsp; ");
+    back.querySelectorAll(".bc-pj-dl").forEach(a=>a.addEventListener("click", async e=>{
+      e.preventDefault();
+      try{ const url = await state.db.fileUrl(a.dataset.p); window.open(url, "_blank"); }
+      catch(err){ toast("Erreur : "+(err.message||err)); }
+    }));
+  }catch(e){} })();
   back.addEventListener("click", e=>{ if (e.target===back) close(); });
 }
 
@@ -7596,11 +7627,18 @@ function viewParam(root){
 <Workbook xmlns="urn:schemas-microsoft-com:office:spreadsheet" xmlns:ss="urn:schemas-microsoft-com:office:spreadsheet">`;
     for (const [nom, rows] of Object.entries(T)){
       if (!Array.isArray(rows)) continue;
-      const cols = [...new Set(rows.flatMap(r=>Object.keys(r||{})))].filter(c=>!/^(etapes|journal|data)$/.test(c));
-      const cell = v => `<Cell><Data ss:Type="${typeof v==="number"? "Number":"String"}">${expXml(typeof v==="object"&&v!==null? JSON.stringify(v) : v)}</Data></Cell>`;
+      const cols = [...new Set(rows.flatMap(r=>Object.keys(r||{})))];
+      const lisible = (c, v)=>{   /* v84 : check-lists, journaux et propositions lisibles dans l'Excel */
+        if (v==null) return "";
+        if (c==="etapes" && Array.isArray(v)) return v.map(e=>`${e.done?"☑":"☐"} ${e.g? "["+e.g+"] ":""}${e.t}`).join("\n").slice(0,30000);
+        if (c==="journal" && Array.isArray(v)) return v.map(j=>`${String(j.q||"").slice(0,10)} — ${j.n}${j.tag? (j.fait? " (🔔 traité)":" (🔔 en attente)"):""}`).join("\n").slice(0,30000);
+        return v;
+      };
+      const cell = (c, v0) => { const v = lisible(c, v0);
+        return `<Cell><Data ss:Type="${typeof v==="number"? "Number":"String"}">${expXml(typeof v==="object"&&v!==null? JSON.stringify(v) : v)}</Data></Cell>`; };
       xml += `<Worksheet ss:Name="${expXml(nom).slice(0,28)}"><Table>`
         + `<Row>${cols.map(c=>`<Cell><Data ss:Type="String">${expXml(c)}</Data></Cell>`).join("")}</Row>`
-        + rows.map(r=>`<Row>${cols.map(c=>cell(r?.[c])).join("")}</Row>`).join("")
+        + rows.map(r=>`<Row>${cols.map(c=>cell(c, r?.[c])).join("")}</Row>`).join("")
         + `</Table></Worksheet>`;
     }
     xml += `</Workbook>`;
