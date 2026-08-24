@@ -2535,6 +2535,7 @@ function campagneCardHTML(camp, forCons){
     <h3 class="mt0" style="display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap">
       <span>🚀 ${esc(camp.nom)} <span class="tag">${esc(camp.support)}</span></span>
       <span style="display:flex;gap:6px;align-items:center">${badge}
+        <button class="btn secondary small camp-docs" data-cid="${camp.id}" title="Brochure PDF, plaquette produit, présentation, exemples — visibles par toute l'équipe">📎 Documents</button>
         ${isManager()? `<button class="btn secondary small camp-edit" data-cid="${camp.id}">Modifier</button>`:""}</span></h3>
     <p class="small muted" style="margin:0 0 8px">Commercialisation jusqu'au <b>${new Date(String(camp.date_fin).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</b>${camp.description? ` — ${esc(camp.description)}`:""}</p>
     <div class="jr-wrap"><table class="tbl dense">
@@ -2556,7 +2557,26 @@ function campagneCardHTML(camp, forCons){
     <p class="small muted" style="margin-bottom:0">${tot.n} dossier(s) rattachés — champ « Campagne produit » d'une affaire.</p>
   </div>`;
 }
+function campagneDocsModal(camp){ /* v81 : la doc du produit au même endroit pour tout le monde */
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal" style="width:560px">
+    <h3>📎 Documents — ${esc(camp.nom)}</h3>
+    <p class="small muted" style="margin-top:0">Brochure, plaquette produit, présentation, exemples de propositions… toute l'équipe voit et peut ajouter des fichiers.</p>
+    <div id="pj-camp"><div class="pj-zone"></div></div>
+    <div class="modal-actions"><button class="btn secondary" id="cd-close">Fermer</button></div>
+  </div>`;
+  document.body.appendChild(back);
+  back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
+  back.querySelector("#cd-close").addEventListener("click", ()=>back.remove());
+  pjMount(back.querySelector("#pj-camp"), "camp/"+camp.id);
+}
 function bindCampagnes(root){
+  root.querySelectorAll(".camp-docs").forEach(b=>b.addEventListener("click", e=>{   /* v81 */
+    e.stopPropagation();
+    const c = state.campagnes.find(x=>x.id===+b.dataset.cid);
+    if (c) campagneDocsModal(c);
+  }));
   root.querySelectorAll(".camp-edit").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
     campagneModal(state.campagnes.find(c=>c.id===+b.dataset.cid));
@@ -5921,11 +5941,70 @@ function miEcheanceHTML(m){
   const txt = d.toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"});
   return miEcheanceDepassee(m)? `<span class="badge urgent"><span class="dot"></span>⏰ ${txt}</span>` : `<span class="small">📅 ${txt}</span>`;
 }
+/* ---------- v81 : taguer un collaborateur sur une carte ---------- */
+function tagCibles(){
+  const nomRole = r => (state.profiles||[]).find(p=>p.role===r)?.nom_affichage;
+  const l = activeConseillers().map(c=>({t:{c:c.id}, nom:c.nom}));
+  l.push({t:{r:"ingenieur"}, nom:(nomRole("ingenieur")||"Ingénierie")+" · missions"});
+  l.push({t:{r:"suivi"}, nom:(nomRole("suivi")||"Back-office")+" · back-office"});
+  return l;
+}
+function tagMeVise(tag){
+  if (!tag || !state.profile) return false;
+  if (tag.r) return state.profile.role===tag.r;
+  if (tag.c) return state.profile.conseiller_id===tag.c;
+  return false;
+}
+function tagCarteMeVise(x){ return (x.journal||[]).some(j=>j.tag && !j.fait && tagMeVise(j.tag)); }
+function tagsPourMoi(){
+  const out = [];
+  for (const m of state.missions) (m.journal||[]).forEach((j,i)=>{ if (j.tag && !j.fait && tagMeVise(j.tag)) out.push({t:"mi", r:m, i, j}); });
+  for (const o of state.operations) (o.journal||[]).forEach((j,i)=>{ if (j.tag && !j.fait && tagMeVise(j.tag)) out.push({t:"bo", r:o, i, j}); });
+  return out.sort((a,b)=>String(b.j.q||"").localeCompare(String(a.j.q||"")));
+}
+function tagsCardHTML(){
+  const tags = tagsPourMoi();
+  if (!tags.length) return "";
+  return `<div class="card sect" style="margin-top:10px;border-left:4px solid var(--s1)" id="jr-tags">
+    <h3 class="mt0">🔔 On t'a tagué <span class="small muted" style="font-weight:400">— ${tags.length} carte(s) où on attend quelque chose de toi. « ✓ Traité » quand c'est fait.</span></h3>
+    <div class="tbl-scroll" style="max-height:300px"><table class="tbl dense"><tbody>
+      ${tags.map((x,ti)=>`<tr class="clickable tg-row" data-ti="${ti}" title="Cliquer pour ouvrir la carte">
+        <td style="width:26px">${x.t==="mi"? "🧰":"📦"}</td>
+        <td><b>${esc(x.t==="mi"? (miClientNom(x.r.client_key)||x.r.titre||x.r.type) : x.r.titre)}</b>
+          <div class="small muted" style="overflow-wrap:anywhere">${esc(String(x.j.n||"").slice(0,180))}</div></td>
+        <td class="small" style="white-space:nowrap">${x.j.q? new Date(x.j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</td>
+        <td class="num"><button class="btn secondary small tg-fait" data-ti="${ti}" title="Marquer comme traité — le tag disparaît d'ici et le journal garde la trace">✓ Traité</button></td>
+      </tr>`).join("")}
+    </tbody></table></div>
+  </div>`;
+}
+function bindTags(root){
+  const tags = tagsPourMoi();
+  root.querySelectorAll(".tg-row").forEach(tr=>tr.addEventListener("click", ()=>{
+    const x = tags[+tr.dataset.ti]; if (!x) return;
+    if (x.t==="mi") missionModal(x.r); else boModal(x.r);
+  }));
+  root.querySelectorAll(".tg-fait").forEach(b=>b.addEventListener("click", async e=>{
+    e.stopPropagation();
+    const x = tags[+b.dataset.ti]; if (!x) return;
+    try{
+      const copie = {...x.r, journal:(x.r.journal||[]).map((j,i)=> i===x.i? {...j, fait:true, fait_par:monNom(), fait_le:new Date().toISOString().slice(0,10)} : j)};
+      if (x.t==="mi") await state.db.saveMission(copie); else await state.db.saveOperation(copie);
+      await state.db.loadAll(); toast("Tag marqué traité ✓"); render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+}
+function tagEtatHTML(j){ /* petit état affiché dans les journaux */
+  if (!j.tag) return "";
+  return j.fait? `<span class="small" style="color:#2e9e63;font-weight:600">✓ traité${j.fait_par? " par "+esc(j.fait_par):""}${j.fait_le? " le "+new Date(j.fait_le+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</span><br>`
+    : `<span class="small" style="color:var(--s1);font-weight:600">🔔 en attente</span><br>`;
+}
 function miCardHTML(m){
   const pr = miProgress(m);
   return `<div class="kcard mi-card" data-mid="${m.id}" draggable="true" title="Cliquer pour ouvrir — glisser pour changer de statut">
     <div class="kclient"><span class="cdot" style="background:${consColor(m.conseiller_id)}" title="${esc(consName(m.conseiller_id))}"></span>
       <span class="kc-name">${esc(miClientNom(m.client_key))}</span>
+      ${tagCarteMeVise(m)? `<span title="On t'a tagué sur cette carte — ouvre le journal">🔔</span>`:""}
       <button class="mi-arch-btn" data-mid="${m.id}" title="Archiver — la carte disparaît du tableau (récupérable via le filtre 🗄 Archivées)">🗄</button>
       ${pr.total? `<span class="kpond">${pr.done}/${pr.total}</span>`:""}</div>
     <div class="kmeta"><span class="tag">${esc(m.type||"Mission")}</span>${m.titre && m.titre!==miClientNom(m.client_key)? ` <span class="small">${esc(m.titre)}</span>`:""}</div>
@@ -6141,11 +6220,15 @@ function missionModal(m, opts={}){
       <h3 class="mt0" style="font-size:14px">💬 Journal du dossier</h3>
       <div class="inline-controls" style="margin-bottom:8px">
         <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newnote" placeholder="Écrire une note…"></label>
+        <select id="mi-tagsel" class="small" style="max-width:120px" title="Taguer un collaborateur : la note lui apparaît dans « Aujourd'hui » et en 🔔 sur la carte, jusqu'à ce qu'il la marque traitée">
+          <option value="">🔔 Taguer…</option>
+          ${tagCibles().map((c,i)=>`<option value="${i}">${esc(c.nom)}</option>`).join("")}
+        </select>
         <button class="btn secondary small" id="mi-addnote">Noter</button>
       </div>
       <div class="tl" style="flex:1;overflow-y:auto;min-height:120px">
         ${(m.journal||[]).slice().reverse().map((j,i)=>`<div class="tl-item tl-note mi-jnote" data-ri="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">📝</span>
-          <div class="tl-body"><span>${esc(j.n)}</span>
+          <div class="tl-body">${tagEtatHTML(j)}<span>${esc(j.n)}</span>
             <div class="tl-meta">${j.c? esc(consName(j.c)) : "Équipe"} · ${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("")
         || `<div class="empty">Aucune note pour l'instant</div>`}
       </div>
@@ -6199,7 +6282,10 @@ function missionModal(m, opts={}){
     const addNote = ()=>{
       const el = back.querySelector("#mi-newnote"); const n = el.value.trim();
       if (!n) return; readForm();
-      m.journal = [{q:new Date().toISOString(), n, c:state.profile.conseiller_id||null}, ...(m.journal||[])];
+      const ts = back.querySelector("#mi-tagsel");   /* v81 */
+      const cible = ts && ts.value!==""? tagCibles()[+ts.value] : null;
+      m.journal = [cible? {q:new Date().toISOString(), n:`🔔 pour ${cible.nom} — ${n}`, c:state.profile.conseiller_id||null, tag:cible.t, fait:false}
+                        : {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null}, ...(m.journal||[])];
       renderModal();
     };
     back.querySelector("#mi-addnote").addEventListener("click", addNote);
@@ -6326,7 +6412,7 @@ function boCardHTML(o){
   const pr = boProgress(o);
   const today = new Date().toISOString().slice(0,10);
   return `<div class="kcard" draggable="true" data-boid="${o.id}" title="Glisser pour changer d'étape — cliquer pour ouvrir">
-    <div class="kclient"><span class="kc-name">${esc(o.titre)}</span><button class="mi-arch-btn bo-arch-btn" data-oid="${o.id}" title="Archiver — la carte disparaît du tableau (récupérable via le filtre 🗄 Archivées)">🗄</button></div>
+    <div class="kclient"><span class="kc-name">${esc(o.titre)}</span>${tagCarteMeVise(o)? `<span title="On t'a tagué sur cette carte — ouvre le journal">🔔</span>`:""}<button class="mi-arch-btn bo-arch-btn" data-oid="${o.id}" title="Archiver — la carte disparaît du tableau (récupérable via le filtre 🗄 Archivées)">🗄</button></div>
     <div class="kmeta">${o.client_key? `<span class="tag">👤 ${esc(boClientDisp(o))}</span>` : `<span class="ksig">À RATTACHER</span>`}
       ${o.campagne_id? `<span class="tag" title="Campagne : ${esc(state.campagnes.find(c=>c.id===o.campagne_id)?.nom||"")}">🚀</span>`:""}
       ${o.assureur? `<span class="tag">${esc(o.assureur)}</span>`:""}
@@ -6504,8 +6590,8 @@ function boModal(o, statutInitial, clientKey){
       </div>
       <div style="flex:1;min-width:310px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;max-height:560px">
         <h3 class="mt0" style="font-size:14px">💬 Journal du dossier</h3>
-        <div class="inline-controls" style="gap:6px;margin-bottom:8px"><input type="text" id="bo-newnote" placeholder="Écrire une note…" style="flex:1"><button class="btn secondary small" id="bo-addnote">Noter</button></div>
-        <div class="tl" style="flex:1;overflow-y:auto;min-height:120px">${(o.journal||[]).slice().reverse().map((j,i)=>`<div class="tl-item tl-note bo-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">🗒</span><div class="tl-body"><span>${esc(j.n)}</span><div class="tl-meta">${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune note pour l'instant</p>`}</div>
+        <div class="inline-controls" style="gap:6px;margin-bottom:8px"><input type="text" id="bo-newnote" placeholder="Écrire une note…" style="flex:1"><select id="bo-tagsel" class="small" style="max-width:120px" title="Taguer un collaborateur : la note lui apparaît dans « Aujourd'hui » et en 🔔 sur la carte, jusqu'à ce qu'il la marque traitée"><option value="">🔔 Taguer…</option>${tagCibles().map((c,i)=>`<option value="${i}">${esc(c.nom)}</option>`).join("")}</select><button class="btn secondary small" id="bo-addnote">Noter</button></div>
+        <div class="tl" style="flex:1;overflow-y:auto;min-height:120px">${(o.journal||[]).slice().reverse().map((j,i)=>`<div class="tl-item tl-note bo-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">🗒</span><div class="tl-body">${tagEtatHTML(j)}<span>${esc(j.n)}</span><div class="tl-meta">${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune note pour l'instant</p>`}</div>
       </div>
       </div>
       <div class="modal-actions">
@@ -6530,7 +6616,12 @@ function boModal(o, statutInitial, clientKey){
       rendre();
     });
     back.querySelector("#bo-newet").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addEt(); } });
-    const addNote = ()=>{ const el = back.querySelector("#bo-newnote"); const n = el.value.trim(); if (!n) return; lireForm(); o.journal.push({q:new Date().toISOString(), n:monNom()+" — "+n}); rendre(); };
+    const addNote = ()=>{ const el = back.querySelector("#bo-newnote"); const n = el.value.trim(); if (!n) return; lireForm();
+      const ts = back.querySelector("#bo-tagsel");   /* v81 */
+      const cible = ts && ts.value!==""? tagCibles()[+ts.value] : null;
+      o.journal.push(cible? {q:new Date().toISOString(), n:monNom()+" — 🔔 pour "+cible.nom+" — "+n, tag:cible.t, fait:false}
+                          : {q:new Date().toISOString(), n:monNom()+" — "+n});
+      rendre(); };
     back.querySelector("#bo-addnote").addEventListener("click", addNote);
     back.querySelectorAll(".bo-jnote").forEach(el=>el.addEventListener("click", ()=>{   /* v69 */
       const list = (o.journal||[]).slice().reverse();
@@ -8129,6 +8220,14 @@ function render(){
     render();
   });
   VIEWS[state.view].fn($("#view"));
+  if (state.view==="jour"){   /* v81 : la carte 🔔 arrive sur toutes les variantes d'Aujourd'hui */
+    const th = tagsCardHTML();
+    if (th){
+      const anc = $("#view").querySelector(".tiles");
+      if (anc) anc.insertAdjacentHTML("afterend", th); else $("#view").insertAdjacentHTML("beforeend", th);
+      bindTags($("#view"));
+    }
+  }
   const rem = saisieReminderHTML();
   if (rem) $("#view").insertAdjacentHTML("afterbegin", rem);   // DANS la zone principale : jamais en colonne à côté
   bindReminder();
