@@ -464,6 +464,16 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .pj-item a:hover{text-decoration:underline}
 .pj-del{border:none; background:none; cursor:pointer; color:var(--muted); font-size:12px; padding:0 3px; opacity:.55}
 .pj-del:hover{opacity:1; color:var(--bad)}
+.rdvn-modal{width:min(780px,100vw); height:min(92vh,860px); display:flex; flex-direction:column}
+.rdvn-modal textarea{flex:1; min-height:200px; resize:none; font-size:16px; line-height:1.55; font-family:inherit}
+.rdvn-sug{position:relative}
+.rdvn-sug .rdvn-list{position:absolute; top:100%; left:0; right:0; z-index:30; background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.18); max-height:240px; overflow-y:auto}
+.rdvn-sug .rdvn-item{padding:8px 12px; cursor:pointer; font-size:13.5px}
+.rdvn-sug .rdvn-item:hover{background:var(--surface-2)}
+.rdvn-saved{font-size:11.5px; color:var(--muted)}
+@media (max-width:900px){
+  .rdvn-modal{width:100vw; height:100dvh; max-height:100dvh; border-radius:0}
+}
 .camp-f{cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:4px}
 .camp-f:hover{background:var(--surface-2); text-decoration:underline}
 .pj-zone.dragover{outline:2px dashed var(--s1); outline-offset:3px; border-radius:8px; background:color-mix(in srgb, var(--s1) 7%, transparent)}
@@ -3520,6 +3530,7 @@ function viewJour(root){
   root.innerHTML = `
   ${vhead(mgr? "Aujourd'hui — équipe" : "Ma journée", dateStr.charAt(0).toUpperCase()+dateStr.slice(1), `
     ${(isManager() && meId)? `<div class="seg" id="jr-seg"><button data-v="" class="${perso? "":"active"}">Équipe</button><button data-v="moi" class="${perso? "active":""}">Ma journée</button></div>` : ""}
+    <button class="btn secondary" id="jr-rdvnote" title="Prise de notes en rendez-vous — brouillon auto-sauvegardé, enregistrée dans la fiche client">📝 Note de RDV</button>
     <button class="btn secondary" id="jr-saisie">${ICONS.edit} Saisie hebdo</button>
     <button class="btn" id="jr-newop">＋ Affaire</button>`)}
   ${(()=>{ /* v46 : la liste des priorités — l'endroit unique où regarder */
@@ -3644,6 +3655,7 @@ function viewJour(root){
     state._propSearch = pr? String(pr.data?.nomClient||pr.client_key) : "";
     go("propositions");
   }));
+  $("#jr-rdvnote")?.addEventListener("click", ()=>rdvNoteModal(null));   /* v83 */
   $("#jr-saisie").addEventListener("click", ()=>go("saisie"));
   $("#jr-seg")?.querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{
     state._jourMoi = b.dataset.v === "moi"; render();
@@ -4259,6 +4271,7 @@ function viewClients(root){
   ${vhead((gOpen.info.morale? "🏢 " : "") + gOpen.disp, [gOpen.info.morale? "Personne morale" : "", gOpen.info.statut||"Prospect", gOpen.info.groupe? "groupe "+gOpen.info.groupe : "", gOpen.info.profession||"", gOpen.info.conseiller_id? "référent "+consName(gOpen.info.conseiller_id) : ""].filter(Boolean).join(" · "), `
     <button class="btn secondary" id="cli-back">← Liste des clients</button>
     <button class="btn secondary" id="cli-fav" data-key="${esc(gOpen.key)}" title="Épingler / retirer des favoris de la recherche (Ctrl+K)">${gsFavs().includes(gOpen.key)? "⭐ Épinglé" : "☆ Épingler"}</button>
+    <button class="btn secondary ci-rdvnote" data-key="${esc(gOpen.key)}" title="Prise de notes en rendez-vous — enregistrée dans le journal de cette fiche">📝 Note de RDV</button>
     <button class="btn secondary ci-brief" data-key="${esc(gOpen.key)}">📋 Brief RDV</button>
     <button class="btn ci-propo" data-key="${esc(gOpen.key)}">＋ Proposition</button>
     <button class="btn secondary" id="cli-new">＋ Nouveau client</button>`)}
@@ -4377,6 +4390,9 @@ function viewClients(root){
     pipeModal(null);
     const el = document.querySelector("#pm-client");
     if (el){ el.value = b.dataset.nom; el.dispatchEvent(new Event("input")); }
+  }));
+  root.querySelectorAll(".ci-rdvnote").forEach(b=>b.addEventListener("click", e=>{   /* v83 */
+    e.stopPropagation(); rdvNoteModal(b.dataset.key);
   }));
   root.querySelectorAll(".ci-brief").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
@@ -6027,6 +6043,125 @@ function miEcheanceHTML(m){
   const txt = d.toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"});
   return miEcheanceDepassee(m)? `<span class="badge urgent"><span class="dot"></span>⏰ ${txt}</span>` : `<span class="small">📅 ${txt}</span>`;
 }
+/* ---------- v83 : 📝 note de rendez-vous ---------- */
+const RDVN_DRAFT = "eligi-rdvnote";
+const RDVN_TRAME = "— Contexte —\n\n\n— Points abordés —\n\n\n— Décisions —\n\n\n— Actions à prévoir —\n\n";
+function rdvnDraft(){ try{ return JSON.parse(localStorage.getItem(RDVN_DRAFT)||"null"); }catch(e){ return null; } }
+function rdvnDraftSave(d){ try{ if (d) localStorage.setItem(RDVN_DRAFT, JSON.stringify(d)); else localStorage.removeItem(RDVN_DRAFT); }catch(e){} }
+function rdvNoteModal(clientKey){
+  const draft = rdvnDraft();
+  let cli = clientKey? {key:clientKey, nom:miClientNom(clientKey)||clientKey} : null;
+  if (!cli && draft?.key) cli = {key:draft.key, nom:draft.nom||draft.key};
+  const reprise = !!(draft && draft.txt && (!clientKey || draft.key===clientKey));
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal rdvn-modal">
+    <h3 style="margin:0 0 8px">📝 Note de rendez-vous <span class="small muted" style="font-weight:400">— ${new Date().toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long"})}</span></h3>
+    ${reprise? `<p class="small" style="margin:0 0 8px;color:var(--s1)">Brouillon repris (${draft.q? new Date(draft.q).toLocaleString("fr-FR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"}):""}) — rien n'a été perdu. <a href="#" id="rdvn-jeter" style="color:var(--bad)">Jeter le brouillon</a></p>`:""}
+    <div class="inline-controls" style="gap:8px;margin-bottom:8px;flex-wrap:wrap">
+      <div class="rdvn-sug" style="flex:1;min-width:200px">
+        <input type="text" id="rdvn-cli" placeholder="Client… (tape 2 lettres)" autocomplete="off" value="${cli? esc(cli.nom):""}" style="width:100%">
+        <div class="rdvn-list" id="rdvn-list" style="display:none"></div>
+      </div>
+      <button class="btn secondary small" id="rdvn-trame" title="Insère une trame de compte rendu : Contexte / Points abordés / Décisions / Actions à prévoir">📑 Trame</button>
+      <span class="rdvn-saved" id="rdvn-saved"></span>
+    </div>
+    <textarea id="rdvn-txt" placeholder="Prise de notes au fil de l'eau… (la dictée du Mac ou de l'iPhone fonctionne ici)">${reprise? esc(draft.txt) : ""}</textarea>
+    <div class="inline-controls" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+      <label class="small" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="rdvn-suivi" style="width:auto"> Tâche de suivi</label>
+      <input type="text" id="rdvn-suivitxt" placeholder="ex : envoyer la proposition" style="flex:1;min-width:150px;display:none">
+      <input type="date" id="rdvn-suividate" value="${new Date(Date.now()+7*86400000).toISOString().slice(0,10)}" style="display:none;width:auto">
+      <span style="flex:1"></span>
+      <button class="btn secondary" id="rdvn-cancel">Fermer</button>
+      <button class="btn" id="rdvn-save">Enregistrer dans la fiche</button>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  const $$ = s => back.querySelector(s);
+  const ta = $$("#rdvn-txt"), inCli = $$("#rdvn-cli"), list = $$("#rdvn-list");
+  const persist = ()=>{ rdvnDraftSave({key:cli?.key||null, nom:cli?.nom||inCli.value.trim(), txt:ta.value, q:new Date().toISOString()});
+    $$("#rdvn-saved").textContent = "brouillon enregistré "+new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit",second:"2-digit"}); };
+  let t = null;
+  const persistSoon = ()=>{ clearTimeout(t); t = setTimeout(persist, 800); };
+  ta.addEventListener("input", persistSoon);
+  /* ---- recherche client ---- */
+  const cliCandidats = q => {
+    const n = O2S_NORM(q);
+    if (n.length < 2) return [];
+    return state.clientsInfos.filter(ci=>O2S_NORM((ci.nom||"")+" "+ci.client_key).includes(n)).slice(0,8);
+  };
+  const majListe = ()=>{
+    const q = inCli.value.trim();
+    const cs = cliCandidats(q);
+    if (!q || (cli && q===cli.nom)){ list.style.display = "none"; return; }
+    list.style.display = "block";
+    list.innerHTML = cs.map(ci=>`<div class="rdvn-item" data-key="${esc(ci.client_key)}">${esc(nomAffiche(ci.client_key, ci.nom||ci.client_key))} <span class="small muted">${esc(ci.statut||"")}</span></div>`).join("")
+      + (q.length>=3 && !cs.length? `<div class="rdvn-item" data-new="1">＋ Créer la fiche prospect « ${esc(q)} »</div>` : "")
+      || `<div class="rdvn-item muted">tape encore…</div>`;
+    list.querySelectorAll(".rdvn-item[data-key]").forEach(el=>el.addEventListener("mousedown", ()=>{
+      const ci = state.clientsInfos.find(x=>x.client_key===el.dataset.key);
+      cli = {key:el.dataset.key, nom:nomAffiche(el.dataset.key, ci?.nom||el.dataset.key)};
+      inCli.value = cli.nom; list.style.display = "none"; persistSoon();
+    }));
+    list.querySelector(".rdvn-item[data-new]")?.addEventListener("mousedown", async ()=>{
+      const brut = inCli.value.trim();
+      const key = normName(brut);
+      const spl = splitNomPrenom(key);
+      try{
+        await state.db.saveClientInfo({client_key:key, nom:brut, statut:"Prospect", origine:"", notes:"",
+          nom_famille:spl.nom, prenom:spl.prenom});
+        await state.db.loadAll();
+        cli = {key, nom:brut};
+        inCli.value = brut; list.style.display = "none"; persistSoon();
+        toast(`Fiche prospect « ${brut} » créée`);
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+  };
+  inCli.addEventListener("input", ()=>{ cli = null; majListe(); });
+  inCli.addEventListener("focus", majListe);
+  inCli.addEventListener("blur", ()=>setTimeout(()=>{ list.style.display = "none"; }, 250));
+  /* ---- trame ---- */
+  $$("#rdvn-trame").addEventListener("click", ()=>{
+    ta.value = ta.value.trim()? RDVN_TRAME+"\n"+ta.value : RDVN_TRAME;
+    ta.focus(); ta.setSelectionRange(RDVN_TRAME.indexOf("\n")+1, RDVN_TRAME.indexOf("\n")+1);
+    persistSoon();
+  });
+  /* ---- tâche de suivi ---- */
+  $$("#rdvn-suivi").addEventListener("change", e=>{
+    $$("#rdvn-suivitxt").style.display = e.target.checked? "" : "none";
+    $$("#rdvn-suividate").style.display = e.target.checked? "" : "none";
+  });
+  $$("#rdvn-jeter")?.addEventListener("click", e=>{
+    e.preventDefault();
+    if (!confirm("Jeter définitivement ce brouillon ?")) return;
+    rdvnDraftSave(null); ta.value = ""; if (!clientKey){ cli = null; inCli.value = ""; }
+    $$("#rdvn-saved").textContent = ""; e.target.closest("p").remove();
+  });
+  const close = ()=>back.remove();
+  $$("#rdvn-cancel").addEventListener("click", ()=>{ persist(); close(); toast("Brouillon conservé — tu le retrouveras en rouvrant 📝 Note de RDV"); });
+  back.addEventListener("click", e=>{ if (e.target===back){ persist(); close(); } });
+  $$("#rdvn-save").addEventListener("click", async ()=>{
+    const txt = ta.value.trim();
+    if (!cli){ toast("Choisis le client (ou crée sa fiche prospect)"); inCli.focus(); return; }
+    if (!txt){ toast("La note est vide"); ta.focus(); return; }
+    try{
+      await state.db.addInteraction({client_key:cli.key, conseiller_id:state.profile.conseiller_id||null,
+        type:"RDV", note:"🤝 Compte rendu de RDV\n"+txt});
+      if ($$("#rdvn-suivi").checked && state.profile.conseiller_id){
+        const st = $$("#rdvn-suivitxt").value.trim() || "Suivi du RDV";
+        await state.db.saveAction({conseiller_id:state.profile.conseiller_id, texte:st+" — "+cli.nom,
+          echeance:$$("#rdvn-suividate").value||null, semaine:state.week, fait:false});
+      }
+      rdvnDraftSave(null);
+      close();
+      await state.db.loadAll();
+      toast("🤝 Compte rendu enregistré dans la fiche de "+cli.nom+" ✓");
+      render();
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+  ta.focus();
+}
+
 /* ---------- v81 : taguer un collaborateur sur une carte ---------- */
 function tagCibles(){
   if (state.annuaire && state.annuaire.length){   /* v81.2 : l'annuaire donne les noms à tous les rôles */
