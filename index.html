@@ -5997,7 +5997,7 @@ function viewMissions(root){
     const cols = miStatuts();
     const orphelines = rows.filter(m=>!cols.includes(m.statut));
     const fCol = miStFacturer();
-    body.innerHTML = `<div class="kanban" style="grid-template-columns:repeat(${cols.length + (orphelines.length?1:0)}, minmax(190px,1fr))">${cols.map(st=>{
+    body.innerHTML = `<div class="kanban" style="grid-template-columns:repeat(${cols.length + (orphelines.length?1:0)}, minmax(250px,1fr))">${cols.map(st=>{
       const items = rows.filter(m=>m.statut===st).sort((a,b)=>String(a.echeance||"9999").localeCompare(String(b.echeance||"9999")));
       return `<div class="kcol mi-col" data-st="${esc(st)}">
         <div class="kcol-head"><b style="color:${miStColor(st)}">${st===fCol? "💶 ":""}${esc(st)}</b><span class="kcount">${items.length}</span></div>
