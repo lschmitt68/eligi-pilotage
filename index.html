@@ -464,6 +464,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .pj-item a:hover{text-decoration:underline}
 .pj-del{border:none; background:none; cursor:pointer; color:var(--muted); font-size:12px; padding:0 3px; opacity:.55}
 .pj-del:hover{opacity:1; color:var(--bad)}
+.camp-f{cursor:pointer; text-decoration:none; display:inline-flex; align-items:center; gap:4px}
+.camp-f:hover{background:var(--surface-2); text-decoration:underline}
 .pj-zone.dragover{outline:2px dashed var(--s1); outline-offset:3px; border-radius:8px; background:color-mix(in srgb, var(--s1) 7%, transparent)}
 .print-head{display:none}
 @media print{
@@ -887,6 +889,8 @@ class SupaDB {
     const misTous = mi.error? [] : (mi.data||[]).map(m=>({...m, statut: miStNorm(m.statut)}));     // tolérant tant que la migration v15 n'est pas passée
     state.missionsArch = misTous.filter(m=>m.archive);      /* v56 : les archivées sortent de tous les écrans */
     state.missions = misTous.filter(m=>!m.archive);
+    const an = await this.c.from("equipe_annuaire").select("*");
+    state.annuaire = an.error? null : (an.data||[]);   /* v81.2 : nul tant que la migration n'est pas passée */
     const cg = await this.c.from("campagnes").select("*").order("date_fin");
     state.campagnes = cg.error? [] : (cg.data||[]);    // tolérant tant que la migration v22 n'est pas passée
     const op = await this.c.from("operations").select("*").order("id", {ascending:false});
@@ -2538,6 +2542,7 @@ function campagneCardHTML(camp, forCons){
         <button class="btn secondary small camp-docs" data-cid="${camp.id}" title="Brochure PDF, plaquette produit, présentation, exemples — visibles par toute l'équipe">📎 Documents</button>
         ${isManager()? `<button class="btn secondary small camp-edit" data-cid="${camp.id}">Modifier</button>`:""}</span></h3>
     <p class="small muted" style="margin:0 0 8px">Commercialisation jusqu'au <b>${new Date(String(camp.date_fin).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</b>${camp.description? ` — ${esc(camp.description)}`:""}</p>
+    <div class="camp-files" data-cid="${camp.id}" style="display:none;flex-wrap:wrap;gap:6px;margin:0 0 8px"></div>
     <div class="jr-wrap"><table class="tbl dense">
       <thead><tr><th>Conseiller</th><th class="num">Objectif collecte</th><th class="num">Validé</th><th class="num">Pondéré</th><th style="min-width:90px"></th><th class="num">Atteint</th></tr></thead>
       <tbody>${cons.map(c=>{
@@ -2567,11 +2572,28 @@ function campagneDocsModal(camp){ /* v81 : la doc du produit au même endroit po
     <div class="modal-actions"><button class="btn secondary" id="cd-close">Fermer</button></div>
   </div>`;
   document.body.appendChild(back);
-  back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
-  back.querySelector("#cd-close").addEventListener("click", ()=>back.remove());
+  const close = ()=>{ back.remove(); render(); };   /* v81.1 : la carte derrière montre les fichiers à jour */
+  back.addEventListener("click", e=>{ if (e.target===back) close(); });
+  back.querySelector("#cd-close").addEventListener("click", close);
   pjMount(back.querySelector("#pj-camp"), "camp/"+camp.id);
 }
+function campBindFiles(root){ /* v81.1 : la brochure s'ouvre depuis la carte, sans passer par la modale */
+  root.querySelectorAll(".camp-files").forEach(async el=>{
+    try{
+      const files = await state.db.listFiles("camp/"+el.dataset.cid);
+      if (!files.length || !el.isConnected){ el.remove(); return; }
+      el.style.display = "flex";
+      el.innerHTML = files.map(f=>`<a href="#" class="tag camp-f" data-p="${esc(f.path)}" title="Ouvrir — ${esc(f.name.replace(/^[a-z0-9]+_/,""))}${f.size? " · "+pjFmtSize(f.size):""}">📄 ${esc(f.name.replace(/^[a-z0-9]+_/,""))}</a>`).join("");
+      el.querySelectorAll(".camp-f").forEach(a=>a.addEventListener("click", async e=>{
+        e.preventDefault(); e.stopPropagation();
+        try{ const url = await state.db.fileUrl(a.dataset.p); window.open(url, "_blank"); }
+        catch(err){ toast("Erreur : "+(err.message||err)); }
+      }));
+    }catch(e){ el.remove(); }
+  });
+}
 function bindCampagnes(root){
+  campBindFiles(root);   /* v81.1 */
   root.querySelectorAll(".camp-docs").forEach(b=>b.addEventListener("click", e=>{   /* v81 */
     e.stopPropagation();
     const c = state.campagnes.find(x=>x.id===+b.dataset.cid);
@@ -5943,11 +5965,32 @@ function miEcheanceHTML(m){
 }
 /* ---------- v81 : taguer un collaborateur sur une carte ---------- */
 function tagCibles(){
+  if (state.annuaire && state.annuaire.length){   /* v81.2 : l'annuaire donne les noms à tous les rôles */
+    const l = state.annuaire.filter(a=>a.type==="cons").map(a=>({t:{c:+a.ref}, nom:a.nom}));
+    const ri = state.annuaire.find(a=>a.type==="role" && a.ref==="ingenieur");
+    const rs = state.annuaire.find(a=>a.type==="role" && a.ref==="suivi");
+    l.push({t:{r:"ingenieur"}, nom:(ri?.nom||"Ingénierie")+" · missions"});
+    l.push({t:{r:"suivi"}, nom:(rs?.nom||"Back-office")+" · back-office"});
+    return l;
+  }
   const nomRole = r => (state.profiles||[]).find(p=>p.role===r)?.nom_affichage;
   const l = activeConseillers().map(c=>({t:{c:c.id}, nom:c.nom}));
   l.push({t:{r:"ingenieur"}, nom:(nomRole("ingenieur")||"Ingénierie")+" · missions"});
   l.push({t:{r:"suivi"}, nom:(nomRole("suivi")||"Back-office")+" · back-office"});
   return l;
+}
+function tagParseMention(txt){ /* v81.2 : @Lina dans le texte tague automatiquement, comme sur Trello */
+  const norm = s => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g,"");
+  for (const mm of String(txt).matchAll(/@([\p{L}][\p{L}\p{N}_-]*)/gu)){
+    const q = norm(mm[1]);
+    for (const c of tagCibles()){
+      const mots = norm(c.nom).split(/[^a-z0-9]+/).filter(Boolean);
+      if (mots.includes(q)) return c;
+    }
+    if (["missions","mission","ingenieur","ingenierie"].includes(q)){ const c = tagCibles().find(x=>x.t.r==="ingenieur"); if (c) return c; }
+    if (["backoffice","back-office","suivi","bo"].includes(q)){ const c = tagCibles().find(x=>x.t.r==="suivi"); if (c) return c; }
+  }
+  return null;
 }
 function tagMeVise(tag){
   if (!tag || !state.profile) return false;
@@ -6219,7 +6262,7 @@ function missionModal(m, opts={}){
     <div style="flex:1;min-width:310px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;max-height:640px">
       <h3 class="mt0" style="font-size:14px">💬 Journal du dossier</h3>
       <div class="inline-controls" style="margin-bottom:8px">
-        <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newnote" placeholder="Écrire une note…"></label>
+        <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newnote" placeholder="Écrire une note… (@Lina tague)"></label>
         <select id="mi-tagsel" class="small" style="max-width:120px" title="Taguer un collaborateur : la note lui apparaît dans « Aujourd'hui » et en 🔔 sur la carte, jusqu'à ce qu'il la marque traitée">
           <option value="">🔔 Taguer…</option>
           ${tagCibles().map((c,i)=>`<option value="${i}">${esc(c.nom)}</option>`).join("")}
@@ -6283,8 +6326,10 @@ function missionModal(m, opts={}){
       const el = back.querySelector("#mi-newnote"); const n = el.value.trim();
       if (!n) return; readForm();
       const ts = back.querySelector("#mi-tagsel");   /* v81 */
-      const cible = ts && ts.value!==""? tagCibles()[+ts.value] : null;
-      m.journal = [cible? {q:new Date().toISOString(), n:`🔔 pour ${cible.nom} — ${n}`, c:state.profile.conseiller_id||null, tag:cible.t, fait:false}
+      const sel = ts && ts.value!==""? tagCibles()[+ts.value] : null;
+      const men = sel? null : tagParseMention(n);   /* v81.2 : @Lina dans le texte */
+      const cible = sel || men;
+      m.journal = [cible? {q:new Date().toISOString(), n: men? n : `🔔 pour ${cible.nom} — ${n}`, c:state.profile.conseiller_id||null, tag:cible.t, fait:false}
                         : {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null}, ...(m.journal||[])];
       renderModal();
     };
@@ -6590,7 +6635,7 @@ function boModal(o, statutInitial, clientKey){
       </div>
       <div style="flex:1;min-width:310px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;max-height:560px">
         <h3 class="mt0" style="font-size:14px">💬 Journal du dossier</h3>
-        <div class="inline-controls" style="gap:6px;margin-bottom:8px"><input type="text" id="bo-newnote" placeholder="Écrire une note…" style="flex:1"><select id="bo-tagsel" class="small" style="max-width:120px" title="Taguer un collaborateur : la note lui apparaît dans « Aujourd'hui » et en 🔔 sur la carte, jusqu'à ce qu'il la marque traitée"><option value="">🔔 Taguer…</option>${tagCibles().map((c,i)=>`<option value="${i}">${esc(c.nom)}</option>`).join("")}</select><button class="btn secondary small" id="bo-addnote">Noter</button></div>
+        <div class="inline-controls" style="gap:6px;margin-bottom:8px"><input type="text" id="bo-newnote" placeholder="Écrire une note… (@Elodie tague)" style="flex:1"><select id="bo-tagsel" class="small" style="max-width:120px" title="Taguer un collaborateur : la note lui apparaît dans « Aujourd'hui » et en 🔔 sur la carte, jusqu'à ce qu'il la marque traitée"><option value="">🔔 Taguer…</option>${tagCibles().map((c,i)=>`<option value="${i}">${esc(c.nom)}</option>`).join("")}</select><button class="btn secondary small" id="bo-addnote">Noter</button></div>
         <div class="tl" style="flex:1;overflow-y:auto;min-height:120px">${(o.journal||[]).slice().reverse().map((j,i)=>`<div class="tl-item tl-note bo-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">🗒</span><div class="tl-body">${tagEtatHTML(j)}<span>${esc(j.n)}</span><div class="tl-meta">${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune note pour l'instant</p>`}</div>
       </div>
       </div>
@@ -6618,8 +6663,10 @@ function boModal(o, statutInitial, clientKey){
     back.querySelector("#bo-newet").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addEt(); } });
     const addNote = ()=>{ const el = back.querySelector("#bo-newnote"); const n = el.value.trim(); if (!n) return; lireForm();
       const ts = back.querySelector("#bo-tagsel");   /* v81 */
-      const cible = ts && ts.value!==""? tagCibles()[+ts.value] : null;
-      o.journal.push(cible? {q:new Date().toISOString(), n:monNom()+" — 🔔 pour "+cible.nom+" — "+n, tag:cible.t, fait:false}
+      const sel = ts && ts.value!==""? tagCibles()[+ts.value] : null;
+      const men = sel? null : tagParseMention(n);   /* v81.2 : @Lina dans le texte */
+      const cible = sel || men;
+      o.journal.push(cible? {q:new Date().toISOString(), n: men? monNom()+" — "+n : monNom()+" — 🔔 pour "+cible.nom+" — "+n, tag:cible.t, fait:false}
                           : {q:new Date().toISOString(), n:monNom()+" — "+n});
       rendre(); };
     back.querySelector("#bo-addnote").addEventListener("click", addNote);
