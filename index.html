@@ -6684,7 +6684,7 @@ function missionModal(m, opts={}){
         }
         toast("Tag marqué traité ✓");
       }catch(err){ toast("Erreur : "+(err.message||err)); }
-      renderModal();
+      renderModal(); majTitreOnglet();   /* v91.1 : le badge retombe tout de suite */
     }));
     back.querySelector("#mi-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
     back.querySelector("#mi-statut").addEventListener("change", ()=>{ readForm(); renderModal(); });
@@ -7058,7 +7058,7 @@ function boModal(o, statutInitial, clientKey){
         }
         toast("Tag marqué traité ✓");
       }catch(err){ toast("Erreur : "+(err.message||err)); }
-      rendre();
+      rendre(); majTitreOnglet();   /* v91.1 */
     }));
     back.querySelector("#bo-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
     if (!creation) pjMount(back.querySelector("#pj-bo"), "op/"+o.id);   /* v71 */
