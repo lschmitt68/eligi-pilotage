@@ -6306,6 +6306,55 @@ function creeLe(x, prefix){ /* v88.1 : date de création affichée sur les fiche
   return `<span class="small muted" style="font-weight:400">${prefix||" · créée le "}${new Date(x.created_at).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span>`;
 }
 function creeLeTitle(x){ return x?.created_at? "Créée le "+new Date(x.created_at).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})+" — " : ""; }
+function statutJournal(journal, avant, apres){ /* v92 : trace le changement de statut dans le journal */
+  if (!avant || !apres || avant===apres) return journal||[];
+  return [...(journal||[]), {q:new Date().toISOString(), n:"⚙ Statut : "+avant+" → "+apres, a:monNom(), sys:true}];
+}
+function filAuteurEstMoi(j){
+  const moi = monNom();
+  if (j.a) return j.a===moi;
+  const n = String(j.n||"");
+  return n.startsWith(moi+" — ") || n.startsWith("💬 "+moi+" — ");
+}
+function filVuKey(){ return "eligi-fil-vu:"+String(state.profile?.email||state.profile?.role||"x"); }
+function filDossiers(){ /* ce qui a bougé sur MES cartes ces 7 derniers jours, écrit par d'autres */
+  const meId = state.profile?.conseiller_id;
+  if (!meId) return [];
+  const dep = new Date(Date.now()-7*86400000).toISOString();
+  const out = [];
+  for (const o of state.operations) if (o.conseiller_id===meId)
+    for (const j of (o.journal||[])) if (String(j.q||"")>dep && !filAuteurEstMoi(j)) out.push({t:"bo", r:o, j});
+  for (const m of state.missions) if (m.conseiller_id===meId)
+    for (const j of (m.journal||[])) if (String(j.q||"")>dep && !filAuteurEstMoi(j)) out.push({t:"mi", r:m, j});
+  out.sort((a,b)=>String(b.j.q||"").localeCompare(String(a.j.q||"")));
+  return out.slice(0, 20);
+}
+function filDossiersHTML(){
+  const evts = filDossiers();
+  if (!evts.length) return "";
+  let vu = 0; try{ vu = +localStorage.getItem(filVuKey())||0; }catch(e){}
+  const nNouv = evts.filter(x=>new Date(x.j.q).getTime()>vu).length;
+  return `<div class="card sect" style="margin-top:10px" id="jr-fil">
+    <h3 class="mt0">🛰 Du nouveau sur tes dossiers <span class="small muted" style="font-weight:400">— statuts et commentaires des 7 derniers jours, par le back-office et l'ingénierie${nNouv? ` · <b style="color:var(--s1)">${nNouv} depuis ta dernière visite</b>`:""}</span></h3>
+    <div class="tbl-scroll" style="max-height:280px"><table class="tbl dense"><tbody>
+      ${evts.map((x,i)=>`<tr class="clickable fil-row" data-i="${i}" title="Cliquer pour ouvrir la carte">
+        <td style="width:14px">${new Date(x.j.q).getTime()>vu? `<span style="color:var(--s1);font-size:16px" title="Nouveau depuis ta dernière visite">●</span>`:""}</td>
+        <td style="width:26px">${x.t==="mi"? "🧰":"📥"}</td>
+        <td><b>${esc(x.t==="mi"? (miClientNom(x.r.client_key)||x.r.titre||x.r.type) : x.r.titre)}</b>
+          <div class="small muted" style="overflow-wrap:anywhere">${esc(String(x.j.n||"").slice(0,140))}</div></td>
+        <td class="small" style="white-space:nowrap">${new Date(x.j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</td>
+      </tr>`).join("")}
+    </tbody></table></div>
+  </div>`;
+}
+function bindFil(root){
+  const evts = filDossiers();
+  root.querySelectorAll(".fil-row").forEach(tr=>tr.addEventListener("click", ()=>{
+    const x = evts[+tr.dataset.i]; if (!x) return;
+    if (x.t==="mi") missionModal(x.r); else boModal(x.r);
+  }));
+  if (!document.hidden){ try{ localStorage.setItem(filVuKey(), String(Date.now())); }catch(e){} }
+}
 function tagSig(x){ return x.t+":"+x.r.id+":"+String(x.j.q||""); }
 function tagVusKey(){ return "eligi-tags-vus:"+String(state.profile?.email||state.profile?.role||"x"); }
 function tagVus(){ try{ return JSON.parse(localStorage.getItem(tagVusKey())||"[]"); }catch(e){ return []; } }
@@ -6470,7 +6519,7 @@ function viewMissions(root){
         const st = col.dataset.st;
         if (!m || !st || m.statut===st) return;
         try{
-          const upd = {...m, statut:st};
+          const upd = {...m, statut:st, journal: statutJournal(m.journal, m.statut, st)};   /* v92 */
           if (st===miStFacturer() && !upd.livree_le) upd.livree_le = new Date().toISOString().slice(0,10);
           if (st===miStTermine()){ upd.close_le = new Date().toISOString().slice(0,10); upd.echeance = null; }
           await state.db.saveMission(upd); await state.db.loadAll();
@@ -6712,6 +6761,7 @@ function missionModal(m, opts={}){
         if (!clientsMap.has(key))
           await state.db.saveClientInfo({client_key:key, nom:nomClient, statut:"Client", origine:"", notes:""});
         m.client_key = key;
+        if (!isNew){ const avM = state.missions.find(x=>x.id===m.id); if (avM) m.journal = statutJournal(m.journal, avM.statut, m.statut); }   /* v92 */
         if (m.statut===miStFacturer() && !m.livree_le) m.livree_le = new Date().toISOString().slice(0,10);
         if (m.statut===miStTermine()){ m.close_le = m.close_le || new Date().toISOString().slice(0,10); m.echeance = null; }
         delete m.hono_enc_tmp;
@@ -6894,7 +6944,7 @@ function viewBackoffice(root){
       const st = col.dataset.bost;
       if (!o || o.statut===st) return;
       try{
-        await state.db.saveOperation({...o, statut:st});
+        await state.db.saveOperation({...o, statut:st, journal: statutJournal(o.journal, o.statut, st)});   /* v92 */
         await boNotifierTermine(o, {...o, statut:st});
         await state.db.loadAll(); toast(`${o.titre} → ${st} ✓`); render();
       }catch(err){ toast("Erreur : "+(err.message||err)); }
@@ -7010,8 +7060,8 @@ function boModal(o, statutInitial, clientKey){
     back.querySelector("#bo-newet").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addEt(); } });
     const addNote = ()=>{ const el = back.querySelector("#bo-newnote"); const n = el.value.trim(); if (!n) return; lireForm();
       const cible = tagParseMention(n);   /* v81.3 : @Lina tague, comme sur Trello */
-      const entry = cible? {q:new Date().toISOString(), n:monNom()+" — "+n, tag:cible.t, fait:false}
-                         : {q:new Date().toISOString(), n:monNom()+" — "+n};
+      const entry = cible? {q:new Date().toISOString(), n:monNom()+" — "+n, a:monNom(), tag:cible.t, fait:false}
+                         : {q:new Date().toISOString(), n:monNom()+" — "+n, a:monNom()};
       o.journal.push(entry);
       rendre();
       if (!creation && o.id) (async ()=>{   /* v85 : la note part tout de suite */
@@ -7086,6 +7136,7 @@ function boModal(o, statutInitial, clientKey){
       try{
         const {_clientTxt, ...row} = o;
         const avant = creation? null : state.operations.find(x=>x.id===o.id);
+        if (avant) row.journal = statutJournal(row.journal, avant.statut, row.statut);   /* v92 */
         await state.db.saveOperation(row);
         await boNotifierTermine(avant, row);
         await state.db.loadAll(); back.remove(); toast(creation? "Opération créée ✓" : "Opération enregistrée ✓"); render();
@@ -8803,6 +8854,12 @@ function render(){
       const anc = $("#view").querySelector(".tiles");
       if (anc) anc.insertAdjacentHTML("afterend", th); else $("#view").insertAdjacentHTML("beforeend", th);
       bindTags($("#view"));
+    }
+    const fh = filDossiersHTML();   /* v92 : le fil « du nouveau sur tes dossiers » */
+    if (fh){
+      const anc2 = $("#view").querySelector("#jr-tags") || $("#view").querySelector(".tiles");
+      if (anc2) anc2.insertAdjacentHTML("afterend", fh); else $("#view").insertAdjacentHTML("beforeend", fh);
+      bindFil($("#view"));
     }
   }
   const rem = saisieReminderHTML();
