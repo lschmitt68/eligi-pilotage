@@ -6269,6 +6269,14 @@ function tagsPourMoi(){
   for (const o of state.operations) (o.journal||[]).forEach((j,i)=>{ if (j.tag && !j.fait && tagMeVise(j.tag)) out.push({t:"bo", r:o, i, j}); });
   return out.sort((a,b)=>String(b.j.q||"").localeCompare(String(a.j.q||"")));
 }
+function tagLabelHTML(x){ /* v92.2 : le client toujours visible dans les listes de cartes */
+  if (x.t==="mi"){
+    const c = miClientNom(x.r.client_key), t = x.r.titre||x.r.type;
+    return `<b>${esc(c||t||"Mission")}</b>${c && t? ` <span class="small muted">· ${esc(t)}</span>`:""}`;
+  }
+  const c = boClientDisp(x.r);
+  return `<b>${c? "👤 "+esc(c) : esc(x.r.titre)}</b>${c? ` <span class="small muted">· ${esc(x.r.titre)}</span>`:""}`;
+}
 function tagsCardHTML(){
   const tags = tagsPourMoi();
   if (!tags.length) return "";
@@ -6277,7 +6285,7 @@ function tagsCardHTML(){
     <div class="tbl-scroll" style="max-height:300px"><table class="tbl dense"><tbody>
       ${tags.map((x,ti)=>`<tr class="clickable tg-row" data-ti="${ti}" title="Cliquer pour ouvrir la carte">
         <td style="width:26px">${x.t==="mi"? "🧰":"📦"}</td>
-        <td><b>${esc(x.t==="mi"? (miClientNom(x.r.client_key)||x.r.titre||x.r.type) : x.r.titre)}</b>
+        <td>${tagLabelHTML(x)}
           <div class="small muted" style="overflow-wrap:anywhere">${esc(String(x.j.n||"").slice(0,180))}</div></td>
         <td class="small" style="white-space:nowrap">${x.j.q? new Date(x.j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</td>
         <td class="num"><button class="btn secondary small tg-fait" data-ti="${ti}" title="Marquer comme traité — le tag disparaît d'ici et le journal garde la trace">✓ Traité</button></td>
@@ -6340,7 +6348,7 @@ function filDossiersHTML(){
       ${evts.map((x,i)=>`<tr class="clickable fil-row" data-i="${i}" title="Cliquer pour ouvrir la carte">
         <td style="width:14px">${new Date(x.j.q).getTime()>vu? `<span style="color:var(--s1);font-size:16px" title="Nouveau depuis ta dernière visite">●</span>`:""}</td>
         <td style="width:26px">${x.t==="mi"? "🧰":"📥"}</td>
-        <td><b>${esc(x.t==="mi"? (miClientNom(x.r.client_key)||x.r.titre||x.r.type) : x.r.titre)}</b>
+        <td>${tagLabelHTML(x)}
           <div class="small muted" style="overflow-wrap:anywhere">${esc(String(x.j.n||"").slice(0,140))}</div></td>
         <td class="small" style="white-space:nowrap">${new Date(x.j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</td>
       </tr>`).join("")}
@@ -6374,7 +6382,7 @@ function tagPopupCheck(){ /* v87 : un pop-up quand un nouveau tag arrive */
     <div class="tbl-scroll" style="max-height:300px"><table class="tbl dense"><tbody>
       ${nouveaux.map((x,i)=>`<tr class="clickable tgp-row" data-i="${i}">
         <td style="width:26px">${x.t==="mi"? "🧰":"📦"}</td>
-        <td><b>${esc(x.t==="mi"? (miClientNom(x.r.client_key)||x.r.titre||x.r.type) : x.r.titre)}</b>
+        <td>${tagLabelHTML(x)}
           <div class="small muted" style="overflow-wrap:anywhere">${esc(String(x.j.n||"").slice(0,150))}</div></td>
         <td class="small" style="white-space:nowrap">${x.j.q? new Date(x.j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</td>
       </tr>`).join("")}
