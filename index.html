@@ -2859,7 +2859,7 @@ function viewPipeline(root){
 }
 
 function kcardHTML(p){
-  return `<div class="kcard" draggable="true" data-kid="${p.id}" title="Glisser pour changer d'étape — cliquer pour modifier">
+  return `<div class="kcard" draggable="true" data-kid="${p.id}" title="${creeLeTitle(p)}Glisser pour changer d'étape — cliquer pour modifier">
     <div class="kclient"><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span>
       <span class="kc-name">${esc(cliAff(p.client))}</span>
       <button class="mi-arch-btn pi-arch-btn" data-pid="${p.id}" title="Archiver — la carte disparaît du tableau (récupérable via le filtre 🗄 Archivées)">🗄</button>
@@ -2984,7 +2984,7 @@ function pipeModal(p, etapeInit){
   const back = document.createElement("div");
   back.className = "modal-back";
   back.innerHTML = `<div class="modal">
-    <h3>${isNew? "Nouvelle affaire" : "Modifier l'affaire"}</h3>
+    <h3>${isNew? "Nouvelle affaire" : "Modifier l'affaire"}${isNew? "" : creeLe(p)}</h3>
     <div class="form-grid">
       ${voitTout()? `<label class="fld"><span>Conseiller</span><select id="pm-cons">
         ${activeConseillers().map(c=>`<option value="${c.id}" ${c.id===p.conseiller_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`
@@ -6301,6 +6301,11 @@ function bindTags(root){
     }catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
 }
+function creeLe(x, prefix){ /* v88.1 : date de création affichée sur les fiches */
+  if (!x?.created_at) return "";
+  return `<span class="small muted" style="font-weight:400">${prefix||" · créée le "}${new Date(x.created_at).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span>`;
+}
+function creeLeTitle(x){ return x?.created_at? "Créée le "+new Date(x.created_at).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})+" — " : ""; }
 function tagSig(x){ return x.t+":"+x.r.id+":"+String(x.j.q||""); }
 function tagVusKey(){ return "eligi-tags-vus:"+String(state.profile?.email||state.profile?.role||"x"); }
 function tagVus(){ try{ return JSON.parse(localStorage.getItem(tagVusKey())||"[]"); }catch(e){ return []; } }
@@ -6345,7 +6350,7 @@ function tagEtatHTML(j){ /* petit état affiché dans les journaux */
 }
 function miCardHTML(m){
   const pr = miProgress(m);
-  return `<div class="kcard mi-card" data-mid="${m.id}" draggable="true" title="Cliquer pour ouvrir — glisser pour changer de statut">
+  return `<div class="kcard mi-card" data-mid="${m.id}" draggable="true" title="${creeLeTitle(m)}Cliquer pour ouvrir — glisser pour changer de statut">
     <div class="kclient"><span class="cdot" style="background:${consColor(m.conseiller_id)}" title="${esc(consName(m.conseiller_id))}"></span>
       <span class="kc-name">${esc(miClientNom(m.client_key))}</span>
       ${tagCarteMeVise(m)? `<span title="On t'a tagué sur cette carte — ouvre le journal">🔔</span>`:""}
@@ -6513,7 +6518,7 @@ function missionModal(m, opts={}){
   const renderModal = ()=>{
     const pr = miProgress(m);
     back.innerHTML = `<div class="modal" style="width:1080px;max-width:96vw">
-    <h3>${isNew? "Nouvelle mission" : `Mission — ${esc(miClientNom(m.client_key))}`}</h3>
+    <h3>${isNew? "Nouvelle mission" : `Mission — ${esc(miClientNom(m.client_key))}`}${isNew? "" : creeLe(m)}</h3>
     <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch">
     <div style="flex:1.35;min-width:400px">
     <div class="form-grid">
@@ -6777,7 +6782,7 @@ function boClientDisp(o){ return o.client_key? nomAffiche(o.client_key, o.client
 function boCardHTML(o){
   const pr = boProgress(o);
   const today = new Date().toISOString().slice(0,10);
-  return `<div class="kcard" draggable="true" data-boid="${o.id}" title="Glisser pour changer d'étape — cliquer pour ouvrir">
+  return `<div class="kcard" draggable="true" data-boid="${o.id}" title="${creeLeTitle(o)}Glisser pour changer d'étape — cliquer pour ouvrir">
     <div class="kclient"><span class="kc-name">${esc(o.titre)}</span>${tagCarteMeVise(o)? `<span title="On t'a tagué sur cette carte — ouvre le journal">🔔</span>`:""}<button class="mi-arch-btn bo-arch-btn" data-oid="${o.id}" title="Archiver — la carte disparaît du tableau (récupérable via le filtre 🗄 Archivées)">🗄</button></div>
     <div class="kmeta">${o.client_key? `<span class="tag">👤 ${esc(boClientDisp(o))}</span>` : `<span class="ksig">À RATTACHER</span>`}
       ${o.campagne_id? `<span class="tag" title="Campagne : ${esc(state.campagnes.find(c=>c.id===o.campagne_id)?.nom||"")}">🚀</span>`:""}
@@ -6918,7 +6923,7 @@ function boModal(o, statutInitial, clientKey){
   };
   const rendre = ()=>{
     back.innerHTML = `<div class="modal" style="width:1040px;max-width:96vw">
-      <h3>${creation? "Nouvelle opération back-office" : "Opération back-office"}</h3>
+      <h3>${creation? "Nouvelle opération back-office" : "Opération back-office"}${creation? "" : creeLe(o)}</h3>
       <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch">
       <div style="flex:1.25;min-width:360px">
       <div class="form-grid">
