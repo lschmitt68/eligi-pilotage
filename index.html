@@ -8857,8 +8857,12 @@ function render(){
     }
     const fh = filDossiersHTML();   /* v92 : le fil « du nouveau sur tes dossiers » */
     if (fh){
-      const anc2 = $("#view").querySelector("#jr-tags") || $("#view").querySelector(".tiles");
-      if (anc2) anc2.insertAdjacentHTML("afterend", fh); else $("#view").insertAdjacentHTML("beforeend", fh);
+      const rel = [...$("#view").querySelectorAll(".sect-head h2")].find(h=>h.textContent.includes("Relation & suivi"));   /* v92.1 : juste au-dessus de « Relation & suivi » */
+      if (rel) rel.closest(".sect-head").insertAdjacentHTML("beforebegin", fh);
+      else{
+        const anc2 = $("#view").querySelector("#jr-tags") || $("#view").querySelector(".tiles");
+        if (anc2) anc2.insertAdjacentHTML("afterend", fh); else $("#view").insertAdjacentHTML("beforeend", fh);
+      }
       bindFil($("#view"));
     }
   }
