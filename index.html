@@ -8708,6 +8708,39 @@ function allowedViews(){
                        : k==="jour" && isManager() ? {...v, label:"Aujourd'hui"} : v]);
 }
 function go(view){ state.view = view; render(); }
+/* v91 : détection de nouvelle version — l'onglet ouvert depuis des jours se met à jour tout seul */
+let MAJ_TAG = null, MAJ_VUE = false;
+async function majEmpreinte(){
+  const r = await fetch("index.html", {method:"HEAD", cache:"no-store"});
+  return r.headers.get("etag") || r.headers.get("last-modified") || "";
+}
+function majBanniere(){
+  if (document.getElementById("maj-banner")) return;
+  const d = document.createElement("div");
+  d.id = "maj-banner";
+  d.style.cssText = "position:fixed;bottom:14px;left:50%;transform:translateX(-50%);z-index:9999;background:var(--surface);border:1px solid var(--s1);border-radius:12px;box-shadow:0 8px 30px rgba(0,0,0,.25);padding:10px 16px;display:flex;align-items:center;gap:12px;font-size:13.5px";
+  d.innerHTML = `<span>🔄 <b>Une nouvelle version du portail est disponible.</b></span>
+    <button class="btn small" id="maj-go">Recharger maintenant</button>
+    <button class="btn secondary small" id="maj-later" title="Le rappel reviendra — la page se mettra à jour toute seule dès que l'onglet passera en arrière-plan">Plus tard</button>`;
+  document.body.appendChild(d);
+  d.querySelector("#maj-go").addEventListener("click", ()=>location.reload());
+  d.querySelector("#maj-later").addEventListener("click", ()=>d.remove());
+}
+async function majCheck(){
+  try{
+    if (CFG.DEMO) return;
+    const tag = await majEmpreinte();
+    if (!tag) return;
+    if (MAJ_TAG === null){ MAJ_TAG = tag; return; }
+    if (tag === MAJ_TAG) return;
+    /* nouvelle version en ligne */
+    const enSaisie = document.querySelector(".modal-back") || document.querySelector(".meeting") ||
+      (document.activeElement && /^(INPUT|TEXTAREA|SELECT)$/.test(document.activeElement.tagName));
+    if (document.hidden && !enSaisie){ location.reload(); return; }   /* personne ne regarde : on recharge */
+    if (!MAJ_VUE || !document.getElementById("maj-banner")){ MAJ_VUE = true; majBanniere(); }
+  }catch(e){ /* silencieux */ }
+}
+majCheck();   /* mémorise l'empreinte de la version chargée */
 function majTitreOnglet(){ /* v89 : le nombre de tags 🔔 en attente, visible depuis les autres onglets */
   try{
     const n = state.profile? tagsPourMoi().length : 0;
@@ -8717,6 +8750,7 @@ function majTitreOnglet(){ /* v89 : le nombre de tags 🔔 en attente, visible d
 /* v71 : rafraîchissement silencieux — jamais pendant une saisie, une modale ou la réunion */
 setInterval(async ()=>{
   try{
+    majCheck();   /* v91 : nouvelle version ? bandeau, ou rechargement direct si l'onglet est caché */
     if (!state.profile || CFG.DEMO) return;
     if (document.hidden){ await state.db.loadAll(); majTitreOnglet(); return; }   /* v89 : le badge vit même en arrière-plan */
     if (document.querySelector(".modal-back") || document.querySelector(".meeting")) return;
