@@ -6499,7 +6499,7 @@ function missionModal(m, opts={}){
         <label class="fld" style="flex:1;min-width:150px"><input type="text" id="mi-newnote" placeholder="Écrire une note… (@Lina tague)"></label>
         <button class="btn secondary small" id="mi-addnote" title="@Prénom dans la note tague le collaborateur : elle lui apparaît dans « Aujourd'hui » et en 🔔 sur la carte, jusqu'à ce qu'il la marque traitée">Noter</button>
       </div>
-      <div class="tl" style="flex:1;overflow-y:auto;min-height:120px">
+      <div class="tl" style="flex:1;overflow-y:auto;min-height:120px;max-height:none">
         ${(m.journal||[]).slice().sort((a,b)=>String(b.q||"").localeCompare(String(a.q||""))).map((j,i)=>`<div class="tl-item tl-note mi-jnote" data-ri="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">📝</span>
           <div class="tl-body">${tagEtatHTML(j)}<span>${esc(j.n)}</span>
             <div class="tl-meta">${j.c? esc(consName(j.c)) : "Équipe"} · ${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("")
@@ -6874,7 +6874,7 @@ function boModal(o, statutInitial, clientKey){
       <div style="flex:1;min-width:310px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;max-height:560px">
         <h3 class="mt0" style="font-size:14px">💬 Journal du dossier</h3>
         <div class="inline-controls" style="gap:6px;margin-bottom:8px"><input type="text" id="bo-newnote" placeholder="Écrire une note… (@Elodie tague)" style="flex:1"><button class="btn secondary small" id="bo-addnote" title="@Prénom dans la note tague le collaborateur : elle lui apparaît dans « Aujourd'hui » et en 🔔 sur la carte, jusqu'à ce qu'il la marque traitée">Noter</button></div>
-        <div class="tl" style="flex:1;overflow-y:auto;min-height:120px">${(o.journal||[]).slice().sort((a,b)=>String(b.q||"").localeCompare(String(a.q||""))).map((j,i)=>`<div class="tl-item tl-note bo-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">🗒</span><div class="tl-body">${tagEtatHTML(j)}<span>${esc(j.n)}</span><div class="tl-meta">${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune note pour l'instant</p>`}</div>
+        <div class="tl" style="flex:1;overflow-y:auto;min-height:120px;max-height:none">${(o.journal||[]).slice().sort((a,b)=>String(b.q||"").localeCompare(String(a.q||""))).map((j,i)=>`<div class="tl-item tl-note bo-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">🗒</span><div class="tl-body">${tagEtatHTML(j)}<span>${esc(j.n)}</span><div class="tl-meta">${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("") || `<p class="small muted" style="margin:2px 0">aucune note pour l'instant</p>`}</div>
       </div>
       </div>
       <div class="modal-actions">
