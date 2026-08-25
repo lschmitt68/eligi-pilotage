@@ -6160,6 +6160,41 @@ function miEcheanceHTML(m){
   return miEcheanceDepassee(m)? `<span class="badge urgent"><span class="dot"></span>⏰ ${txt}</span>` : `<span class="small">📅 ${txt}</span>`;
 }
 /* ---------- v83 : 📝 note de rendez-vous ---------- */
+function crApercuPdf(nom, dateIso, txt){ /* v95 : compte rendu présentable — imprimable / PDF, envoyable au client */
+  if (!String(txt||"").trim()){ toast("La note est vide — rien à mettre en page"); return; }
+  const d = dateIso? new Date(dateIso+"T12:00:00") : new Date();
+  const secs = [];
+  let cur = null;
+  for (const ligne of String(txt).split("\n")){
+    const m = ligne.match(/^\s*—\s*(.+?)\s*—\s*$/);
+    if (m){ cur = {t:m[1], l:[]}; secs.push(cur); }
+    else if (cur) cur.l.push(ligne);
+    else { cur = {t:"", l:[ligne]}; secs.push(cur); }
+  }
+  const vis = secs.filter(s=>s.l.join("").trim() || false);
+  const corps = (vis.length? vis : secs.filter(s=>s.t)).map(s=>`<div class="pd-sec">${s.t? `<h3>${esc(s.t)}</h3>`:""}<p style="white-space:pre-wrap">${esc(s.l.join("\n").trim())}</p></div>`).join("");
+  const back = document.createElement("div");
+  back.className = "modal-back doc-back";
+  back.innerHTML = `<div class="pd-wrap" style="max-width:760px">
+    <div class="pd-actions no-print">
+      <button class="btn" id="cr-print">${ICONS.doc} Imprimer / PDF</button>
+      <button class="btn secondary" id="cr-close">${ICONS.close} Fermer</button>
+    </div>
+    <div class="pd-page">
+      <div class="pd-head">
+        <img src="logo-teal.png" alt="Eligi">
+        <div class="pd-title"><b>Compte rendu d'entretien — ${esc(nom)}</b><span>${(x=>x.charAt(0).toUpperCase()+x.slice(1))(d.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"}))} · ${esc(monNom())}</span></div>
+      </div>
+      ${corps || `<div class="pd-sec"><p style="white-space:pre-wrap">${esc(String(txt).trim())}</p></div>`}
+      <div class="pd-mentions">ELIGI Conseil — compte rendu d'entretien établi à titre d'information, sur la base des échanges du ${d.toLocaleDateString("fr-FR")}. Il ne constitue pas un conseil en investissement ; toute recommandation fera l'objet d'un document dédié.</div>
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  document.body.classList.add("doc-open");
+  const close = ()=>{ back.remove(); document.body.classList.remove("doc-open"); };
+  back.querySelector("#cr-close").addEventListener("click", close);
+  back.querySelector("#cr-print").addEventListener("click", ()=>window.print());
+}
 const RDVN_DRAFT = "eligi-rdvnote";
 const RDVN_TRAME = "— Contexte —\n\n\n— Points abordés —\n\n\n— Décisions —\n\n\n— Actions à prévoir —\n\n";
 function rdvnDraft(){ try{ return JSON.parse(localStorage.getItem(RDVN_DRAFT)||"null"); }catch(e){ return null; } }
@@ -6179,6 +6214,7 @@ function rdvNoteModal(clientKey){
         <input type="text" id="rdvn-cli" placeholder="Client… (tape 2 lettres)" autocomplete="off" value="${cli? esc(cli.nom):""}" style="width:100%">
         <div class="rdvn-list" id="rdvn-list" style="display:none"></div>
       </div>
+      <input type="date" id="rdvn-date" title="Date du rendez-vous — le compte rendu sera enregistré à cette date dans la fiche" value="${(reprise && draft.date)? esc(draft.date) : new Date().toISOString().slice(0,10)}" style="width:auto">
       <button class="btn secondary small" id="rdvn-trame" title="Insère une trame de compte rendu : Contexte / Points abordés / Décisions / Actions à prévoir">📑 Trame</button>
       <span class="rdvn-saved" id="rdvn-saved"></span>
     </div>
@@ -6194,6 +6230,7 @@ function rdvNoteModal(clientKey){
       </div>
     </div>
     <div class="inline-controls" style="gap:8px;margin-top:10px;flex-wrap:wrap">
+      <button class="btn secondary" id="rdvn-pdf" title="Aperçu présentable du compte rendu — à imprimer en PDF pour l'envoyer au client (les actions internes n'y figurent pas)">📄 PDF client</button>
       <span style="flex:1"></span>
       <button class="btn secondary" id="rdvn-cancel">Fermer</button>
       <button class="btn" id="rdvn-save">Enregistrer dans la fiche</button>
@@ -6203,11 +6240,13 @@ function rdvNoteModal(clientKey){
   const $$ = s => back.querySelector(s);
   const ta = $$("#rdvn-txt"), inCli = $$("#rdvn-cli"), list = $$("#rdvn-list");
   let actions = (reprise && Array.isArray(draft.actions))? draft.actions.map(a=>({...a})) : [];   /* v94 */
-  const persist = ()=>{ rdvnDraftSave({key:cli?.key||null, nom:cli?.nom||inCli.value.trim(), txt:ta.value, actions, q:new Date().toISOString()});
+  const persist = ()=>{ rdvnDraftSave({key:cli?.key||null, nom:cli?.nom||inCli.value.trim(), txt:ta.value, actions, date:$$("#rdvn-date").value, q:new Date().toISOString()});
     $$("#rdvn-saved").textContent = "brouillon enregistré "+new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit",second:"2-digit"}); };
   let t = null;
   const persistSoon = ()=>{ clearTimeout(t); t = setTimeout(persist, 800); };
   ta.addEventListener("input", persistSoon);
+  $$("#rdvn-date").addEventListener("change", persistSoon);   /* v95 */
+  $$("#rdvn-pdf").addEventListener("click", ()=>crApercuPdf(cli?.nom || inCli.value.trim() || "Client", $$("#rdvn-date").value, ta.value));
   /* ---- recherche client ---- */
   const cliCandidats = q => {
     const n = O2S_NORM(q);
@@ -6344,8 +6383,10 @@ function rdvNoteModal(clientKey){
           faits.push(`✅ ${st}${a.date? " (pour le "+new Date(a.date+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})+")":""}`);
         }
       }
+      const dRdv = $$("#rdvn-date").value;   /* v95 : le CR est daté du jour du RDV */
+      const quand = (dRdv && dRdv!==new Date().toISOString().slice(0,10))? new Date(dRdv+"T12:00:00").toISOString() : undefined;
       await state.db.addInteraction({client_key:cli.key, conseiller_id:state.profile.conseiller_id||null,
-        type:"RDV", note:"🤝 Compte rendu de RDV\n"+txt+(faits.length? "\n\n⚡ Actions créées :\n"+faits.map(f=>"• "+f).join("\n"):"")});
+        type:"RDV", note:"🤝 Compte rendu de RDV\n"+txt+(faits.length? "\n\n⚡ Actions créées :\n"+faits.map(f=>"• "+f).join("\n"):""), ...(quand? {quand}:{})});
       rdvnDraftSave(null);
       close();
       await state.db.loadAll();
