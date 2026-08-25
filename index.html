@@ -624,9 +624,10 @@ function defaultWeek(){
   const today = todayWeekCode();
   const past = codes.filter(c => wcmp(c, today) <= 0);
   let wk = past.length ? past[past.length-1] : codes[0];
-  // Lundi et mardi (jour de la réunion) : on regarde la semaine précédente
-  const d = dayOfWeek();
-  if ((d===1 || d===2) && codes.indexOf(wk) > 0 && wk === today) wk = codes[codes.indexOf(wk)-1];
+  /* v92.3 : toujours la semaine en cours — la bascule lundi/mardi vers la
+     semaine précédente datait de la saisie manuelle, devenue inutile depuis
+     la saisie quasi automatique. Le sélecteur permet toujours de revenir
+     sur la semaine passée pour la réunion. */
   return wk;
 }
 
