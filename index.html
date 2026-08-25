@@ -213,7 +213,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .mi-arch-btn{border:none; background:none; cursor:pointer; opacity:0; font-size:12px; padding:0 2px; transition:opacity .15s}
 .kcard:hover .mi-arch-btn{opacity:.65}
 .mi-arch-btn:hover{opacity:1 !important}
-.kcol{background:color-mix(in srgb, var(--surface-2) 60%, transparent); border:1px solid var(--border); border-radius:12px; padding:9px; min-height:120px}
+.kcol{background:color-mix(in srgb, var(--surface-2) 60%, transparent); border:1px solid var(--border); border-radius:12px; padding:9px; min-height:120px;
+  display:flex; flex-direction:column; max-height:calc(100dvh - 235px)}   /* v85 : la colonne défile seule, comme sur Trello */
+.kcol-cards{overflow-y:auto; flex:1; min-height:0; scrollbar-width:thin; overscroll-behavior:contain}
 .kcol.dragover{outline:2px dashed var(--s1); outline-offset:-2px}
 .kcol-head{display:flex; align-items:baseline; gap:7px; padding:2px 5px 8px}
 .kcol-head b{font-size:12.5px}
@@ -6554,9 +6556,20 @@ function missionModal(m, opts={}){
       const el = back.querySelector("#mi-newnote"); const n = el.value.trim();
       if (!n) return; readForm();
       const cible = tagParseMention(n);   /* v81.3 : @Lina tague, comme sur Trello */
-      m.journal = [cible? {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null, tag:cible.t, fait:false}
-                        : {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null}, ...(m.journal||[])];
+      const entry = cible? {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null, tag:cible.t, fait:false}
+                         : {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null};
+      m.journal = [entry, ...(m.journal||[])];
       renderModal();
+      if (!isNew && m.id) (async ()=>{   /* v85 : la note part tout de suite — le tag arrive même si on referme sans Enregistrer */
+        try{
+          const frais = state.missions.find(x=>x.id===m.id);
+          if (!frais) return;
+          const nj = [entry, ...(frais.journal||[])];
+          await state.db.saveMission({...frais, journal:nj});
+          frais.journal = nj;
+          toast(cible? `🔔 ${cible.nom} le verra sur sa page Aujourd'hui ✓` : "Note enregistrée ✓");
+        }catch(err){ toast("Note pas encore sauvée ("+(err.message||err)+") — clique Enregistrer"); }
+      })();
     };
     back.querySelector("#mi-addnote").addEventListener("click", addNote);
     if (!isNew && m.id) pjMount(back.querySelector("#pj-mi"), "mi/"+m.id);   /* v71 */
@@ -6888,9 +6901,20 @@ function boModal(o, statutInitial, clientKey){
     back.querySelector("#bo-newet").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addEt(); } });
     const addNote = ()=>{ const el = back.querySelector("#bo-newnote"); const n = el.value.trim(); if (!n) return; lireForm();
       const cible = tagParseMention(n);   /* v81.3 : @Lina tague, comme sur Trello */
-      o.journal.push(cible? {q:new Date().toISOString(), n:monNom()+" — "+n, tag:cible.t, fait:false}
-                          : {q:new Date().toISOString(), n:monNom()+" — "+n});
-      rendre(); };
+      const entry = cible? {q:new Date().toISOString(), n:monNom()+" — "+n, tag:cible.t, fait:false}
+                         : {q:new Date().toISOString(), n:monNom()+" — "+n};
+      o.journal.push(entry);
+      rendre();
+      if (!creation && o.id) (async ()=>{   /* v85 : la note part tout de suite */
+        try{
+          const frais = state.operations.find(x=>x.id===o.id);
+          if (!frais) return;
+          const nj = [...(frais.journal||[]), entry];
+          await state.db.saveOperation({...frais, journal:nj});
+          frais.journal = nj;
+          toast(cible? `🔔 ${cible.nom} le verra sur sa page Aujourd'hui ✓` : "Note enregistrée ✓");
+        }catch(err){ toast("Note pas encore sauvée ("+(err.message||err)+") — clique Enregistrer"); }
+      })(); };
     back.querySelector("#bo-addnote").addEventListener("click", addNote);
     back.querySelectorAll(".bo-jnote").forEach(el=>el.addEventListener("click", ()=>{   /* v69 */
       const list = (o.journal||[]).slice().reverse();
@@ -7734,9 +7758,11 @@ function viewParam(root){
             <option value="conseiller" ${pr.role==="conseiller"?"selected":""}>Conseiller</option>
             <option value="suivi" ${pr.role==="suivi"?"selected":""}>Suivi (sans objectifs)</option>
             <option value="ingenieur" ${pr.role==="ingenieur"?"selected":""}>Ingénieur patrimonial (missions)</option></select>
-            ${pr.role==="suivi"? `<br><select class="pp-scope small" style="margin-top:4px" title="Périmètre du profil Suivi">
-              <option value="" ${!(pr.vues&&pr.vues.length)?"selected":""}>Standard — clients, affaires, missions</option>
-              <option value="etendu" ${(pr.vues&&pr.vues.length)?"selected":""}>Étendu — + dashboard, propositions, rapport</option></select>`:""}</td>
+            ${pr.role==="suivi"? `<div class="small" style="margin-top:4px;display:flex;flex-wrap:wrap;gap:3px 10px;max-width:280px" title="Pages visibles pour ce profil — Aujourd'hui et Back-office sont toujours inclus. Coche, puis Enregistrer.">
+              ${SUIVI_VUES_ETENDU.filter(k=>k!=="backoffice").map(k=>{
+                const on = ((pr.vues&&pr.vues.length)? pr.vues : SUIVI_VUES_DEFAUT).includes(k);
+                return `<label style="display:inline-flex;align-items:center;gap:3px;cursor:pointer;white-space:nowrap"><input type="checkbox" class="pp-vue" value="${k}" ${on?"checked":""} style="width:auto">${esc(VIEWS[k]?.label||k)}</label>`;
+              }).join("")}</div>`:""}</td>
         <td><select class="pp-cons"><option value="">—</option>
           ${state.conseillers.map(c=>`<option value="${c.id}" ${c.id===pr.conseiller_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></td>
         <td class="small">${lastCx(pr.email)}</td>
@@ -7929,13 +7955,13 @@ function viewParam(root){
     const tr = b.closest("tr");
     try{
       const roleSel = tr.querySelector(".pp-role").value;
-      const scope = tr.querySelector(".pp-scope")?.value || "";
+      const vueChecks = [...tr.querySelectorAll(".pp-vue:checked")].map(c=>c.value);   /* v85 : pages à la carte */
       await state.db.saveProfile({
         email:tr.querySelector(".pp-email").value.trim().toLowerCase(),
         nom_affichage:tr.querySelector(".pp-nom").value.trim(),
         role:roleSel,
         conseiller_id:tr.querySelector(".pp-cons").value? +tr.querySelector(".pp-cons").value : null,
-        vues: roleSel==="suivi" && scope==="etendu"? SUIVI_VUES_ETENDU : null,
+        vues: roleSel==="suivi"? [...vueChecks, "backoffice"] : null,
       }, tr.dataset.email);
       await state.db.loadAll(); toast("Accès enregistré ✓"); render();
     }catch(err){ toast("Erreur : "+(err.message||err)); }
