@@ -1807,7 +1807,7 @@ function bindActionsCards(scope, refresh){
 }
 
 /* v38→v57 : une signature d'affaire crée l'opération back-office — le conseiller choisit sa nature */
-async function boCreerDepuisAffaire(p, mod){
+async function boCreerDepuisAffaire(p, mod, consigne){
   const key = normName(p.client||"");
   const titre = (mod.nom + " — " + (p.support||"")).replace(/—\s*$/,"").trim();
   if (state.operations.some(o=>o.client_key===key && o.statut!=="Terminé" && normName(o.titre)===normName(titre))){
@@ -1815,13 +1815,13 @@ async function boCreerDepuisAffaire(p, mod){
   }
   await state.db.saveOperation({client_key:key, titre, statut:"À faire",
     assureur:p.support||"", responsable:monNom(), conseiller_id:p.conseiller_id||null,
-    description:"Créée à la signature de l'affaire" + (p.campagne_id? " (campagne rattachée)":"") + ".",
+    description:(String(consigne||"").trim()? String(consigne).trim()+"\n\n" : "") + "Créée à la signature de l'affaire" + (p.campagne_id? " (campagne rattachée)":"") + ".",
     etapes:(mod.items||[]).map(t=>({t, done:false})), journal:[], echeance:null, trello_id:"",
     campagne_id:p.campagne_id||null});
   await state.db.loadAll();
   toast(`📥 « ${titre} » créée pour ${cliAff(p.client)} — visible au Back-office`); render();
 }
-async function miCreerDepuisAffaire(p){ /* v62 : la validation d'une affaire d'honoraires crée la mission pour l'ingénierie */
+async function miCreerDepuisAffaire(p, consigne){ /* v62 : la validation d'une affaire d'honoraires crée la mission pour l'ingénierie */
   const key = normName(p.client||"");
   const titre = (p.support||"Audit / Conseil").trim();
   if (state.missions.some(m=>m.client_key===key && miOuverte(m) && normName(m.titre)===normName(titre))){
@@ -1829,7 +1829,7 @@ async function miCreerDepuisAffaire(p){ /* v62 : la validation d'une affaire d'h
   }
   await state.db.saveMission({client_key:key, titre, type: trelloMissionType(p.support||"audit"),
     statut: miStatuts()[0], conseiller_id: p.conseiller_id||null,
-    description:"Créée à la validation de l'affaire.",
+    description:(String(consigne||"").trim()? String(consigne).trim()+"\n\n" : "") + "Créée à la validation de l'affaire.",
     hono_devis:+p.ca_potentiel||0, hono_facture:0, hono_encaisse:0,
     echeance:null, echeance_note:"", etapes:[], journal:[]});
   await state.db.loadAll();
@@ -1853,6 +1853,8 @@ function boDepuisSignature(p){
     back.innerHTML = `<div class="modal" style="width:580px">
       <h3>Et maintenant ? — ${esc(cliAff(p.client))}</h3>
       <p class="small muted" style="margin-top:0">Validation enregistrée ✓ &nbsp;Qui prend le relais${p.support? ` pour <b>${esc(p.support)}</b>`:""} ?</p>
+      <label class="fld" style="margin-bottom:10px"><span>📝 Consigne pour la suite <span class="muted">(ira dans la description de la carte créée)</span></span>
+        <textarea id="bo-sig-note" rows="2" placeholder="ex : versement 50 000 € sur le contrat CARDIF existant, attention clause bénéficiaire à revoir…"></textarea></label>
       ${honoraires? blocMission + blocOps : blocOps + blocMission}
       <div class="modal-actions">
         <button class="btn secondary" id="bo-sig-non">Rien à créer</button>
@@ -1861,15 +1863,19 @@ function boDepuisSignature(p){
     document.body.appendChild(back);
     back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
     back.querySelector("#bo-sig-non").addEventListener("click", ()=>back.remove());
-    back.querySelector("#bo-sig-perso").addEventListener("click", ()=>{ back.remove(); boModal(null, "À faire", key); });
+    const consigne = ()=>back.querySelector("#bo-sig-note").value.trim();   /* v88 */
+    back.querySelector("#bo-sig-perso").addEventListener("click", ()=>{
+      const c = consigne(); back.remove(); boModal(null, "À faire", key);
+      if (c) setTimeout(()=>{ const d = document.querySelector("#bo-desc"); if (d && !d.value.trim()) d.value = c; }, 250);
+    });
     back.querySelector("#bo-sig-mission").addEventListener("click", async ()=>{
-      back.remove();
-      try{ await miCreerDepuisAffaire(p); }
+      const c = consigne(); back.remove();
+      try{ await miCreerDepuisAffaire(p, c); }
       catch(e){ toast("Erreur : "+(e.message||e)); }
     });
     back.querySelectorAll(".bo-sig-mod").forEach(b=>b.addEventListener("click", async ()=>{
-      back.remove();
-      try{ await boCreerDepuisAffaire(p, mods[+b.dataset.i]); }
+      const c = consigne(); back.remove();
+      try{ await boCreerDepuisAffaire(p, mods[+b.dataset.i], c); }
       catch(e){ toast("Erreur : "+(e.message||e)); }
     }));
   }catch(e){ /* silencieux : table operations peut-être absente (migration v37) */ }
