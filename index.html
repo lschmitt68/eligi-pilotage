@@ -4547,7 +4547,14 @@ function viewClients(root){
   root.querySelectorAll(".ix-note-full").forEach(el=>el.addEventListener("click", e=>{   /* v69 */
     if (e.target.closest("button,input")) return;
     const i = state.interactions.find(x=>x.id===+el.dataset.ixid);
-    if (i) noteViewer(i.type||"Échange", i.note, [i.auteur || (i.conseiller_id? consName(i.conseiller_id) : ""), (i.quand? new Date(i.quand).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "")].filter(Boolean).join(" · "));
+    if (!i) return;
+    const estCR = i.type==="RDV" && /Compte rendu de RDV/.test(String(i.note||""));   /* v95.1 */
+    noteViewer(i.type||"Échange", i.note, [i.auteur || (i.conseiller_id? consName(i.conseiller_id) : ""), (i.quand? new Date(i.quand).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "")].filter(Boolean).join(" · "),
+      estCR? {onPdf: ()=>{
+        const txt = String(i.note).replace(/^🤝 Compte rendu de RDV[^\n]*\n?/,"").replace(/\n*⚡ Actions créées :[\s\S]*$/,"").trim();
+        crApercuPdf(nomAffiche(i.client_key, (state.clientsInfos.find(c=>c.client_key===i.client_key)?.nom)||i.client_key), String(i.quand||"").slice(0,10), txt,
+          i.auteur || (i.conseiller_id? consName(i.conseiller_id) : null));
+      }} : undefined);
   }));
   root.querySelectorAll(".ix-del").forEach(b=>b.addEventListener("click", async e=>{
     e.stopPropagation();
@@ -5680,6 +5687,7 @@ function noteViewer(titre, texte, meta, opts){ /* v69 : lire une note en entier 
     <div class="card" id="nv-txt" style="max-height:55vh;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13.5px;line-height:1.6;padding:12px 14px">${esc(txt)}</div>
     <div class="modal-actions">
       ${opts.onDelete? `<button class="btn danger" id="nv-del" style="margin-right:auto" title="Supprime la note du journal (et son tag 🔔 le cas échéant)">🗑 Supprimer</button>`:""}
+      ${opts.onPdf? `<button class="btn secondary" id="nv-pdf" title="Aperçu présentable à imprimer en PDF pour l'envoyer au client">📄 PDF client</button>`:""}
       ${opts.onSave? `<button class="btn secondary" id="nv-edit">✏️ Modifier</button>`:""}
       <button class="btn secondary" id="nv-close">Fermer</button>
     </div>
@@ -5687,6 +5695,7 @@ function noteViewer(titre, texte, meta, opts){ /* v69 : lire une note en entier 
   document.body.appendChild(back);
   back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
   back.querySelector("#nv-close").addEventListener("click", ()=>back.remove());
+  back.querySelector("#nv-pdf")?.addEventListener("click", ()=>opts.onPdf());
   back.querySelector("#nv-del")?.addEventListener("click", async ()=>{
     if (!confirm("Supprimer définitivement cette note du journal ?")) return;
     try{ await opts.onDelete(); back.remove(); }catch(err){ toast("Erreur : "+(err.message||err)); }
@@ -6160,7 +6169,7 @@ function miEcheanceHTML(m){
   return miEcheanceDepassee(m)? `<span class="badge urgent"><span class="dot"></span>⏰ ${txt}</span>` : `<span class="small">📅 ${txt}</span>`;
 }
 /* ---------- v83 : 📝 note de rendez-vous ---------- */
-function crApercuPdf(nom, dateIso, txt){ /* v95 : compte rendu présentable — imprimable / PDF, envoyable au client */
+function crApercuPdf(nom, dateIso, txt, auteur){ /* v95 : compte rendu présentable — imprimable / PDF, envoyable au client */
   if (!String(txt||"").trim()){ toast("La note est vide — rien à mettre en page"); return; }
   const d = dateIso? new Date(dateIso+"T12:00:00") : new Date();
   const secs = [];
@@ -6183,7 +6192,7 @@ function crApercuPdf(nom, dateIso, txt){ /* v95 : compte rendu présentable — 
     <div class="pd-page">
       <div class="pd-head">
         <img src="logo-teal.png" alt="Eligi">
-        <div class="pd-title"><b>Compte rendu d'entretien — ${esc(nom)}</b><span>${(x=>x.charAt(0).toUpperCase()+x.slice(1))(d.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"}))} · ${esc(monNom())}</span></div>
+        <div class="pd-title"><b>Compte rendu d'entretien — ${esc(nom)}</b><span>${(x=>x.charAt(0).toUpperCase()+x.slice(1))(d.toLocaleDateString("fr-FR",{weekday:"long",day:"numeric",month:"long",year:"numeric"}))} · ${esc(auteur||monNom())}</span></div>
       </div>
       ${corps || `<div class="pd-sec"><p style="white-space:pre-wrap">${esc(String(txt).trim())}</p></div>`}
       <div class="pd-mentions">ELIGI Conseil — compte rendu d'entretien établi à titre d'information, sur la base des échanges du ${d.toLocaleDateString("fr-FR")}. Il ne constitue pas un conseil en investissement ; toute recommandation fera l'objet d'un document dédié.</div>
@@ -6269,7 +6278,7 @@ function rdvNoteModal(clientKey){
     list.querySelector(".rdvn-item[data-new]")?.addEventListener("mousedown", async ()=>{
       const brut = inCli.value.trim();
       const key = normName(brut);
-      const spl = splitNomPrenom(key);
+      const spl = splitNomPrenom(brut);   /* v95.1 : garder la casse saisie */
       try{
         await state.db.saveClientInfo({client_key:key, nom:brut, statut:"Prospect", origine:"", notes:"",
           nom_famille:spl.nom, prenom:spl.prenom});
