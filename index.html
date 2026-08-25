@@ -1662,8 +1662,8 @@ function consColor(id){
 function normName(s){
   return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim().replace(/\s+/g," ");
 }
-const SUIVI_VUES_DEFAUT = ["clients","pipeline","missions","backoffice"];
-const SUIVI_VUES_ETENDU = ["dashboard","pipeline","clients","propositions","missions","backoffice","rapport"];
+const SUIVI_VUES_DEFAUT = ["clients","pipeline","missions","backoffice","agenda"];
+const SUIVI_VUES_ETENDU = ["dashboard","pipeline","clients","propositions","missions","backoffice","agenda","rapport"];
 function isSuivi(){ return state.profile?.role === "suivi"; }
 function suiviVues(){
   const v = state.profile?.vues;
@@ -8629,6 +8629,62 @@ function rapportMensuel(mInit, consInit){
   paint();
 }
 
+function viewAgenda(root){ /* v90 : l'échéancier du cabinet */
+  const moiPossible = !!state.profile.conseiller_id && voitTout();
+  const fMoi = state._agMoi && moiPossible;
+  const fType = state._agType || "";
+  const meId = state.profile.conseiller_id;
+  const evts = [];
+  const add = (d, type, ico, label, sub, cid, run) => { if (d) evts.push({d:String(d).slice(0,10), type, ico, label, sub, cid, run}); };
+  for (const m of state.missions) if (miOuverte(m) && m.echeance)
+    add(m.echeance, "mi", "🧰", miClientNom(m.client_key)||m.titre||m.type, (m.titre||m.type)+(m.echeance_note? " — "+m.echeance_note:""), m.conseiller_id, ()=>missionModal(m));
+  for (const o of state.operations) if (o.statut!=="Terminé" && o.echeance)
+    add(o.echeance, "bo", "📥", o.titre, o.client_key? nomAffiche(o.client_key, o.client_key) : "", o.conseiller_id, ()=>boModal(o));
+  for (const pp of state.pipeline) if ((pp.etape||"").toLowerCase()!=="signé" && pp.closing_prevu)
+    add(pp.closing_prevu, "cl", "🧭", cliAff(pp.client), "closing prévu — "+(pp.support||""), pp.conseiller_id, ()=>pipeModal(pp));
+  for (const pr of state.propositions) if (pr.statut==="Envoyée" && pr.data?.envoyee_le){
+    const exp = new Date(new Date(pr.data.envoyee_le+"T00:00:00").getTime() + PROPO_VALID_J*86400000).toISOString().slice(0,10);
+    add(exp, "pr", "📄", nomAffiche(pr.client_key, pr.data?.nomClient||pr.client_key), `proposition ${eur(+pr.data?.montant||0)} — expire (envoyée le ${new Date(pr.data.envoyee_le+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})})`, pr.conseiller_id, ()=>go("propositions"));
+  }
+  let list = evts;
+  if (fMoi) list = list.filter(e=>e.cid===meId);
+  if (fType) list = list.filter(e=>e.type===fType);
+  list.sort((a,b)=>a.d.localeCompare(b.d));
+  const today = new Date().toISOString().slice(0,10);
+  const lundi = (()=>{ const t = new Date(); const j = (t.getDay()+6)%7; t.setDate(t.getDate()-j); return t; })();
+  const semaines = [];
+  for (let i=0;i<8;i++){
+    const d0 = new Date(lundi.getTime()+i*7*86400000), d1 = new Date(d0.getTime()+6*86400000);
+    semaines.push({d0:d0.toISOString().slice(0,10), d1:d1.toISOString().slice(0,10),
+      titre: (i===0? "Cette semaine" : i===1? "Semaine prochaine" : "Semaine du "+d0.toLocaleDateString("fr-FR",{day:"numeric",month:"long"}))+
+        ` <span class="small muted" style="font-weight:400">· ${d0.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})} → ${d1.toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</span>`});
+  }
+  const retard = list.filter(e=>e.d < today);
+  const apres = list.filter(e=>e.d > semaines[7].d1);
+  const ligne = (e,i) => `<tr class="clickable ag-row" data-i="${i}">
+    <td style="width:105px;white-space:nowrap" class="${e.d<today? "small" : "small"}"><b style="${e.d<today? "color:var(--critical)":""}">${new Date(e.d+"T00:00:00").toLocaleDateString("fr-FR",{weekday:"short",day:"numeric",month:"short"})}</b></td>
+    <td style="width:26px">${e.ico}</td>
+    <td><b>${esc(e.label)}</b>${e.sub? ` <span class="small muted">— ${esc(e.sub)}</span>`:""}</td>
+    <td class="num" style="width:26px">${e.cid? `<span class="cdot" style="background:${consColor(e.cid)}" title="${esc(consName(e.cid))}"></span>`:""}</td></tr>`;
+  const bloc = (titre, items, id) => items.length? `<div class="card sect" ${id? `id="${id}"`:""} style="margin-top:10px">
+    <h3 class="mt0">${titre} <span class="small muted" style="font-weight:400">(${items.length})</span></h3>
+    <div class="tbl-scroll"><table class="tbl dense"><tbody>${items.map(e=>ligne(e, list.indexOf(e))).join("")}</tbody></table></div></div>` : "";
+  const dateStr = new Date().toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"long", year:"numeric"});
+  root.innerHTML = `
+  ${vhead("Échéancier", dateStr.charAt(0).toUpperCase()+dateStr.slice(1), `
+    ${moiPossible? `<div class="seg" id="ag-seg"><button data-v="" class="${fMoi? "":"active"}">Équipe</button><button data-v="moi" class="${fMoi? "active":""}">Moi</button></div>`:""}
+    <div class="seg" id="ag-type">
+      ${[["","Tout"],["mi","🧰 Missions"],["bo","📥 Back-office"],["cl","🧭 Closings"],["pr","📄 Propositions"]].map(([v,l])=>`<button data-v="${v}" class="${fType===v? "active":""}">${l}</button>`).join("")}
+    </div>`)}
+  ${!list.length? `<div class="card sect"><div class="empty">Aucune échéance datée${fMoi||fType? " avec ces filtres":""} — les cartes sans date n'apparaissent pas ici (elles restent signalées dans « Aujourd'hui »).</div></div>` : `
+  ${bloc("⏰ En retard", retard, "ag-retard")}
+  ${semaines.map(s=>bloc("📅 "+s.titre, list.filter(e=>e.d>=s.d0 && e.d<=s.d1 && e.d>=today))).join("")}
+  ${bloc("🗓 Plus tard", apres)}
+  <p class="small muted" style="margin-top:10px">Sources : échéances des missions et du back-office, closings prévus des affaires, dates d'expiration des propositions envoyées (${PROPO_VALID_J} j). Un clic ouvre la carte.</p>`}`;
+  root.querySelectorAll(".ag-row").forEach(tr=>tr.addEventListener("click", ()=>{ const e = list[+tr.dataset.i]; if (e) e.run(); }));
+  root.querySelector("#ag-seg")?.querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{ state._agMoi = b.dataset.v==="moi"; render(); }));
+  root.querySelector("#ag-type").querySelectorAll("button").forEach(b=>b.addEventListener("click", ()=>{ state._agType = b.dataset.v; render(); }));
+}
 const VIEWS = {
   dashboard:{label:"Dashboard", icon:ICONS.dash, fn:viewDashboard, manager:true},
   jour:{label:"Ma journée", icon:ICONS.today, fn:viewJour},
@@ -8638,13 +8694,14 @@ const VIEWS = {
   propositions:{label:"Propositions", icon:ICONS.pie, fn:viewPropositions},
   missions:{label:"Missions", icon:ICONS.kit, fn:viewMissions},
   backoffice:{label:"Back-office", icon:ICONS.inbox, fn:viewBackoffice},
+  agenda:{label:"Échéancier", icon:"📅", fn:viewAgenda},
   fiche:{label:"Fiches", icon:ICONS.user, fn:viewFiche},
   rapport:{label:"Rapport hebdo", icon:ICONS.doc, fn:viewRapport, manager:true},
   progression:{label:"Progression", icon:ICONS.chart, fn:viewProgression, manager:true},
   param:{label:"Paramétrage", icon:ICONS.gear, fn:viewParam, manager:true},
 };
 function allowedViews(){
-  if (isIngenieur()) return ["jour","clients","pipeline","missions","backoffice"].map(k=>[k, k==="jour"? {...VIEWS.jour, label:"Ma journée"} : VIEWS[k]]);
+  if (isIngenieur()) return ["jour","clients","pipeline","missions","backoffice","agenda"].map(k=>[k, k==="jour"? {...VIEWS.jour, label:"Ma journée"} : VIEWS[k]]);
   if (isSuivi()) return ["jour", ...suiviVues()].filter(k=>VIEWS[k]).map(k=>[k, k==="jour"? {...VIEWS.jour, label:"Aujourd'hui"} : VIEWS[k]]);
   return Object.entries(VIEWS).filter(([k,v]) => isManager() || !v.manager)
     .map(([k,v]) => [k, k==="fiche" && !isManager() ? {...v, label:"Ma semaine"}
