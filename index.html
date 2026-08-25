@@ -6574,7 +6574,7 @@ function missionModal(m, opts={}){
       <div class="tl" style="flex:1;overflow-y:auto;min-height:120px;max-height:none">
         ${(m.journal||[]).slice().sort((a,b)=>String(b.q||"").localeCompare(String(a.q||""))).map((j,i)=>`<div class="tl-item tl-note mi-jnote" data-ri="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">📝</span>
           <div class="tl-body">${tagEtatHTML(j)}<span>${esc(j.n)}</span>
-            <div class="tl-meta">${j.c? esc(consName(j.c)) : "Équipe"} · ${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("")
+            <div class="tl-meta">${j.a? esc(j.a) : j.c? esc(consName(j.c)) : "Équipe"} · ${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("")
         || `<div class="empty">Aucune note pour l'instant</div>`}
       </div>
     </div>
@@ -6628,8 +6628,8 @@ function missionModal(m, opts={}){
       const el = back.querySelector("#mi-newnote"); const n = el.value.trim();
       if (!n) return; readForm();
       const cible = tagParseMention(n);   /* v81.3 : @Lina tague, comme sur Trello */
-      const entry = cible? {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null, tag:cible.t, fait:false}
-                         : {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null};
+      const entry = cible? {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null, a:monNom(), tag:cible.t, fait:false}
+                         : {q:new Date().toISOString(), n, c:state.profile.conseiller_id||null, a:monNom()};
       m.journal = [entry, ...(m.journal||[])];
       renderModal();
       if (!isNew && m.id) (async ()=>{   /* v85 : la note part tout de suite — le tag arrive même si on referme sans Enregistrer */
@@ -6660,7 +6660,7 @@ function missionModal(m, opts={}){
         }
         renderModal(); toast("Journal mis à jour ✓");
       };
-      noteViewer(m.titre||m.type, j.n, [(j.c? consName(j.c) : "Équipe"), (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "")].filter(Boolean).join(" · "), {
+      noteViewer(m.titre||m.type, j.n, [(j.a || (j.c? consName(j.c) : "Équipe")), (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "")].filter(Boolean).join(" · "), {
         onSave: nv => persist((arr,i)=>{ if (i>=0) arr[i] = {...arr[i], n:nv}; }),
         onDelete: () => persist((arr,i)=>{ if (i>=0) arr.splice(i,1); }),
       });
