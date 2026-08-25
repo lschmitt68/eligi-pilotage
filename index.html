@@ -6343,10 +6343,17 @@ function tagPopupCheck(){ /* v87 : un pop-up quand un nouveau tag arrive */
   back.querySelector("#tgp-open")?.addEventListener("click", ()=>ouvrir(nouveaux[0]));
   back.querySelectorAll(".tgp-row").forEach(tr=>tr.addEventListener("click", ()=>ouvrir(nouveaux[+tr.dataset.i])));
 }
-function tagEtatHTML(j){ /* petit état affiché dans les journaux */
+function tagEtatHTML(j){ /* petit état affiché dans les journaux · v89 : traitable sur place */
   if (!j.tag) return "";
-  return j.fait? `<span class="small" style="color:#2e9e63;font-weight:600">✓ traité${j.fait_par? " par "+esc(j.fait_par):""}${j.fait_le? " le "+new Date(j.fait_le+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</span><br>`
-    : `<span class="small" style="color:var(--s1);font-weight:600">🔔 en attente</span><br>`;
+  if (j.fait) return `<span class="small" style="color:#2e9e63;font-weight:600">✓ traité${j.fait_par? " par "+esc(j.fait_par):""}${j.fait_le? " le "+new Date(j.fait_le+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</span><br>`;
+  return `<span class="small" style="color:var(--s1);font-weight:600">🔔 en attente</span>${tagMeVise(j.tag)? ` <button class="btn secondary small tg-inl" data-q="${esc(j.q||"")}" style="padding:0 7px;font-size:11px" title="Marquer ce tag comme traité — il disparaît de ta liste, le journal garde la trace">✓ Traité</button>`:""}<br>`;
+}
+function tagTraiterDans(journal, q){ /* marque fait l'entrée taguée q et renvoie le journal modifié (ou null) */
+  const i = (journal||[]).findIndex(x=>x.q===q && x.tag && !x.fait);
+  if (i<0) return null;
+  const nj = [...journal];
+  nj[i] = {...nj[i], fait:true, fait_par:monNom(), fait_le:new Date().toISOString().slice(0,10)};
+  return nj;
 }
 function miCardHTML(m){
   const pr = miProgress(m);
@@ -6664,6 +6671,20 @@ function missionModal(m, opts={}){
         onSave: nv => persist((arr,i)=>{ if (i>=0) arr[i] = {...arr[i], n:nv}; }),
         onDelete: () => persist((arr,i)=>{ if (i>=0) arr.splice(i,1); }),
       });
+    }));
+    back.querySelectorAll(".tg-inl").forEach(b=>b.addEventListener("click", async e=>{   /* v89 : traiter le tag sur place */
+      e.preventDefault(); e.stopPropagation();
+      const nj = tagTraiterDans(m.journal, b.dataset.q);
+      if (!nj) return;
+      m.journal = nj;
+      try{
+        if (!isNew && m.id){
+          const frais = state.missions.find(x=>x.id===m.id);
+          if (frais){ const fj = tagTraiterDans(frais.journal, b.dataset.q); if (fj){ frais.journal = fj; await state.db.saveMission({...frais, journal:fj}); } }
+        }
+        toast("Tag marqué traité ✓");
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+      renderModal();
     }));
     back.querySelector("#mi-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
     back.querySelector("#mi-statut").addEventListener("change", ()=>{ readForm(); renderModal(); });
@@ -7024,6 +7045,20 @@ function boModal(o, statutInitial, clientKey){
         onSave: nv => persist((arr,i)=>{ if (i>=0) arr[i] = {...arr[i], n:nv}; }),
         onDelete: () => persist((arr,i)=>{ if (i>=0) arr.splice(i,1); }),
       });
+    }));
+    back.querySelectorAll(".tg-inl").forEach(b=>b.addEventListener("click", async e=>{   /* v89 */
+      e.preventDefault(); e.stopPropagation();
+      const nj = tagTraiterDans(o.journal, b.dataset.q);
+      if (!nj) return;
+      o.journal = nj;
+      try{
+        if (!creation && o.id){
+          const frais = state.operations.find(x=>x.id===o.id);
+          if (frais){ const fj = tagTraiterDans(frais.journal, b.dataset.q); if (fj){ frais.journal = fj; await state.db.saveOperation({...frais, journal:fj}); } }
+        }
+        toast("Tag marqué traité ✓");
+      }catch(err){ toast("Erreur : "+(err.message||err)); }
+      rendre();
     }));
     back.querySelector("#bo-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
     if (!creation) pjMount(back.querySelector("#pj-bo"), "op/"+o.id);   /* v71 */
@@ -8399,14 +8434,48 @@ function gsRecents(){ try{ return JSON.parse(localStorage.getItem("eligi-recents
 function gsAddRecent(key){ try{ const l = gsRecents().filter(k=>k!==key); l.unshift(key); localStorage.setItem("eligi-recents", JSON.stringify(l.slice(0,8))); }catch(e){} }
 function gsFavs(){ try{ return JSON.parse(localStorage.getItem("eligi-favs")||"[]"); }catch(e){ return []; } }
 function gsToggleFav(key){ try{ let l = gsFavs(); l = l.includes(key)? l.filter(k=>k!==key) : [key, ...l].slice(0,12); localStorage.setItem("eligi-favs", JSON.stringify(l)); }catch(e){} }
+function gsNotesIndex(){ /* v89 : toutes les notes cherchables, préparées une fois par ouverture */
+  const out = [];
+  const push = (txt, label, ico, run) => { const t = String(txt||""); if (t.length>2) out.push({text:GS_NORM(t), brut:t, label, ico, run}); };
+  for (const m of state.missions){
+    const run = ()=>missionModal(m);
+    push(m.description, "🧰 "+(miClientNom(m.client_key)||m.titre||m.type)+" — description", "🧰", run);
+    for (const j of (m.journal||[])) push(j.n, "🧰 "+(miClientNom(m.client_key)||m.titre||m.type), "🗒", run);
+  }
+  for (const o of state.operations){
+    const run = ()=>boModal(o);
+    push(o.description, "📥 "+o.titre+" — description", "📥", run);
+    for (const j of (o.journal||[])) push(j.n, "📥 "+o.titre, "🗒", run);
+  }
+  for (const i of state.interactions){
+    const label = (i.type==="RDV"? "🤝 " : "📝 ") + nomAffiche(i.client_key, i.client_key) + (i.quand? " · "+new Date(i.quand).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"2-digit"}) : "");
+    push(i.note, label, i.type==="RDV"? "🤝":"📝", ()=>{ state._cliOpen = i.client_key; state._cliSearch = ""; go("clients"); });
+  }
+  return out;
+}
+function gsNotesMatch(idx, q){
+  const terms = GS_NORM(q).split(/\s+/).filter(Boolean);
+  if (!terms.length || GS_NORM(q).length < 3) return [];
+  const out = [];
+  for (const it of idx){
+    if (!terms.every(t=>it.text.includes(t))) continue;
+    const pos = it.text.indexOf(terms[0]);
+    const deb = Math.max(0, pos-35);
+    const ext = (deb>0? "…":"") + it.brut.slice(deb, pos+90) + (pos+90<it.brut.length? "…":"");
+    out.push({cat:"🔎 Dans les notes", ico:it.ico, label:it.label, sub:ext.replace(/\s+/g," "), run:it.run});
+    if (out.length >= 10) break;
+  }
+  return out;
+}
 function globalSearchModal(){
   if (!state.profile || document.querySelector(".gs-back")) return;
   const items = gsIndex();
+  const notesIdx = gsNotesIndex();   /* v89 */
   const back = document.createElement("div");
   back.className = "modal-back gs-back";
   const HINT = `<div class="small muted" style="padding:8px 4px">Tapez au moins 2 caract\u00e8res \u2014 \u2191\u2193 pour naviguer, Entr\u00e9e pour ouvrir, \u00c9chap pour fermer.</div>`;
   back.innerHTML = `<div class="modal gs-modal">
-    <input class="gs-input" id="gs-q" type="search" placeholder="Rechercher un client, une mission, une affaire, une proposition\u2026" autocomplete="off" spellcheck="false">
+    <input class="gs-input" id="gs-q" type="search" placeholder="Rechercher un client, une carte, une note, un compte rendu\u2026" autocomplete="off" spellcheck="false">
     <div class="gs-list" id="gs-list">${HINT}</div>
   </div>`;
   document.body.appendChild(back);
@@ -8434,7 +8503,11 @@ function globalSearchModal(){
     list.querySelectorAll(".gs-item").forEach(el=>el.addEventListener("click", ()=>openItem(res[+el.dataset.i])));
     list.querySelector(".gs-item.active")?.scrollIntoView({block:"nearest"});
   };
-  inp.addEventListener("input", ()=>{ res = inp.value.trim().length<2? zeroItems() : gsMatch(items, inp.value); active = 0; paint(); });
+  inp.addEventListener("input", ()=>{
+    const q = inp.value.trim();
+    res = q.length<2? zeroItems() : [...gsMatch(items, q), ...gsNotesMatch(notesIdx, q)];   /* v89 */
+    active = 0; paint();
+  });
   paint();
   const onKey = e => {
     if (e.key==="Escape"){ e.preventDefault(); e.stopPropagation(); close(); }
@@ -8578,10 +8651,17 @@ function allowedViews(){
                        : k==="jour" && isManager() ? {...v, label:"Aujourd'hui"} : v]);
 }
 function go(view){ state.view = view; render(); }
+function majTitreOnglet(){ /* v89 : le nombre de tags 🔔 en attente, visible depuis les autres onglets */
+  try{
+    const n = state.profile? tagsPourMoi().length : 0;
+    document.title = (n? `(${n}) 🔔 ` : "") + "Portail Eligi";
+  }catch(e){}
+}
 /* v71 : rafraîchissement silencieux — jamais pendant une saisie, une modale ou la réunion */
 setInterval(async ()=>{
   try{
-    if (!state.profile || CFG.DEMO || document.hidden) return;
+    if (!state.profile || CFG.DEMO) return;
+    if (document.hidden){ await state.db.loadAll(); majTitreOnglet(); return; }   /* v89 : le badge vit même en arrière-plan */
     if (document.querySelector(".modal-back") || document.querySelector(".meeting")) return;
     const ae = document.activeElement;
     if (ae && /^(INPUT|TEXTAREA|SELECT)$/.test(ae.tagName)) return;
@@ -8637,6 +8717,7 @@ function render(){
   const rem = saisieReminderHTML();
   if (rem) $("#view").insertAdjacentHTML("afterbegin", rem);   // DANS la zone principale : jamais en colonne à côté
   bindReminder();
+  majTitreOnglet();   /* v89 */
   setTimeout(tagPopupCheck, 400);   /* v87 : signale les nouveaux tags 🔔 */
 }
 
