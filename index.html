@@ -5610,19 +5610,43 @@ function pjMount(container, prefix, canEdit=true){
   zone.innerHTML = `<span class="small muted">chargement…</span>`;
   refresh();
 }
-function noteViewer(titre, texte, meta){ /* v69 : lire une note en entier */
+function noteViewer(titre, texte, meta, opts){ /* v69 : lire une note en entier · v87 : modifier / supprimer */
+  opts = opts || {};
   const back = document.createElement("div");
   back.className = "modal-back";
   const txt = String(texte||"").replace(/\s+·\s+/g, "\n");   /* les imports repliaient les sauts de ligne en « · » */
   back.innerHTML = `<div class="modal" style="width:660px">
     <h3>🗒 ${esc(titre||"Note")}</h3>
     ${meta? `<p class="small muted" style="margin-top:0">${esc(meta)}</p>`:""}
-    <div class="card" style="max-height:55vh;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13.5px;line-height:1.6;padding:12px 14px">${esc(txt)}</div>
-    <div class="modal-actions"><button class="btn secondary" id="nv-close">Fermer</button></div>
+    <div class="card" id="nv-txt" style="max-height:55vh;overflow-y:auto;white-space:pre-wrap;overflow-wrap:anywhere;font-size:13.5px;line-height:1.6;padding:12px 14px">${esc(txt)}</div>
+    <div class="modal-actions">
+      ${opts.onDelete? `<button class="btn danger" id="nv-del" style="margin-right:auto" title="Supprime la note du journal (et son tag 🔔 le cas échéant)">🗑 Supprimer</button>`:""}
+      ${opts.onSave? `<button class="btn secondary" id="nv-edit">✏️ Modifier</button>`:""}
+      <button class="btn secondary" id="nv-close">Fermer</button>
+    </div>
   </div>`;
   document.body.appendChild(back);
   back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
   back.querySelector("#nv-close").addEventListener("click", ()=>back.remove());
+  back.querySelector("#nv-del")?.addEventListener("click", async ()=>{
+    if (!confirm("Supprimer définitivement cette note du journal ?")) return;
+    try{ await opts.onDelete(); back.remove(); }catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+  back.querySelector("#nv-edit")?.addEventListener("click", ()=>{
+    const div = back.querySelector("#nv-txt");
+    const ta = document.createElement("textarea");
+    ta.value = txt; ta.rows = Math.min(14, Math.max(4, txt.split("\n").length+1));
+    ta.style.cssText = "width:100%;font-size:14px;line-height:1.5;font-family:inherit";
+    div.replaceWith(ta); ta.focus();
+    const eb = back.querySelector("#nv-edit");
+    eb.textContent = "💾 Enregistrer"; eb.className = "btn";
+    eb.replaceWith(eb.cloneNode(true));
+    back.querySelector(".modal-actions .btn:not(.secondary):not(.danger)").addEventListener("click", async ()=>{
+      const nv = ta.value.trim();
+      if (!nv){ toast("La note est vide — utilise 🗑 Supprimer"); return; }
+      try{ await opts.onSave(nv.replace(/\n/g, " · ")); back.remove(); }catch(err){ toast("Erreur : "+(err.message||err)); }
+    });
+  });
 }
 function propoStatutBadge(s){
   const cls = s==="Acceptée"?"ok":s==="Refusée"?"urgent":s==="Envoyée"?"watch":"neutral";
@@ -6271,6 +6295,43 @@ function bindTags(root){
     }catch(err){ toast("Erreur : "+(err.message||err)); }
   }));
 }
+function tagSig(x){ return x.t+":"+x.r.id+":"+String(x.j.q||""); }
+function tagVusKey(){ return "eligi-tags-vus:"+String(state.profile?.email||state.profile?.role||"x"); }
+function tagVus(){ try{ return JSON.parse(localStorage.getItem(tagVusKey())||"[]"); }catch(e){ return []; } }
+function tagPopupCheck(){ /* v87 : un pop-up quand un nouveau tag arrive */
+  if (!state.profile || document.querySelector(".modal-back") || document.body.classList.contains("doc-open")) return;
+  const tags = tagsPourMoi();
+  if (!tags.length) return;
+  const vus = tagVus();
+  const nouveaux = tags.filter(x=>!vus.includes(tagSig(x)));
+  if (!nouveaux.length) return;
+  try{ localStorage.setItem(tagVusKey(), JSON.stringify([...vus, ...nouveaux.map(tagSig)].slice(-200))); }catch(e){}
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal" style="width:520px">
+    <h3 style="margin:0 0 4px">🔔 On t'a tagué</h3>
+    <p class="small muted" style="margin:0 0 10px">${nouveaux.length>1? nouveaux.length+" cartes attendent" : "Une carte attend"} quelque chose de toi — clique pour ouvrir.</p>
+    <div class="tbl-scroll" style="max-height:300px"><table class="tbl dense"><tbody>
+      ${nouveaux.map((x,i)=>`<tr class="clickable tgp-row" data-i="${i}">
+        <td style="width:26px">${x.t==="mi"? "🧰":"📦"}</td>
+        <td><b>${esc(x.t==="mi"? (miClientNom(x.r.client_key)||x.r.titre||x.r.type) : x.r.titre)}</b>
+          <div class="small muted" style="overflow-wrap:anywhere">${esc(String(x.j.n||"").slice(0,150))}</div></td>
+        <td class="small" style="white-space:nowrap">${x.j.q? new Date(x.j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</td>
+      </tr>`).join("")}
+    </tbody></table></div>
+    <div class="modal-actions">
+      <button class="btn secondary" id="tgp-later">Plus tard — ils restent dans « Aujourd'hui »</button>
+      ${nouveaux.length===1? `<button class="btn" id="tgp-open">Ouvrir la carte</button>`:""}
+    </div>
+  </div>`;
+  document.body.appendChild(back);
+  const close = ()=>back.remove();
+  back.addEventListener("click", e=>{ if (e.target===back) close(); });
+  back.querySelector("#tgp-later").addEventListener("click", close);
+  const ouvrir = x => { close(); if (x.t==="mi") missionModal(x.r); else boModal(x.r); };
+  back.querySelector("#tgp-open")?.addEventListener("click", ()=>ouvrir(nouveaux[0]));
+  back.querySelectorAll(".tgp-row").forEach(tr=>tr.addEventListener("click", ()=>ouvrir(nouveaux[+tr.dataset.i])));
+}
 function tagEtatHTML(j){ /* petit état affiché dans les journaux */
   if (!j.tag) return "";
   return j.fait? `<span class="small" style="color:#2e9e63;font-weight:600">✓ traité${j.fait_par? " par "+esc(j.fait_par):""}${j.fait_le? " le "+new Date(j.fait_le+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</span><br>`
@@ -6573,9 +6634,25 @@ function missionModal(m, opts={}){
     };
     back.querySelector("#mi-addnote").addEventListener("click", addNote);
     if (!isNew && m.id) pjMount(back.querySelector("#pj-mi"), "mi/"+m.id);   /* v71 */
-    back.querySelectorAll(".mi-jnote").forEach(el=>el.addEventListener("click", ()=>{   /* v69/v70 */
+    back.querySelectorAll(".mi-jnote").forEach(el=>el.addEventListener("click", ()=>{   /* v69/v70/v87 */
       const j = (m.journal||[]).slice().sort((a,b)=>String(b.q||"").localeCompare(String(a.q||"")))[+el.dataset.ri];
-      if (j) noteViewer(m.titre||m.type, j.n, [(j.c? consName(j.c) : "Équipe"), (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "")].filter(Boolean).join(" · "));
+      if (!j) return;
+      const oldN = j.n;
+      const persist = async mut => {   /* v87 : applique la modification à la copie locale ET à la base */
+        mut(m.journal, m.journal.findIndex(x=>x===j));
+        if (!isNew && m.id){
+          const frais = state.missions.find(x=>x.id===m.id);
+          if (frais){
+            const idx = (frais.journal||[]).findIndex(x=>x.q===j.q && x.n===oldN);
+            if (idx>=0){ const nj = [...frais.journal]; mut(nj, idx); frais.journal = nj; await state.db.saveMission({...frais, journal:nj}); }
+          }
+        }
+        renderModal(); toast("Journal mis à jour ✓");
+      };
+      noteViewer(m.titre||m.type, j.n, [(j.c? consName(j.c) : "Équipe"), (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : "")].filter(Boolean).join(" · "), {
+        onSave: nv => persist((arr,i)=>{ if (i>=0) arr[i] = {...arr[i], n:nv}; }),
+        onDelete: () => persist((arr,i)=>{ if (i>=0) arr.splice(i,1); }),
+      });
     }));
     back.querySelector("#mi-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
     back.querySelector("#mi-statut").addEventListener("change", ()=>{ readForm(); renderModal(); });
@@ -6916,10 +6993,26 @@ function boModal(o, statutInitial, clientKey){
         }catch(err){ toast("Note pas encore sauvée ("+(err.message||err)+") — clique Enregistrer"); }
       })(); };
     back.querySelector("#bo-addnote").addEventListener("click", addNote);
-    back.querySelectorAll(".bo-jnote").forEach(el=>el.addEventListener("click", ()=>{   /* v69 */
+    back.querySelectorAll(".bo-jnote").forEach(el=>el.addEventListener("click", ()=>{   /* v69/v87 */
       const list = (o.journal||[]).slice().sort((a,b)=>String(b.q||"").localeCompare(String(a.q||"")));
       const j = list[+el.dataset.i];
-      if (j) noteViewer(o.titre, j.n, (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : ""));
+      if (!j) return;
+      const oldN = j.n;
+      const persist = async mut => {
+        mut(o.journal, o.journal.findIndex(x=>x===j));
+        if (!creation && o.id){
+          const frais = state.operations.find(x=>x.id===o.id);
+          if (frais){
+            const idx = (frais.journal||[]).findIndex(x=>x.q===j.q && x.n===oldN);
+            if (idx>=0){ const nj = [...frais.journal]; mut(nj, idx); frais.journal = nj; await state.db.saveOperation({...frais, journal:nj}); }
+          }
+        }
+        rendre(); toast("Journal mis à jour ✓");
+      };
+      noteViewer(o.titre, j.n, (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}) : ""), {
+        onSave: nv => persist((arr,i)=>{ if (i>=0) arr[i] = {...arr[i], n:nv}; }),
+        onDelete: () => persist((arr,i)=>{ if (i>=0) arr.splice(i,1); }),
+      });
     }));
     back.querySelector("#bo-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addNote(); } });
     if (!creation) pjMount(back.querySelector("#pj-bo"), "op/"+o.id);   /* v71 */
@@ -8533,6 +8626,7 @@ function render(){
   const rem = saisieReminderHTML();
   if (rem) $("#view").insertAdjacentHTML("afterbegin", rem);   // DANS la zone principale : jamais en colonne à côté
   bindReminder();
+  setTimeout(tagPopupCheck, 400);   /* v87 : signale les nouveaux tags 🔔 */
 }
 
 /* ================================================================
