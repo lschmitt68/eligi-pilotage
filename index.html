@@ -128,6 +128,10 @@ svg.ic{width:17px;height:17px;flex:none;stroke:currentColor;fill:none;stroke-wid
 .tile .bar{height:5px; border-radius:3px; background:var(--surface-2); margin-top:8px; overflow:hidden}
 .tile .bar i{display:block; height:100%; border-radius:3px; background:var(--s1)}
 .tile .bar i.over{background:var(--good)}
+.objcell{min-width:175px}
+.objcell .ob-bar{height:5px;border-radius:3px;background:var(--surface-2);margin-top:4px;overflow:hidden;max-width:160px}
+.objcell .ob-bar i{display:block;height:100%;border-radius:3px;background:var(--s1)}
+.objcell .ob-bar i.over{background:var(--good)}
 
 /* ============ Tables ============ */
 .tbl-scroll{overflow-x:auto}
@@ -806,6 +810,23 @@ function alerteFor(consId, week, proj, objectif){
 function projection(consId, week){
   const w = weekAgg(consId, week), p = pipeAgg(consId);
   return w.ca_total + p.pond - p.signe;
+}
+/* v93 : statut qui tient compte du pipe — signé compris (il n'a pas forcément
+   encore généré de CA dans la saisie). potentiel = CA + pipe pondéré − la part
+   du signé déjà comptée dans le CA. */
+function statutCons(ca, obj, p, conge){
+  if (conge) return BADGE_CONGE;
+  if (!(obj>0)) return {cls:"ok", label:"OK", icon:"✓"};
+  if (ca >= obj) return {cls:"ok", label:"Objectif atteint", icon:"✓"};
+  const potentiel = ca + (p?.pond||0) - Math.min(p?.signe||0, ca);
+  if (potentiel >= obj) return {cls:"ok", label:"En bonne voie", icon:"→"};
+  if (potentiel >= obj*0.8) return {cls:"watch", label:"À surveiller", icon:"!"};
+  return {cls:"urgent", label:"En retard", icon:"⚠"};
+}
+function objCellHTML(ca, obj){ /* v93 : « 1 250 € / 4 000 € · 31 % » + barre */
+  const r = obj>0? ca/obj : null;
+  return `<div class="objcell"><b>${eur(ca)}</b> <span class="small muted">/ ${eur(obj)}${r!==null? ` · ${fmtPct(r)}`:""}</span>
+    ${r!==null? `<div class="ob-bar"><i class="${r>=1?"over":""}" style="width:${Math.min(100,r*100)}%"></i></div>`:""}</div>`;
 }
 /* Alerte : OK / À surveiller (≥80 %) / Urgent  (Dashboard!O) */
 function alerte(proj, objectif){
@@ -2007,7 +2028,7 @@ function viewDashboard(root){
     const o = annee? objForYear(c.id, y) : mois? objForMonth(c.id, m) : objFor(c.id, week);
     const nConge = annee? yearCongeCount(c.id, y) : mois? monthCongeCount(c.id, m) : (isConge(c.id, week)? 1:0);
     const conge = mois? nConge===nSemMois && nSemMois>0 : (!annee && isConge(c.id, week));
-    const al = conge? BADGE_CONGE : alerte(proj, o.ca);
+    const al = statutCons(w.ca_total, o.ca, p, conge);   /* v93 */
     return {c, w, p, o, proj, hist, conge, nConge, al};
   });
   const sum = k => rows.reduce((a,r)=>a+r.w[k],0);
@@ -2057,47 +2078,50 @@ function viewDashboard(root){
       <span class="sub">fenêtres de commercialisation en cours</span>
       <span style="flex:1"></span>${isManager()? `<button class="btn secondary small" id="camp-add">+ Campagne</button>`:""}</div>
     ${cs.length? `<div class="row sect">${cs.map(c=>campagneCardHTML(c)).join("")}</div>` : ""}` : ""; })()}
-  <div class="sect sect-head"><h2>Conseillers — ${esc(perLabel)}</h2>${annee? `<span class="sub">cumul de l'année civile · objectif annuel = somme des objectifs hebdo (congés déduits) · Projection = tendance fin d'année + affaires pondérées − signé</span>` : mois? `<span class="sub">cumul des ${nSemMois} semaines du mois · objectifs mensuels = somme des objectifs hebdo (congés déduits)</span>`:""}</div>
-  <div class="card tbl-scroll">
+  <div class="sect sect-head"><h2>Conseillers — ${esc(perLabel)}</h2>${annee? `<span class="sub">cumul de l'année civile · objectif annuel = somme des objectifs hebdo (congés déduits) · Projection = tendance fin d'année + affaires pondérées − signé</span>` : mois? `<span class="sub">cumul des ${nSemMois} semaines du mois · objectifs mensuels = somme des objectifs hebdo (congés déduits)</span>`:""}<span style="flex:1"></span>
+    <button class="btn secondary small" id="dash-det" title="Afficher/masquer les colonnes CA SCPI, structurés, audit, autres et CA/RDV">${state._dashDet? "− Masquer le détail produits" : "+ Détail produits"}</button></div>
+  ${(()=>{ const det = !!state._dashDet;   /* v93 : tableau resserré, détail produits sur demande */
+  return `<div class="card tbl-scroll">
     <table class="tbl dense">
       <thead><tr>
-        <th>Conseiller</th><th>8 dern. sem.</th><th class="num">Obj. CA</th><th class="num">RDV</th>
-        <th class="num">CA total</th><th class="num">CA SCPI</th><th class="num">CA struct.</th>
-        <th class="num">CA audit</th><th class="num">CA autres</th><th class="num">Collecte</th>
-        <th class="num">Pipe pond.</th><th class="num">Pipe signé</th><th class="num">Projection</th>
-        <th class="num">CA/RDV</th><th>Alerte</th>
+        <th>Conseiller</th><th>8 dern. sem.</th><th>CA vs objectif</th><th class="num">RDV</th>
+        ${det? `<th class="num">CA SCPI</th><th class="num">CA struct.</th><th class="num">CA audit</th><th class="num">CA autres</th><th class="num">CA/RDV</th>`:""}
+        <th class="num">Collecte</th>
+        <th class="num" title="Somme des affaires en cours, pondérées par leur probabilité">Pipe pond.</th>
+        <th class="num">Pipe signé</th>
+        <th class="num" title="CA + affaires pondérées − signé">Projection</th>
+        <th>Statut</th>
       </tr></thead>
       <tbody>
         ${rows.map(r=>`<tr class="clickable" data-fiche="${r.c.id}" title="Ouvrir la fiche">
           <td><span class="cdot" style="background:${consColor(r.c.id)}"></span><b>${esc(r.c.nom)}</b></td>
           <td>${sparkline(r.hist, consColor(r.c.id))}</td>
-          <td class="num">${eur(r.o.ca)}</td>
+          <td>${objCellHTML(r.w.ca_total, r.o.ca)}</td>
           <td class="num">${fmtNum.format(r.w.rdv)} / ${fmtNum.format(r.o.rdv)}</td>
-          <td class="num"><b>${eur(r.w.ca_total)}</b></td>
-          <td class="num">${eur(r.w.ca_scpi)}</td>
+          ${det? `<td class="num">${eur(r.w.ca_scpi)}</td>
           <td class="num">${eur(r.w.ca_structures)}</td>
           <td class="num">${eur(r.w.ca_audit)}</td>
           <td class="num">${eur(r.w.ca_autres)}</td>
+          <td class="num">${eur(r.w.rdv? r.w.ca_total/r.w.rdv : 0)}</td>`:""}
           <td class="num">${eur(r.w.collecte_totale)}</td>
           <td class="num">${eur(r.p.pond)}</td>
           <td class="num">${eur(r.p.signe)}</td>
           <td class="num"><b>${eur(r.proj)}</b></td>
-          <td class="num">${eur(r.w.rdv? r.w.ca_total/r.w.rdv : 0)}</td>
           <td>${badgeHTML(r.al)}${(mois||annee) && r.nConge && !r.conge? ` <span class="small muted">✈ ${r.nConge} sem.</span>`:""}</td>
         </tr>`).join("")}
         <tr class="total">
-          <td>Équipe</td><td></td><td class="num">${eur(objCAEq)}</td>
+          <td>Équipe</td><td></td>
+          <td>${objCellHTML(caEq, objCAEq)}</td>
           <td class="num">${fmtNum.format(rdvEq)} / ${fmtNum.format(objRdvEq)}</td>
-          <td class="num">${eur(caEq)}</td>
-          <td class="num">${eur(sum("ca_scpi"))}</td><td class="num">${eur(sum("ca_structures"))}</td>
-          <td class="num">${eur(sum("ca_audit"))}</td><td class="num">${eur(sum("ca_autres"))}</td>
+          ${det? `<td class="num">${eur(sum("ca_scpi"))}</td><td class="num">${eur(sum("ca_structures"))}</td>
+          <td class="num">${eur(sum("ca_audit"))}</td><td class="num">${eur(sum("ca_autres"))}</td><td></td>`:""}
           <td class="num">${eur(collEq)}</td><td class="num">${eur(pondEq)}</td>
           <td class="num">${eur(rows.reduce((a,r)=>a+r.p.signe,0))}</td>
-          <td class="num">${eur(projEq)}</td><td></td><td></td>
+          <td class="num">${eur(projEq)}</td><td></td>
         </tr>
       </tbody>
     </table>
-  </div>
+  </div>`; })()}
 
   <div class="row sect">
     <div class="card grow"><h3 class="mt0">Mix produits — ${esc(perLabel)}</h3><div id="dash-mix"></div></div>
@@ -2135,6 +2159,7 @@ function viewDashboard(root){
   root.querySelectorAll(".dash-todo").forEach(r=>r.addEventListener("click", ()=>go(r.dataset.nav2)));
   bindPeriodNav();
   bindCampagnes(root);
+  $("#dash-det")?.addEventListener("click", ()=>{ state._dashDet = !state._dashDet; render(); });   /* v93 */
   $("#dash-export").addEventListener("click", exportXLSX);
   $("#bk-now")?.addEventListener("click", exportXLSX);
   const openMeeting = ()=>meetingMode();
@@ -2184,7 +2209,7 @@ function meetingMode(){
   function slideTeam(){
     const rows = cons.map(c => { const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
       const proj = w.ca_total + p.pond - p.signe;
-      return {c, w, p, proj, al: alerteFor(c.id, state.week, proj, objFor(c.id, state.week).ca)}; });
+      return {c, w, p, proj, al: statutCons(w.ca_total, objFor(c.id, state.week).ca, p, isConge(c.id, state.week))}; });   /* v93 */
     const caEq = rows.reduce((a,r)=>a+r.w.ca_total,0), collEq = rows.reduce((a,r)=>a+r.w.collecte_totale,0);
     const projEq = rows.reduce((a,r)=>a+r.proj,0), objEq = cons.reduce((a,c)=>a+objFor(c.id, state.week).ca,0);
     rows.forEach(r=>r.ow = objFor(r.c.id, state.week));
@@ -2202,7 +2227,7 @@ function meetingMode(){
     ${(()=>{ const cs = campagnesActives().sort((a,b)=>String(a.date_fin).localeCompare(String(b.date_fin)));
       return cs.length? `<div class="row" style="margin-top:14px">${cs.map(c=>campagneCardHTML(c)).join("")}</div>` : ""; })()}
     <div class="card tbl-scroll" style="margin-top:14px"><table class="tbl">
-      <thead><tr><th>Conseiller</th><th class="num">CA</th><th class="num">Collecte</th><th class="num">Affaires</th><th class="num">Projection</th><th>Alerte</th></tr></thead>
+      <thead><tr><th>Conseiller</th><th class="num">CA</th><th class="num">Collecte</th><th class="num">Affaires</th><th class="num">Projection</th><th>Statut</th></tr></thead>
       <tbody>${rows.map(r=>`<tr><td><span class="cdot" style="background:${consColor(r.c.id)}"></span><b>${esc(r.c.nom)}</b></td>
         <td class="num">${eur(r.w.ca_total)}</td><td class="num">${eur(r.w.collecte_totale)}</td>
         <td class="num">${eur(r.p.pond)}</td><td class="num"><b>${eur(r.proj)}</b></td><td>${badgeHTML(r.al)}</td></tr>`).join("")}</tbody>
@@ -2212,7 +2237,7 @@ function meetingMode(){
     const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
     const proj = w.ca_total + p.pond - p.signe;
     const ow = objFor(c.id, state.week);
-    const al = alerteFor(c.id, state.week, proj, ow.ca);
+    const al = statutCons(w.ca_total, ow.ca, p, isConge(c.id, state.week));   /* v93 */
     const conge = isConge(c.id, state.week);
     const cu = cumul(c.id, state.week);
     const top = state.pipeline.filter(x=>x.conseiller_id===c.id && (x.etape||"").toLowerCase()!=="signé")
@@ -3103,9 +3128,8 @@ function viewFiche(root){
   const ow = annee? objForYear(consId, yA) : mois? objForMonth(consId, m) : objFor(consId, state.week);
   const nSemMois = mois? monthWeeks(m).length : 0;
   const nCongeM = mois? monthCongeCount(consId, m) : (annee? yearCongeCount(consId, yA) : 0);
-  const al = annee? alerte(proj, ow.ca)
-           : mois? (nCongeM===nSemMois && nSemMois>0? BADGE_CONGE : alerte(proj, ow.ca))
-                 : alerteFor(consId, state.week, proj, ow.ca);
+  const al = statutCons(w.ca_total, ow.ca, p,
+    annee? false : mois? (nCongeM===nSemMois && nSemMois>0) : isConge(consId, state.week));   /* v93 */
   const cu = cumul(consId, state.week);
   const serie = consSeries(consId, state.week);
   const mix = [
