@@ -814,14 +814,35 @@ function projection(consId, week){
 /* v93 : statut qui tient compte du pipe — signé compris (il n'a pas forcément
    encore généré de CA dans la saisie). potentiel = CA + pipe pondéré − la part
    du signé déjà comptée dans le CA. */
-function statutCons(ca, obj, p, conge){
+function signeDepuis(consId, d0){ /* v93.1 : pondéré des affaires signées depuis d0 (date de l'événement « Signé ») */
+  if (!d0) return 0;
+  let tot = 0;
+  for (const p of state.pipeline){
+    if (p.conseiller_id!==consId || (p.etape||"").toLowerCase()!=="signé") continue;
+    let q = "";
+    for (const e of state.pipeEvents) if (e.pipeline_id===p.id && e.vers_etape==="Signé" && String(e.quand||"")>q) q = String(e.quand);
+    if (!q) q = String(p.updated_at||"");
+    if (q >= d0) tot += pondere(p);
+  }
+  return tot;
+}
+function statutCons(ca, obj, p, conge, signeRec){
   if (conge) return BADGE_CONGE;
   if (!(obj>0)) return {cls:"ok", label:"OK", icon:"✓"};
   if (ca >= obj) return {cls:"ok", label:"Objectif atteint", icon:"✓"};
-  const potentiel = ca + (p?.pond||0) - Math.min(p?.signe||0, ca);
+  /* v93.1 : potentiel = CA + pipe en cours (non signé) + signatures de la période
+     pas encore passées en CA. Le signé plus ancien n'entre plus en compte. */
+  const rec = signeRec===undefined? (p?.signe||0) : signeRec;
+  const potentiel = ca + ((p?.pond||0)-(p?.signe||0)) + Math.max(0, rec - ca);
   if (potentiel >= obj) return {cls:"ok", label:"En bonne voie", icon:"→"};
   if (potentiel >= obj*0.8) return {cls:"watch", label:"À surveiller", icon:"!"};
   return {cls:"urgent", label:"En retard", icon:"⚠"};
+}
+function periodeDebut(){ /* v93.1 : début de la période affichée (semaine / mois / année) */
+  const per = state._periode || "semaine";
+  if (per==="annee") return String(state._annee || curYear())+"-01-01";
+  if (per==="mois") return String(state._mois || curMonth())+"-01";
+  return String(state.semaines.find(s=>s.code===state.week)?.lundi || "");
 }
 function objCellHTML(ca, obj){ /* v93 : « 1 250 € / 4 000 € · 31 % » + barre */
   const r = obj>0? ca/obj : null;
@@ -2028,7 +2049,7 @@ function viewDashboard(root){
     const o = annee? objForYear(c.id, y) : mois? objForMonth(c.id, m) : objFor(c.id, week);
     const nConge = annee? yearCongeCount(c.id, y) : mois? monthCongeCount(c.id, m) : (isConge(c.id, week)? 1:0);
     const conge = mois? nConge===nSemMois && nSemMois>0 : (!annee && isConge(c.id, week));
-    const al = statutCons(w.ca_total, o.ca, p, conge);   /* v93 */
+    const al = statutCons(w.ca_total, o.ca, p, conge, signeDepuis(c.id, periodeDebut()));   /* v93.1 */
     return {c, w, p, o, proj, hist, conge, nConge, al};
   });
   const sum = k => rows.reduce((a,r)=>a+r.w[k],0);
@@ -2209,7 +2230,7 @@ function meetingMode(){
   function slideTeam(){
     const rows = cons.map(c => { const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
       const proj = w.ca_total + p.pond - p.signe;
-      return {c, w, p, proj, al: statutCons(w.ca_total, objFor(c.id, state.week).ca, p, isConge(c.id, state.week))}; });   /* v93 */
+      return {c, w, p, proj, al: statutCons(w.ca_total, objFor(c.id, state.week).ca, p, isConge(c.id, state.week), signeDepuis(c.id, periodeDebut()))}; });   /* v93.1 */
     const caEq = rows.reduce((a,r)=>a+r.w.ca_total,0), collEq = rows.reduce((a,r)=>a+r.w.collecte_totale,0);
     const projEq = rows.reduce((a,r)=>a+r.proj,0), objEq = cons.reduce((a,c)=>a+objFor(c.id, state.week).ca,0);
     rows.forEach(r=>r.ow = objFor(r.c.id, state.week));
@@ -2237,7 +2258,7 @@ function meetingMode(){
     const w = weekAgg(c.id, state.week), p = pipeAgg(c.id);
     const proj = w.ca_total + p.pond - p.signe;
     const ow = objFor(c.id, state.week);
-    const al = statutCons(w.ca_total, ow.ca, p, isConge(c.id, state.week));   /* v93 */
+    const al = statutCons(w.ca_total, ow.ca, p, isConge(c.id, state.week), signeDepuis(c.id, periodeDebut()));   /* v93.1 */
     const conge = isConge(c.id, state.week);
     const cu = cumul(c.id, state.week);
     const top = state.pipeline.filter(x=>x.conseiller_id===c.id && (x.etape||"").toLowerCase()!=="signé")
@@ -3129,7 +3150,8 @@ function viewFiche(root){
   const nSemMois = mois? monthWeeks(m).length : 0;
   const nCongeM = mois? monthCongeCount(consId, m) : (annee? yearCongeCount(consId, yA) : 0);
   const al = statutCons(w.ca_total, ow.ca, p,
-    annee? false : mois? (nCongeM===nSemMois && nSemMois>0) : isConge(consId, state.week));   /* v93 */
+    annee? false : mois? (nCongeM===nSemMois && nSemMois>0) : isConge(consId, state.week),
+    signeDepuis(consId, periodeDebut()));   /* v93.1 */
   const cu = cumul(consId, state.week);
   const serie = consSeries(consId, state.week);
   const mix = [
