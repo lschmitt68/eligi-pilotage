@@ -476,6 +476,12 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .rdvn-sug .rdvn-list{position:absolute; top:100%; left:0; right:0; z-index:30; background:var(--surface); border:1px solid var(--border); border-radius:10px; box-shadow:0 8px 24px rgba(0,0,0,.18); max-height:240px; overflow-y:auto}
 .rdvn-sug .rdvn-item{padding:8px 12px; cursor:pointer; font-size:13.5px}
 .rdvn-sug .rdvn-item:hover{background:var(--surface-2)}
+.rdvn-acts{border-top:1px solid var(--border); margin-top:8px; padding-top:8px}
+.rdvn-act{display:flex; gap:6px; align-items:center; flex-wrap:wrap; margin-bottom:6px}
+.rdvn-act input[type=text]{flex:1; min-width:140px}
+.rdvn-act input[type=number]{width:105px}
+.rdvn-act select{width:auto}
+.rdvn-act .rdvn-del{cursor:pointer; color:var(--critical); font-weight:700; padding:0 5px; user-select:none}
 .rdvn-saved{font-size:11.5px; color:var(--muted)}
 @media (max-width:900px){
   .rdvn-modal{width:100vw; height:100dvh; max-height:100dvh; border-radius:0}
@@ -6162,7 +6168,7 @@ function rdvNoteModal(clientKey){
   const draft = rdvnDraft();
   let cli = clientKey? {key:clientKey, nom:miClientNom(clientKey)||clientKey} : null;
   if (!cli && draft?.key) cli = {key:draft.key, nom:draft.nom||draft.key};
-  const reprise = !!(draft && draft.txt && (!clientKey || draft.key===clientKey));
+  const reprise = !!(draft && (draft.txt || (draft.actions||[]).length) && (!clientKey || draft.key===clientKey));
   const back = document.createElement("div");
   back.className = "modal-back";
   back.innerHTML = `<div class="modal rdvn-modal">
@@ -6176,11 +6182,18 @@ function rdvNoteModal(clientKey){
       <button class="btn secondary small" id="rdvn-trame" title="Insère une trame de compte rendu : Contexte / Points abordés / Décisions / Actions à prévoir">📑 Trame</button>
       <span class="rdvn-saved" id="rdvn-saved"></span>
     </div>
-    <textarea id="rdvn-txt" placeholder="Prise de notes au fil de l'eau… (la dictée du Mac ou de l'iPhone fonctionne ici)">${reprise? esc(draft.txt) : ""}</textarea>
+    <textarea id="rdvn-txt" placeholder="Prise de notes au fil de l'eau… (la dictée du Mac ou de l'iPhone fonctionne ici)">${reprise? esc(draft.txt||"") : ""}</textarea>
+    <div class="rdvn-acts">
+      <div class="small" style="font-weight:600">⚡ Actions décidées <span class="muted" style="font-weight:400">— créées à l'enregistrement, rattachées au client</span></div>
+      <div id="rdvn-actlist" style="margin-top:6px;max-height:170px;overflow-y:auto"></div>
+      <div style="display:flex;gap:6px;flex-wrap:wrap">
+        <button class="btn secondary small" id="rdvn-add-aff" title="Crée une affaire dans le pipeline — étape Découverte, probabilité 50 %, à affiner ensuite">＋ 🧭 Affaire</button>
+        <button class="btn secondary small" id="rdvn-add-tache" title="Crée une tâche de suivi avec échéance">＋ ✅ Tâche</button>
+        <button class="btn secondary small" id="rdvn-add-mi" title="Crée une carte mission pour l'ingénierie patrimoniale">＋ 🧰 Mission</button>
+        <button class="btn secondary small" id="rdvn-add-bo" title="Crée une opération au back-office (rachat, versement, clause…) avec ta consigne">＋ 📥 Back-office</button>
+      </div>
+    </div>
     <div class="inline-controls" style="gap:8px;margin-top:10px;flex-wrap:wrap">
-      <label class="small" style="display:flex;align-items:center;gap:6px;cursor:pointer"><input type="checkbox" id="rdvn-suivi" style="width:auto"> Tâche de suivi</label>
-      <input type="text" id="rdvn-suivitxt" placeholder="ex : envoyer la proposition" style="flex:1;min-width:150px;display:none">
-      <input type="date" id="rdvn-suividate" value="${new Date(Date.now()+7*86400000).toISOString().slice(0,10)}" style="display:none;width:auto">
       <span style="flex:1"></span>
       <button class="btn secondary" id="rdvn-cancel">Fermer</button>
       <button class="btn" id="rdvn-save">Enregistrer dans la fiche</button>
@@ -6189,7 +6202,8 @@ function rdvNoteModal(clientKey){
   document.body.appendChild(back);
   const $$ = s => back.querySelector(s);
   const ta = $$("#rdvn-txt"), inCli = $$("#rdvn-cli"), list = $$("#rdvn-list");
-  const persist = ()=>{ rdvnDraftSave({key:cli?.key||null, nom:cli?.nom||inCli.value.trim(), txt:ta.value, q:new Date().toISOString()});
+  let actions = (reprise && Array.isArray(draft.actions))? draft.actions.map(a=>({...a})) : [];   /* v94 */
+  const persist = ()=>{ rdvnDraftSave({key:cli?.key||null, nom:cli?.nom||inCli.value.trim(), txt:ta.value, actions, q:new Date().toISOString()});
     $$("#rdvn-saved").textContent = "brouillon enregistré "+new Date().toLocaleTimeString("fr-FR",{hour:"2-digit",minute:"2-digit",second:"2-digit"}); };
   let t = null;
   const persistSoon = ()=>{ clearTimeout(t); t = setTimeout(persist, 800); };
@@ -6236,11 +6250,52 @@ function rdvNoteModal(clientKey){
     ta.focus(); ta.setSelectionRange(RDVN_TRAME.indexOf("\n")+1, RDVN_TRAME.indexOf("\n")+1);
     persistSoon();
   });
-  /* ---- tâche de suivi ---- */
-  $$("#rdvn-suivi").addEventListener("change", e=>{
-    $$("#rdvn-suivitxt").style.display = e.target.checked? "" : "none";
-    $$("#rdvn-suividate").style.display = e.target.checked? "" : "none";
-  });
+  /* ---- v94 : actions décidées ---- */
+  const actRow = (a,i)=>{
+    if (a.t==="aff") return `<div class="rdvn-act" data-i="${i}">🧭
+      <input type="text" class="ra-txt" placeholder="précision / prochaine action…" value="${esc(a.txt||"")}">
+      <select class="ra-support" title="Support">${SUPPORTS.map(s=>`<option ${s===(a.support||"SCPI")?"selected":""}>${s}</option>`).join("")}</select>
+      <input type="number" class="ra-coll" placeholder="Collecte €" title="Collecte potentielle (€)" value="${a.coll||""}" min="0" step="any">
+      <input type="number" class="ra-ca" placeholder="CA €" title="CA potentiel (€)" value="${a.ca||""}" min="0" step="any">
+      <span class="rdvn-del" title="Retirer cette action">✕</span></div>`;
+    if (a.t==="mi") return `<div class="rdvn-act" data-i="${i}">🧰
+      <input type="text" class="ra-txt" placeholder="intitulé de la mission (ex : Audit patrimonial)" value="${esc(a.txt||"")}">
+      <input type="number" class="ra-ca" placeholder="Devis €" title="Honoraires devis (€)" value="${a.ca||""}" min="0" step="any">
+      <input type="text" class="ra-desc" placeholder="consigne pour l'ingénierie — reprise dans la description de la carte" value="${esc(a.desc||"")}" style="flex:2;min-width:200px">
+      <span class="rdvn-del" title="Retirer cette action">✕</span></div>`;
+    if (a.t==="bo") return `<div class="rdvn-act" data-i="${i}">📥
+      <input type="text" class="ra-txt" placeholder="intitulé (ex : Rachat partiel Cardif)" value="${esc(a.txt||"")}">
+      <input type="text" class="ra-desc" placeholder="consigne pour le back-office — reprise dans la description de la carte" value="${esc(a.desc||"")}" style="flex:2;min-width:200px">
+      <span class="rdvn-del" title="Retirer cette action">✕</span></div>`;
+    return `<div class="rdvn-act" data-i="${i}">✅
+      <input type="text" class="ra-txt" placeholder="ex : envoyer la proposition" value="${esc(a.txt||"")}">
+      <input type="date" class="ra-date" value="${a.date||new Date(Date.now()+7*86400000).toISOString().slice(0,10)}" style="width:auto">
+      <span class="rdvn-del" title="Retirer cette action">✕</span></div>`;
+  };
+  const renderActs = focusLast=>{
+    const box = $$("#rdvn-actlist");
+    box.innerHTML = actions.map(actRow).join("") || `<div class="small muted" style="margin-bottom:6px">aucune action pour l'instant — utilise les boutons « ＋ » si le RDV a débouché sur quelque chose</div>`;
+    box.querySelectorAll(".rdvn-act").forEach(row=>{
+      const i = +row.dataset.i;
+      row.querySelectorAll("input,select").forEach(el=>el.addEventListener("input", ()=>{
+        const a = actions[i]; if (!a) return;
+        if (el.classList.contains("ra-txt")) a.txt = el.value;
+        else if (el.classList.contains("ra-support")) a.support = el.value;
+        else if (el.classList.contains("ra-coll")) a.coll = el.value;
+        else if (el.classList.contains("ra-ca")) a.ca = el.value;
+        else if (el.classList.contains("ra-desc")) a.desc = el.value;
+        else if (el.classList.contains("ra-date")) a.date = el.value;
+        persistSoon();
+      }));
+      row.querySelector(".rdvn-del").addEventListener("click", ()=>{ actions.splice(i,1); renderActs(); persistSoon(); });
+    });
+    if (focusLast){ const ts = box.querySelectorAll(".ra-txt"); ts[ts.length-1]?.focus(); }
+  };
+  renderActs();
+  $$("#rdvn-add-aff").addEventListener("click", ()=>{ actions.push({t:"aff", support:"SCPI"}); renderActs(true); persistSoon(); });
+  $$("#rdvn-add-tache").addEventListener("click", ()=>{ actions.push({t:"tache", date:new Date(Date.now()+7*86400000).toISOString().slice(0,10)}); renderActs(true); persistSoon(); });
+  $$("#rdvn-add-mi").addEventListener("click", ()=>{ actions.push({t:"mi"}); renderActs(true); persistSoon(); });
+  $$("#rdvn-add-bo").addEventListener("click", ()=>{ actions.push({t:"bo"}); renderActs(true); persistSoon(); });
   $$("#rdvn-jeter")?.addEventListener("click", e=>{
     e.preventDefault();
     if (!confirm("Jeter définitivement ce brouillon ?")) return;
@@ -6253,19 +6308,51 @@ function rdvNoteModal(clientKey){
   $$("#rdvn-save").addEventListener("click", async ()=>{
     const txt = ta.value.trim();
     if (!cli){ toast("Choisis le client (ou crée sa fiche prospect)"); inCli.focus(); return; }
-    if (!txt){ toast("La note est vide"); ta.focus(); return; }
+    const acts = actions.filter(a=>a.t==="aff" || String(a.txt||"").trim() || String(a.desc||"").trim() || +a.ca || +a.coll);
+    if (!txt && !acts.length){ toast("La note est vide"); ta.focus(); return; }
     try{
-      await state.db.addInteraction({client_key:cli.key, conseiller_id:state.profile.conseiller_id||null,
-        type:"RDV", note:"🤝 Compte rendu de RDV\n"+txt});
-      if ($$("#rdvn-suivi").checked && state.profile.conseiller_id){
-        const st = $$("#rdvn-suivitxt").value.trim() || "Suivi du RDV";
-        await state.db.saveAction({conseiller_id:state.profile.conseiller_id, texte:st+" — "+cli.nom,
-          echeance:$$("#rdvn-suividate").value||null, semaine:state.week, fait:false});
+      const consId = state.profile.conseiller_id || (voitTout()? activeConseillers()[0]?.id : null) || null;
+      const faits = [];   /* v94 : chaque action décidée devient une vraie carte */
+      for (const a of acts){
+        if (a.t==="aff"){
+          await state.db.savePipeline({conseiller_id:consId, client:cli.nom, support:a.support||"SCPI",
+            etape:"Découverte", collecte_potentielle:+a.coll||0, ca_potentiel:+a.ca||0, probabilite:0.5,
+            closing_prevu:null, priorite:"Moyenne", prochaine_action:String(a.txt||"").trim(), signature_probable:false});
+          faits.push(`🧭 Affaire ${a.support||"SCPI"}${+a.coll? " — collecte "+eur(+a.coll):""}${+a.ca? " — CA "+eur(+a.ca):""}`);
+        } else if (a.t==="mi"){
+          const titre = String(a.txt||"").trim() || "Mission de conseil";
+          const desc = String(a.desc||"").trim();
+          await state.db.saveMission({client_key:cli.key, titre, type:trelloMissionType(titre),
+            statut:miStatuts()[0], conseiller_id:consId,
+            description:(desc? desc+"\n\n":"")+"Créée depuis la note de RDV.",
+            hono_devis:+a.ca||0, hono_facture:0, hono_encaisse:0, echeance:null, echeance_note:"", etapes:[],
+            journal:[{q:new Date().toISOString(), n:"Créée depuis la note de RDV", a:monNom()}]});
+          faits.push(`🧰 Mission « ${titre} »${+a.ca? " — devis "+eur(+a.ca):""}`);
+        } else if (a.t==="bo"){
+          const titre = String(a.txt||"").trim() || "Opération à traiter";
+          const desc = String(a.desc||"").trim();
+          await state.db.saveOperation({client_key:cli.key, titre, statut:"À faire",
+            assureur:"", responsable:monNom(), conseiller_id:consId,
+            description:(desc? desc+"\n\n":"")+"Créée depuis la note de RDV.",
+            etapes:[], journal:[{q:new Date().toISOString(), n:"Créée depuis la note de RDV"+(desc? " — "+desc:""), a:monNom()}],
+            echeance:null, trello_id:"", campagne_id:null});
+          faits.push(`📥 Back-office « ${titre} »${desc? " — "+desc:""}`);
+        } else {
+          const st = String(a.txt||"").trim() || "Suivi du RDV";
+          if (consId) await state.db.saveAction({conseiller_id:consId, texte:st+" — "+cli.nom,
+            echeance:a.date||null, semaine:state.week, fait:false, client_key:cli.key});
+          faits.push(`✅ ${st}${a.date? " (pour le "+new Date(a.date+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})+")":""}`);
+        }
       }
+      await state.db.addInteraction({client_key:cli.key, conseiller_id:state.profile.conseiller_id||null,
+        type:"RDV", note:"🤝 Compte rendu de RDV\n"+txt+(faits.length? "\n\n⚡ Actions créées :\n"+faits.map(f=>"• "+f).join("\n"):"")});
       rdvnDraftSave(null);
       close();
       await state.db.loadAll();
-      toast("🤝 Compte rendu enregistré dans la fiche de "+cli.nom+" ✓");
+      const nAff = acts.filter(a=>a.t==="aff").length, nMi = acts.filter(a=>a.t==="mi").length,
+            nBo = acts.filter(a=>a.t==="bo").length, nTa = acts.length-nAff-nMi-nBo;
+      const det = [nAff? nAff+" affaire(s)":"", nTa? nTa+" tâche(s)":"", nMi? nMi+" mission(s)":"", nBo? nBo+" opération(s) back-office":""].filter(Boolean).join(", ");
+      toast("🤝 Compte rendu enregistré dans la fiche de "+cli.nom+" ✓"+(det? " — "+det+" créée(s)":""));
       render();
     }catch(err){ toast("Erreur : "+(err.message||err)); }
   });
