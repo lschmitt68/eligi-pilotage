@@ -921,21 +921,31 @@ function stripComputedPipe(p){
 
 class SupaDB {
   constructor(client){ this.c = client; }
+  async _tout(table){ /* v97.1 : TOUTES les lignes — Supabase plafonne à 1000 par requête */
+    const out = [];
+    for (let k = 0; ; k += 1000){
+      const {data, error} = await this.c.from(table).select("*").order("id").range(k, k+999);
+      if (error) return {data:null, error};
+      out.push(...(data||[]));
+      if (!data || data.length < 1000) break;
+    }
+    return {data:out, error:null};
+  }
   async loadAll(){
     const [co, se, sa, pi, pr, ab, os, ac, va, pe, ci, it, pp, pc] = await Promise.all([
       this.c.from("conseillers").select("*").order("id"),
       this.c.from("semaines").select("*").order("lundi"),
-      this.c.from("saisies").select("*"),
-      this.c.from("pipeline").select("*").order("id"),
+      this._tout("saisies"),
+      this._tout("pipeline"),
       this.c.from("profiles").select("*"),
       this.c.from("absences").select("*"),
       this.c.from("objectifs_semaine").select("*"),
-      this.c.from("actions").select("*").order("id"),
+      this._tout("actions"),
       this.c.from("semaines_validees").select("*"),
-      this.c.from("pipeline_events").select("*").order("id"),
-      this.c.from("clients_infos").select("*"),
-      this.c.from("interactions").select("*").order("quand", {ascending:false}),
-      this.c.from("propositions").select("*").order("id", {ascending:false}),
+      this._tout("pipeline_events"),
+      this._tout("clients_infos"),
+      this._tout("interactions"),
+      this._tout("propositions"),
       this.c.from("params_cabinet").select("*"),
     ]);
     for (const r of [co,se,sa,pi,pr,ab,os,ac,va,pe,ci,it,pp,pc]) if (r.error) throw r.error;
@@ -945,11 +955,13 @@ class SupaDB {
     state.pipeline = (pi.data||[]).filter(x=>!x.archive);
     state.absences = ab.data; state.objSemaine = os.data;
     state.actions = ac.data; state.validations = va.data; state.pipeEvents = pe.data;
-    state.clientsInfos = ci.data; state.interactions = it.data;
-    state.propositions = pp.data; state.paramsCabinet = (pc.data?.[0]?.data) || {};
+    state.clientsInfos = ci.data;
+    state.interactions = (it.data||[]).slice().sort((a,b)=>String(b.quand||"").localeCompare(String(a.quand||"")));   /* v97.1 : même ordre qu'avant (récent → ancien) */
+    state.propositions = (pp.data||[]).slice().reverse();
+    state.paramsCabinet = (pc.data?.[0]?.data) || {};
     const cx = await this.c.from("connexions").select("*").order("id", {ascending:false}).limit(400);
     state.connexions = cx.error? [] : (cx.data||[]);   // tolérant : le journal ne bloque jamais l'appli
-    const mi = await this.c.from("missions").select("*").order("id", {ascending:false});
+    const mi = await this._tout("missions").then(r=>({...r, data:(r.data||[]).slice().reverse()}));   /* v97.1 */
     const misTous = mi.error? [] : (mi.data||[]).map(m=>({...m, statut: miStNorm(m.statut)}));     // tolérant tant que la migration v15 n'est pas passée
     state.missionsArch = misTous.filter(m=>m.archive);      /* v56 : les archivées sortent de tous les écrans */
     state.missions = misTous.filter(m=>!m.archive);
@@ -957,7 +969,7 @@ class SupaDB {
     state.annuaire = an.error? null : (an.data||[]);   /* v81.2 : nul tant que la migration n'est pas passée */
     const cg = await this.c.from("campagnes").select("*").order("date_fin");
     state.campagnes = cg.error? [] : (cg.data||[]);    // tolérant tant que la migration v22 n'est pas passée
-    const op = await this.c.from("operations").select("*").order("id", {ascending:false});
+    const op = await this._tout("operations").then(r=>({...r, data:(r.data||[]).slice().reverse()}));   /* v97.1 */
     const opsTous = op.error? [] : (op.data||[]);   // tolérant tant que la migration v37 n'est pas passée
     state.operationsArch = opsTous.filter(o=>o.archive);   /* v59 */
     state.operations = opsTous.filter(o=>!o.archive);
