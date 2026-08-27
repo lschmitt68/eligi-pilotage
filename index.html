@@ -1880,7 +1880,9 @@ async function boCreerDepuisAffaire(p, mod, consigne){
   }
   await state.db.saveOperation({client_key:key, titre, statut:"À faire",
     assureur:p.support||"", responsable:monNom(), conseiller_id:p.conseiller_id||null,
-    description:(String(consigne||"").trim()? String(consigne).trim()+"\n\n" : "") + "Créée à la signature de l'affaire" + (p.campagne_id? " (campagne rattachée)":"") + ".",
+    description:(String(consigne||"").trim()? String(consigne).trim()+"\n\n" : "")
+      + (String(p.description||"").trim()? "— Contexte de l'affaire —\n"+String(p.description).trim()+"\n\n" : "")   /* v99 */
+      + "Créée à la signature de l'affaire" + (p.campagne_id? " (campagne rattachée)":"") + ".",
     etapes:(mod.items||[]).map(t=>({t, done:false})),
     journal:[...(p.journal||[]), {q:new Date().toISOString(), n:"⚙ Créée à la signature de l'affaire — les notes plus anciennes viennent du journal de l'affaire", a:monNom(), sys:true}],   /* v98 */
     echeance:null, trello_id:"",
@@ -1896,7 +1898,9 @@ async function miCreerDepuisAffaire(p, consigne){ /* v62 : la validation d'une a
   }
   await state.db.saveMission({client_key:key, titre, type: trelloMissionType(p.support||"audit"),
     statut: miStatuts()[0], conseiller_id: p.conseiller_id||null,
-    description:(String(consigne||"").trim()? String(consigne).trim()+"\n\n" : "") + "Créée à la validation de l'affaire.",
+    description:(String(consigne||"").trim()? String(consigne).trim()+"\n\n" : "")
+      + (String(p.description||"").trim()? "— Contexte de l'affaire —\n"+String(p.description).trim()+"\n\n" : "")   /* v99 */
+      + "Créée à la validation de l'affaire.",
     hono_devis:+p.ca_potentiel||0, hono_facture:0, hono_encaisse:0,
     echeance:null, echeance_note:"", etapes:[],
     journal:[...(p.journal||[]), {q:new Date().toISOString(), n:"⚙ Créée à la validation de l'affaire — les notes plus anciennes viennent du journal de l'affaire", a:monNom(), sys:true}]});   /* v98 */
@@ -3053,8 +3057,9 @@ function pipeModal(p, etapeInit){
   const isNew = !p;
   p = p || {conseiller_id: voitTout()? activeConseillers()[0]?.id : state.profile.conseiller_id,
             client:"", support:"SCPI", etape:etapeInit||"Prise de contact", collecte_potentielle:0, ca_potentiel:0,
-            probabilite:0.5, closing_prevu:null, priorite:"Moyenne", prochaine_action:"", signature_probable:false, journal:[]};
+            probabilite:0.5, closing_prevu:null, priorite:"Moyenne", prochaine_action:"", signature_probable:false, journal:[], description:""};
   p.journal = p.journal || [];   /* v98 */
+  p.description = p.description || "";   /* v99 */
   const back = document.createElement("div");
   back.className = "modal-back";
   back.innerHTML = `<div class="modal" style="width:1020px;max-width:96vw">
@@ -3080,6 +3085,8 @@ function pipeModal(p, etapeInit){
       <label class="fld"><span>Valeur pondérée (auto)</span><input type="text" id="pm-pond" value="${eur(pondere(p))}" disabled></label>
       <label class="fld"><span>Closing prévu</span><input type="date" id="pm-closing" value="${p.closing_prevu||""}"></label>
       <label class="fld"><span>Priorité</span><select id="pm-prio"><option value="">—</option>${PRIORITES.map(x=>`<option ${x===p.priorite?"selected":""}>${x}</option>`).join("")}</select></label>
+      <label class="fld full"><span>Description / contexte du dossier <span class="small muted" style="font-weight:400">— reprise dans la carte back-office ou mission à la signature</span></span>
+        <textarea id="pm-desc" rows="3" style="resize:vertical;font-family:inherit">${esc(p.description||"")}</textarea></label>
       <label class="fld full"><span>Prochaine action</span><input type="text" id="pm-action" value="${esc(p.prochaine_action)}"></label>
       <label class="fld full"><span><input type="checkbox" id="pm-sig" ${p.signature_probable?"checked":""} style="width:auto;margin-right:8px">Signature probable cette semaine</span></label>
       <div class="dup-warn" id="pm-dup" style="display:none"></div>
@@ -3182,6 +3189,7 @@ function pipeModal(p, etapeInit){
         prochaine_action: back.querySelector("#pm-action").value.trim(),
         signature_probable: back.querySelector("#pm-sig").checked,
         journal: p.journal||[],   /* v98 */
+        description: back.querySelector("#pm-desc").value.trim(),   /* v99 */
         campagne_id: back.querySelector("#pm-camp")? (+back.querySelector("#pm-camp").value||null) : (p.campagne_id||null),
       });
       const opData = {
