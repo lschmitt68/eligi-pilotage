@@ -346,9 +346,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .mi-et .mi-done{text-decoration:line-through; color:var(--muted)}
 .mi-et .mi-etdel{margin-left:auto; border:0; background:none; color:var(--muted); cursor:pointer; font-size:11px; padding:2px 5px; border-radius:5px}
 .mi-et .mi-etdel:hover{color:var(--critical); background:var(--surface-2)}
-.etmv{border:0; background:none; color:var(--muted); cursor:pointer; font-size:10px; padding:2px 4px; border-radius:5px; line-height:1}
-.etmv:hover{color:var(--text); background:var(--surface-2)}
-.mi-et .etmv{margin-left:0}
+.et-grip{cursor:grab; color:var(--muted); font-size:13px; user-select:none; padding:0 3px; flex:none}
+.et-drag{opacity:.45}
+.et-over{box-shadow:0 -2px 0 0 var(--s1) inset, 0 2px 0 0 var(--s1)}
 
 /* ============ Assistant proposition (v9) ============ */
 .wiz-back{align-items:stretch; justify-content:stretch; padding:0}
@@ -980,6 +980,7 @@ class SupaDB {
   }
   async saveMission(m){
     const row = {client_key:m.client_key, titre:m.titre||"", type:m.type||"", statut:m.statut||"À démarrer",
+      co_clients:m.co_clients||[],   /* v97 */
       conseiller_id:m.conseiller_id||null, description:m.description||"",
       hono_devis:+m.hono_devis||0, hono_facture:+m.hono_facture||0, hono_encaisse:+m.hono_encaisse||0,
       echeance:m.echeance||null, echeance_note:m.echeance_note||"",
@@ -3791,7 +3792,7 @@ function briefClient(key){
           <td class="num">${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</td>
           <td class="num"><b>${eur(pondere(p))}</b></td><td>${esc(p.prochaine_action||"—")}</td></tr>`).join("")}</tbody></table>`
         : `<p class="pd-note">Aucune affaire pour l'instant.</p>`}</div>
-      ${(()=>{ const mis = state.missions.filter(mm=>mm.client_key===key);
+      ${(()=>{ const mis = state.missions.filter(mm=>mm.client_key===key || (mm.co_clients||[]).includes(key));   /* v97 */
         return mis.length? `<div class="pd-sec"><h3>Missions de conseil</h3>
         <table class="pd-tbl"><thead><tr><th>Mission</th><th>Statut</th><th class="num">Avancement</th><th>Prochaine échéance</th></tr></thead>
         <tbody>${mis.map(mm=>{ const pr = miProgress(mm); return `<tr>
@@ -3862,7 +3863,7 @@ function suiviClient(g){
   /* v30 : propositions, missions (création + journal), revues annuelles */
   for (const pr of state.propositions.filter(x=>x.client_key===g.key))
     ev.push({kind:"pr", t:new Date(pr.created_at||0).getTime(), pr});
-  for (const m of state.missions.filter(x=>x.client_key===g.key)){
+  for (const m of state.missions.filter(x=>x.client_key===g.key || (x.co_clients||[]).includes(g.key))){   /* v97 */
     ev.push({kind:"mi", t:new Date(m.created_at||0).getTime(), m});
     for (const j of (m.journal||[]))
       ev.push({kind:"mj", t:new Date(j.q||0).getTime(), m, j});
@@ -4267,7 +4268,7 @@ function viewClients(root){
                   <td class="small">${isOverdue(p)? "⏰ dépassé" : isStale(p)? `💤 ${staleDays(p)} j` : esc(String(p.prochaine_action||"").slice(0,24))}</td>
                 </tr>`).join("")}</tbody></table></div>${rows.length>4? `<p class="small muted" style="margin:2px 0 4px">+ ${rows.length-4} autre(s) dans les Affaires</p>`:""}`
               : `<p class="small muted" style="margin:2px 0 6px">aucune affaire pour l'instant</p>`); })()}
-            ${(()=>{ const mis = state.missions.filter(mm=>mm.client_key===g.key);
+            ${(()=>{ const mis = state.missions.filter(mm=>mm.client_key===g.key || (mm.co_clients||[]).includes(g.key));   /* v97 */
               return `<div class="tl-subhead" style="display:flex;justify-content:space-between;align-items:center">🧰 Missions (${mis.length})
                 <button class="btn secondary small cli-mi-add" data-key="${esc(g.key)}" data-nom="${esc(g.name)}">＋ Mission</button></div>` +
               (mis.length? `<div class="tbl-scroll" style="margin-bottom:2px"><table class="tbl dense"><tbody>${mis.slice(0,4).map(mm=>{ const pr = miProgress(mm); return `
@@ -6604,6 +6605,7 @@ function miCardHTML(m){
   return `<div class="kcard mi-card" data-mid="${m.id}" draggable="true" title="${creeLeTitle(m)}Cliquer pour ouvrir — glisser pour changer de statut">
     <div class="kclient"><span class="cdot" style="background:${consColor(m.conseiller_id)}" title="${esc(consName(m.conseiller_id))}"></span>
       <span class="kc-name">${esc(miClientNom(m.client_key))}</span>
+      ${(m.co_clients||[]).length? `<span class="small muted" title="Avec ${esc((m.co_clients||[]).map(k=>nomAffiche(k,k)).join(", "))}">👥 +${(m.co_clients||[]).length}</span>`:""}
       ${tagCarteMeVise(m)? `<span title="On t'a tagué sur cette carte — ouvre le journal">🔔</span>`:""}
       <button class="mi-arch-btn" data-mid="${m.id}" title="Archiver — la carte disparaît du tableau (récupérable via le filtre 🗄 Archivées)">🗄</button>
       ${pr.total? `<span class="kpond">${pr.done}/${pr.total}</span>`:""}</div>
@@ -6775,6 +6777,11 @@ function missionModal(m, opts={}){
     <div class="form-grid">
       <label class="fld"><span>Client</span><input type="text" id="mi-client" value="${esc(clientNom)}" list="mi-clients" autocomplete="off">
         <datalist id="mi-clients">${[...clientsMap.values()].sort((a,b)=>a.localeCompare(b,"fr")).map(n=>`<option value="${esc(n)}">`).join("")}</datalist></label>
+      <label class="fld"><span>👥 Autres clients associés <span class="small muted" style="font-weight:400">— création de société à plusieurs, etc.</span></span>
+        <input type="text" id="mi-cocli" list="mi-clients" autocomplete="off" placeholder="tape un nom puis Entrée pour l'associer…">
+        ${(m.co_clients||[]).length? `<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:5px">
+          ${(m.co_clients||[]).map((k,ci)=>`<span class="tag">👤 ${esc(nomAffiche(k, k))} <a href="#" class="mi-codel" data-ci="${ci}" style="color:var(--critical);text-decoration:none;font-weight:700" title="Détacher ce client de la mission">✕</a></span>`).join("")}
+        </div>`:""}</label>
       <label class="fld"><span>Intitulé (ex : Création holding CM4G)</span><input type="text" id="mi-titre" value="${esc(m.titre||"")}"></label>
       <label class="fld"><span>Type</span><select id="mi-mtype">${MI_TYPES.map(t=>`<option ${t===m.type?"selected":""}>${t}</option>`).join("")}</select></label>
       ${voitTout()? `<label class="fld"><span>Conseiller responsable</span><select id="mi-mcons">
@@ -6804,7 +6811,7 @@ function missionModal(m, opts={}){
               head = `<div class="mi-etgrp">${g? "📋 "+esc(g) : "Autres étapes"}<span class="mi-etgn">${gr.filter(x=>x.done).length}/${gr.length}</span></div>`;
             }
             prev = g;
-            return head + `<label class="mi-et"><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span><span style="margin-left:auto;display:flex;align-items:center"><button class="etmv mi-etmv" data-ei="${i}" data-d="-1" title="Monter l'étape">▲</button><button class="etmv mi-etmv" data-ei="${i}" data-d="1" title="Descendre l'étape">▼</button><button class="mi-etdel" data-ei="${i}" title="Retirer l'étape" style="margin-left:0">✕</button></span></label>`;
+            return head + `<label class="mi-et" draggable="true" data-ei="${i}" title="Glisser pour réordonner"><span class="et-grip">⠿</span><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span><button class="mi-etdel" data-ei="${i}" title="Retirer l'étape">✕</button></label>`;
           }).join("");
         })() || `<div class="empty">Aucune étape — applique un modèle ou ajoute les tiennes</div>`}
       </div>
@@ -6867,21 +6874,50 @@ function missionModal(m, opts={}){
     back.querySelectorAll(".mi-etdel").forEach(b=>b.addEventListener("click", e=>{
       e.preventDefault(); readForm(); m.etapes.splice(+b.dataset.ei,1); renderModal();
     }));
-    back.querySelectorAll(".mi-etmv").forEach(b=>b.addEventListener("click", e=>{   /* v96 : réordonner */
-      e.preventDefault(); readForm();
-      const i = +b.dataset.ei, d = +b.dataset.d, j = i+d;
-      if (j<0 || j>=m.etapes.length) return;
-      const a = m.etapes[i], v = m.etapes[j];
-      if (String(a.g||"").trim()!==String(v.g||"").trim()) a.g = v.g;   /* frontière : l'étape change de section */
-      else { m.etapes[i]=v; m.etapes[j]=a; }
-      renderModal();
-    }));
+    { /* v97 : glisser-déposer pour réordonner */
+      let srcI = null;
+      const zone = back.querySelector("#mi-etapes");
+      zone?.querySelectorAll(".mi-et").forEach(row=>{
+        row.addEventListener("dragstart", e=>{ srcI = +row.dataset.ei; e.dataTransfer.effectAllowed = "move"; try{ e.dataTransfer.setData("text/plain",""); }catch(_){} row.classList.add("et-drag"); });
+        row.addEventListener("dragend", ()=>{ srcI = null; zone.querySelectorAll(".et-over,.et-drag").forEach(x=>x.classList.remove("et-over","et-drag")); });
+        row.addEventListener("dragover", e=>{ if (srcI===null) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; row.classList.add("et-over"); });
+        row.addEventListener("dragleave", ()=>row.classList.remove("et-over"));
+        row.addEventListener("drop", e=>{
+          e.preventDefault(); e.stopPropagation();
+          const dst = +row.dataset.ei;
+          if (srcI===null || dst===srcI){ srcI = null; return; }
+          readForm();
+          const gDst = m.etapes[dst]?.g;
+          const it = m.etapes.splice(srcI,1)[0];
+          it.g = gDst;   /* déposée dans cette section */
+          m.etapes.splice(dst, 0, it);
+          srcI = null; renderModal();
+        });
+      });
+    }
     const addEt = ()=>{
       const el = back.querySelector("#mi-newet"); const t = el.value.trim();
       if (!t) return; readForm();
       const der = m.etapes[m.etapes.length-1];   /* v80 : elle rejoint la dernière section */
       m.etapes.push({t, done:false, ...(der?.g? {g:der.g} : {})}); renderModal();
     };
+    const addCo = ()=>{   /* v97 */
+      const el = back.querySelector("#mi-cocli"); const brut = el.value.trim();
+      if (!brut) return;
+      const k = normName(brut);
+      if (!clientsMap.has(k)){ toast("Choisis une fiche existante (ou crée-la d'abord dans Fiches)"); return; }
+      readForm();
+      m.co_clients = m.co_clients||[];
+      if (k===normName(back.querySelector("#mi-client").value)){ toast("C'est déjà le client principal"); el.value = ""; return; }
+      if (!m.co_clients.includes(k)) m.co_clients.push(k);
+      renderModal();
+      back.querySelector("#mi-cocli")?.focus();
+    };
+    back.querySelector("#mi-cocli").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addCo(); } });
+    back.querySelector("#mi-cocli").addEventListener("change", addCo);
+    back.querySelectorAll(".mi-codel").forEach(a=>a.addEventListener("click", e=>{
+      e.preventDefault(); readForm(); (m.co_clients||[]).splice(+a.dataset.ci,1); renderModal();
+    }));
     back.querySelector("#mi-addet").addEventListener("click", addEt);
     back.querySelector("#mi-newet").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); addEt(); } });
     const addNote = ()=>{
@@ -6965,6 +7001,7 @@ function missionModal(m, opts={}){
         if (!clientsMap.has(key))
           await state.db.saveClientInfo({client_key:key, nom:nomClient, statut:"Client", origine:"", notes:""});
         m.client_key = key;
+        m.co_clients = (m.co_clients||[]).filter(k2=>k2!==key);   /* v97 */
         if (!isNew){ const avM = state.missions.find(x=>x.id===m.id); if (avM) m.journal = statutJournal(m.journal, avM.statut, m.statut); }   /* v92 */
         if (m.statut===miStFacturer() && !m.livree_le) m.livree_le = new Date().toISOString().slice(0,10);
         if (m.statut===miStTermine()){ m.close_le = m.close_le || new Date().toISOString().slice(0,10); m.echeance = null; }
@@ -7225,7 +7262,7 @@ function boModal(o, statutInitial, clientKey){
                 head = `<div class="mi-etgrp">${g? "📋 "+esc(g) : "Autres étapes"}<span class="mi-etgn">${gr.filter(x=>x.done).length}/${gr.length}</span></div>`;
               }
               prev = g;
-              return head + `<div class="inline-controls" style="gap:6px;margin:2px 0"><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span><button class="etmv bo-etmv" data-i="${i}" data-d="-1" title="Monter l'étape">▲</button><button class="etmv bo-etmv" data-i="${i}" data-d="1" title="Descendre l'étape">▼</button><button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`;
+              return head + `<div class="inline-controls bo-etrow" draggable="true" data-i="${i}" style="gap:6px;margin:2px 0" title="Glisser pour réordonner"><span class="et-grip">⠿</span><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span><button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`;
             }).join("");
           })() || `<p class="small muted" style="margin:2px 0">aucune étape</p>`}
           <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newet" placeholder="nouvelle étape… (CNI, RIB, bulletin signé…)" style="flex:1"><button class="btn secondary small" id="bo-addet">Ajouter</button></div>
@@ -7318,15 +7355,27 @@ function boModal(o, statutInitial, clientKey){
     if (!creation) pjMount(back.querySelector("#pj-bo"), "op/"+o.id);   /* v71 */
     back.querySelectorAll(".bo-et-done").forEach(c=>c.addEventListener("change", ()=>{ lireForm(); o.etapes[+c.dataset.i].done = c.checked; rendre(); }));
     back.querySelectorAll(".bo-et-del").forEach(b=>b.addEventListener("click", ()=>{ lireForm(); o.etapes.splice(+b.dataset.i,1); rendre(); }));
-    back.querySelectorAll(".bo-etmv").forEach(b=>b.addEventListener("click", ()=>{   /* v96 : réordonner */
-      lireForm();
-      const i = +b.dataset.i, d = +b.dataset.d, j = i+d;
-      if (j<0 || j>=o.etapes.length) return;
-      const a = o.etapes[i], v = o.etapes[j];
-      if (String(a.g||"").trim()!==String(v.g||"").trim()) a.g = v.g;
-      else { o.etapes[i]=v; o.etapes[j]=a; }
-      rendre();
-    }));
+    { /* v97 : glisser-déposer pour réordonner */
+      let srcI = null;
+      const rowsBo = back.querySelectorAll(".bo-etrow");
+      rowsBo.forEach(row=>{
+        row.addEventListener("dragstart", e=>{ srcI = +row.dataset.i; e.dataTransfer.effectAllowed = "move"; try{ e.dataTransfer.setData("text/plain",""); }catch(_){} row.classList.add("et-drag"); });
+        row.addEventListener("dragend", ()=>{ srcI = null; rowsBo.forEach(x=>x.classList.remove("et-over","et-drag")); });
+        row.addEventListener("dragover", e=>{ if (srcI===null) return; e.preventDefault(); e.dataTransfer.dropEffect = "move"; row.classList.add("et-over"); });
+        row.addEventListener("dragleave", ()=>row.classList.remove("et-over"));
+        row.addEventListener("drop", e=>{
+          e.preventDefault(); e.stopPropagation();
+          const dst = +row.dataset.i;
+          if (srcI===null || dst===srcI){ srcI = null; return; }
+          lireForm();
+          const gDst = o.etapes[dst]?.g;
+          const it = o.etapes.splice(srcI,1)[0];
+          it.g = gDst;
+          o.etapes.splice(dst, 0, it);
+          srcI = null; rendre();
+        });
+      });
+    }
     back.querySelector("#bo-archiver")?.addEventListener("click", async ()=>{
       try{
         await state.db.archiverOperation(o.id, true); await state.db.loadAll(); back.remove(); render();
