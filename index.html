@@ -7275,6 +7275,13 @@ async function boNotifierTermine(oAvant, oApres){ /* v60 : prévenir le commerci
     if (!cid || cid === state.profile?.conseiller_id) return;   /* pas de notification à soi-même */
     const texte = `✅ Back-office terminé : ${oApres.titre}${oApres.client_key? " — " + nomAffiche(oApres.client_key, oApres.client_key) : ""}`;
     if (state.actions.some(a=>!a.fait && a.conseiller_id===cid && a.texte===texte)) return;   /* déjà signalé */
+    const enCours = (boNotifierTermine._lock = boNotifierTermine._lock || new Set());   /* v99.2 : anti-course */
+    if (enCours.has(texte)) return;
+    enCours.add(texte); setTimeout(()=>enCours.delete(texte), 20000);
+    if (state.db.c){   /* v99.2 : vérification en base — l'état en mémoire peut être en retard */
+      const ex = await state.db.c.from("actions").select("id").eq("conseiller_id", cid).eq("texte", texte).eq("fait", false).limit(1);
+      if (!ex.error && (ex.data||[]).length) return;
+    }
     await state.db.saveAction({conseiller_id:cid, texte, echeance:new Date().toISOString().slice(0,10),
       fait:false, client_key:oApres.client_key||null});
     toast(`📣 ${consName(cid)} sera prévenu(e) sur son Aujourd'hui`);
