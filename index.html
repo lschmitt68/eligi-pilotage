@@ -346,6 +346,9 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .mi-et .mi-done{text-decoration:line-through; color:var(--muted)}
 .mi-et .mi-etdel{margin-left:auto; border:0; background:none; color:var(--muted); cursor:pointer; font-size:11px; padding:2px 5px; border-radius:5px}
 .mi-et .mi-etdel:hover{color:var(--critical); background:var(--surface-2)}
+.etmv{border:0; background:none; color:var(--muted); cursor:pointer; font-size:10px; padding:2px 4px; border-radius:5px; line-height:1}
+.etmv:hover{color:var(--text); background:var(--surface-2)}
+.mi-et .etmv{margin-left:0}
 
 /* ============ Assistant proposition (v9) ============ */
 .wiz-back{align-items:stretch; justify-content:stretch; padding:0}
@@ -6801,7 +6804,7 @@ function missionModal(m, opts={}){
               head = `<div class="mi-etgrp">${g? "📋 "+esc(g) : "Autres étapes"}<span class="mi-etgn">${gr.filter(x=>x.done).length}/${gr.length}</span></div>`;
             }
             prev = g;
-            return head + `<label class="mi-et"><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span><button class="mi-etdel" data-ei="${i}" title="Retirer l'étape">✕</button></label>`;
+            return head + `<label class="mi-et"><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span><span style="margin-left:auto;display:flex;align-items:center"><button class="etmv mi-etmv" data-ei="${i}" data-d="-1" title="Monter l'étape">▲</button><button class="etmv mi-etmv" data-ei="${i}" data-d="1" title="Descendre l'étape">▼</button><button class="mi-etdel" data-ei="${i}" title="Retirer l'étape" style="margin-left:0">✕</button></span></label>`;
           }).join("");
         })() || `<div class="empty">Aucune étape — applique un modèle ou ajoute les tiennes</div>`}
       </div>
@@ -6863,6 +6866,15 @@ function missionModal(m, opts={}){
     }));
     back.querySelectorAll(".mi-etdel").forEach(b=>b.addEventListener("click", e=>{
       e.preventDefault(); readForm(); m.etapes.splice(+b.dataset.ei,1); renderModal();
+    }));
+    back.querySelectorAll(".mi-etmv").forEach(b=>b.addEventListener("click", e=>{   /* v96 : réordonner */
+      e.preventDefault(); readForm();
+      const i = +b.dataset.ei, d = +b.dataset.d, j = i+d;
+      if (j<0 || j>=m.etapes.length) return;
+      const a = m.etapes[i], v = m.etapes[j];
+      if (String(a.g||"").trim()!==String(v.g||"").trim()) a.g = v.g;   /* frontière : l'étape change de section */
+      else { m.etapes[i]=v; m.etapes[j]=a; }
+      renderModal();
     }));
     const addEt = ()=>{
       const el = back.querySelector("#mi-newet"); const t = el.value.trim();
@@ -7213,7 +7225,7 @@ function boModal(o, statutInitial, clientKey){
                 head = `<div class="mi-etgrp">${g? "📋 "+esc(g) : "Autres étapes"}<span class="mi-etgn">${gr.filter(x=>x.done).length}/${gr.length}</span></div>`;
               }
               prev = g;
-              return head + `<div class="inline-controls" style="gap:6px;margin:2px 0"><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span><button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`;
+              return head + `<div class="inline-controls" style="gap:6px;margin:2px 0"><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span><button class="etmv bo-etmv" data-i="${i}" data-d="-1" title="Monter l'étape">▲</button><button class="etmv bo-etmv" data-i="${i}" data-d="1" title="Descendre l'étape">▼</button><button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`;
             }).join("");
           })() || `<p class="small muted" style="margin:2px 0">aucune étape</p>`}
           <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newet" placeholder="nouvelle étape… (CNI, RIB, bulletin signé…)" style="flex:1"><button class="btn secondary small" id="bo-addet">Ajouter</button></div>
@@ -7306,6 +7318,15 @@ function boModal(o, statutInitial, clientKey){
     if (!creation) pjMount(back.querySelector("#pj-bo"), "op/"+o.id);   /* v71 */
     back.querySelectorAll(".bo-et-done").forEach(c=>c.addEventListener("change", ()=>{ lireForm(); o.etapes[+c.dataset.i].done = c.checked; rendre(); }));
     back.querySelectorAll(".bo-et-del").forEach(b=>b.addEventListener("click", ()=>{ lireForm(); o.etapes.splice(+b.dataset.i,1); rendre(); }));
+    back.querySelectorAll(".bo-etmv").forEach(b=>b.addEventListener("click", ()=>{   /* v96 : réordonner */
+      lireForm();
+      const i = +b.dataset.i, d = +b.dataset.d, j = i+d;
+      if (j<0 || j>=o.etapes.length) return;
+      const a = o.etapes[i], v = o.etapes[j];
+      if (String(a.g||"").trim()!==String(v.g||"").trim()) a.g = v.g;
+      else { o.etapes[i]=v; o.etapes[j]=a; }
+      rendre();
+    }));
     back.querySelector("#bo-archiver")?.addEventListener("click", async ()=>{
       try{
         await state.db.archiverOperation(o.id, true); await state.db.loadAll(); back.remove(); render();
