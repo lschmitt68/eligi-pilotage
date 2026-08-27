@@ -921,15 +921,16 @@ function stripComputedPipe(p){
 
 class SupaDB {
   constructor(client){ this.c = client; }
-  async _tout(table){ /* v97.1 : TOUTES les lignes — Supabase plafonne à 1000 par requête */
-    const out = [];
-    for (let k = 0; ; k += 1000){
-      const {data, error} = await this.c.from(table).select("*").order("id").range(k, k+999);
-      if (error) return {data:null, error};
-      out.push(...(data||[]));
-      if (!data || data.length < 1000) break;
-    }
-    return {data:out, error:null};
+  async _tout(table){ /* v97.1 : TOUTES les lignes — Supabase plafonne à 1000 par requête · v99.1 : pages en parallèle */
+    const head = await this.c.from(table).select("id", {count:"exact", head:true});
+    if (head.error) return {data:null, error:head.error};
+    const n = head.count||0;
+    if (!n) return {data:[], error:null};
+    const pages = [];
+    for (let k = 0; k < n; k += 1000) pages.push(this.c.from(table).select("*").order("id").range(k, k+999));
+    const res = await Promise.all(pages);
+    for (const r of res) if (r.error) return {data:null, error:r.error};
+    return {data:res.flatMap(r=>r.data||[]), error:null};
   }
   async loadAll(){
     const [co, se, sa, pi, pr, ab, os, ac, va, pe, ci, it, pp, pc] = await Promise.all([
@@ -6568,6 +6569,15 @@ function creeLe(x, prefix){ /* v88.1 : date de création affichée sur les fiche
   return `<span class="small muted" style="font-weight:400">${prefix||" · créée le "}${new Date(x.created_at).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</span>`;
 }
 function creeLeTitle(x){ return x?.created_at? "Créée le "+new Date(x.created_at).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})+" — " : ""; }
+document.addEventListener("click", e=>{ /* v99.1 : anti double-clic — un enregistrement à la fois */
+  const b = e.target.closest(".modal-back .btn");
+  if (!b || b.classList.contains("secondary") || b.classList.contains("danger")) return;
+  const t = Date.now();
+  if (+(b.dataset.lockUntil||0) > t){ e.stopImmediatePropagation(); e.preventDefault(); return; }
+  b.dataset.lockUntil = t + 4000;
+  b.style.opacity = ".6";
+  setTimeout(()=>{ if (b.isConnected){ b.style.opacity = ""; b.dataset.lockUntil = 0; } }, 4000);
+}, true);
 function statutJournal(journal, avant, apres){ /* v92 : trace le changement de statut dans le journal */
   if (!avant || !apres || avant===apres) return journal||[];
   return [...(journal||[]), {q:new Date().toISOString(), n:"⚙ Statut : "+avant+" → "+apres, a:monNom(), sys:true}];
