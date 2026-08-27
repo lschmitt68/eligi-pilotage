@@ -1881,7 +1881,9 @@ async function boCreerDepuisAffaire(p, mod, consigne){
   await state.db.saveOperation({client_key:key, titre, statut:"À faire",
     assureur:p.support||"", responsable:monNom(), conseiller_id:p.conseiller_id||null,
     description:(String(consigne||"").trim()? String(consigne).trim()+"\n\n" : "") + "Créée à la signature de l'affaire" + (p.campagne_id? " (campagne rattachée)":"") + ".",
-    etapes:(mod.items||[]).map(t=>({t, done:false})), journal:[], echeance:null, trello_id:"",
+    etapes:(mod.items||[]).map(t=>({t, done:false})),
+    journal:[...(p.journal||[]), {q:new Date().toISOString(), n:"⚙ Créée à la signature de l'affaire — les notes plus anciennes viennent du journal de l'affaire", a:monNom(), sys:true}],   /* v98 */
+    echeance:null, trello_id:"",
     campagne_id:p.campagne_id||null});
   await state.db.loadAll();
   toast(`📥 « ${titre} » créée pour ${cliAff(p.client)} — visible au Back-office`); render();
@@ -1896,7 +1898,8 @@ async function miCreerDepuisAffaire(p, consigne){ /* v62 : la validation d'une a
     statut: miStatuts()[0], conseiller_id: p.conseiller_id||null,
     description:(String(consigne||"").trim()? String(consigne).trim()+"\n\n" : "") + "Créée à la validation de l'affaire.",
     hono_devis:+p.ca_potentiel||0, hono_facture:0, hono_encaisse:0,
-    echeance:null, echeance_note:"", etapes:[], journal:[]});
+    echeance:null, echeance_note:"", etapes:[],
+    journal:[...(p.journal||[]), {q:new Date().toISOString(), n:"⚙ Créée à la validation de l'affaire — les notes plus anciennes viennent du journal de l'affaire", a:monNom(), sys:true}]});   /* v98 */
   await state.db.loadAll();
   toast(`🧰 Mission « ${titre} » créée pour ${cliAff(p.client)}${+p.ca_potentiel? ` — devis ${eur(p.ca_potentiel)}`:""} — visible chez l'ingénierie`); render();
 }
@@ -2934,6 +2937,7 @@ function kcardHTML(p){
       <button class="mi-arch-btn pi-arch-btn" data-pid="${p.id}" title="Archiver — la carte disparaît du tableau (récupérable via le filtre 🗄 Archivées)">🗄</button>
       <span class="kpond">${eur(pondere(p))}</span></div>
     <div class="kmeta"><span class="tag">${esc(p.support)}</span><span>${fmtPct(p.probabilite||0)} de ${eur(p.ca_potentiel)}</span>
+      ${(p.journal||[]).length? `<span class="tag" title="${(p.journal||[]).length} note(s) au journal de l'affaire">💬 ${(p.journal||[]).length}</span>`:""}
       ${p.campagne_id? `<span class="tag" title="Campagne : ${esc(state.campagnes.find(c=>c.id===p.campagne_id)?.nom||"")}">🚀</span>`:""}
       ${p.signature_probable? `<span class="ksig">SIGNATURE ?</span>`:""}
       ${isOverdue(p)? `<span class="ksig">⏰ CLOSING DÉPASSÉ</span>` : isStale(p)? `<span class="ksleep">💤 ${staleDays(p)} j sans mouvement</span>`:""}</div>
@@ -3049,7 +3053,8 @@ function pipeModal(p, etapeInit){
   const isNew = !p;
   p = p || {conseiller_id: voitTout()? activeConseillers()[0]?.id : state.profile.conseiller_id,
             client:"", support:"SCPI", etape:etapeInit||"Prise de contact", collecte_potentielle:0, ca_potentiel:0,
-            probabilite:0.5, closing_prevu:null, priorite:"Moyenne", prochaine_action:"", signature_probable:false};
+            probabilite:0.5, closing_prevu:null, priorite:"Moyenne", prochaine_action:"", signature_probable:false, journal:[]};
+  p.journal = p.journal || [];   /* v98 */
   const back = document.createElement("div");
   back.className = "modal-back";
   back.innerHTML = `<div class="modal">
@@ -3076,6 +3081,11 @@ function pipeModal(p, etapeInit){
       <label class="fld full"><span>Prochaine action</span><input type="text" id="pm-action" value="${esc(p.prochaine_action)}"></label>
       <label class="fld full"><span><input type="checkbox" id="pm-sig" ${p.signature_probable?"checked":""} style="width:auto;margin-right:8px">Signature probable cette semaine</span></label>
       <div class="dup-warn" id="pm-dup" style="display:none"></div>
+    </div>
+    <div style="margin-top:10px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:10px 12px">
+      <h3 class="mt0" style="font-size:14px">💬 Journal de l'affaire <span class="small muted" style="font-weight:400">— repris automatiquement par le back-office / la mission à la signature</span></h3>
+      <div class="inline-controls" style="gap:6px;margin-bottom:8px"><input type="text" id="pm-newnote" placeholder="Écrire une note… (contexte client, échanges, points d'attention)" style="flex:1"><button class="btn secondary small" id="pm-addnote" title="La note est datée et signée — elle suivra l'affaire jusqu'au back-office">Noter</button></div>
+      <div class="tl" id="pm-journal" style="max-height:210px;overflow-y:auto"></div>
     </div>
     <div class="modal-actions">
       ${!isNew? `<button class="btn secondary" id="pm-archiver" title="L'affaire disparaît du tableau et des compteurs — récupérable via le filtre 🗄 Archivées">🗄 Archiver</button><button class="btn danger" id="pm-del" style="margin-right:auto">Supprimer</button>`:""}
@@ -3104,6 +3114,36 @@ function pipeModal(p, etapeInit){
     if (cg && cg.support) back.querySelector("#pm-support").value = cg.support;
   });
   back.querySelector("#pm-proba").addEventListener("change", updPond);
+  const pmRendJ = ()=>{   /* v98 */
+    back.querySelector("#pm-journal").innerHTML = (p.journal||[]).slice().sort((a,b)=>String(b.q||"").localeCompare(String(a.q||""))).map((j,i)=>`
+      <div class="tl-item tl-note pm-jnote" data-i="${i}" title="Cliquer pour lire la note en entier"><span class="tl-ico">📝</span>
+        <div class="tl-body"><span>${esc(j.n)}</span>
+          <div class="tl-meta">${esc(j.a||"Équipe")} · ${j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"}):""}</div></div></div>`).join("")
+      || `<p class="small muted" style="margin:2px 0">aucune note pour l'instant</p>`;
+    const tries = (p.journal||[]).slice().sort((a,b)=>String(b.q||"").localeCompare(String(a.q||"")));
+    back.querySelectorAll(".pm-jnote").forEach(el=>el.addEventListener("click", ()=>{
+      const j = tries[+el.dataset.i];
+      if (j) noteViewer("Affaire — "+cliAff(back.querySelector("#pm-client").value||p.client), j.n, [(j.a||"Équipe"), (j.q? new Date(j.q).toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"}):"")].filter(Boolean).join(" · "));
+    }));
+  };
+  pmRendJ();
+  const pmAddNote = ()=>{   /* v98 : la note part tout de suite pour une affaire existante */
+    const el = back.querySelector("#pm-newnote"); const n = el.value.trim();
+    if (!n) return;
+    const entry = {q:new Date().toISOString(), n, a:monNom()};
+    const nj = [entry, ...(p.journal||[])];
+    p.journal = nj;
+    el.value = ""; pmRendJ();
+    if (p.id) (async ()=>{
+      try{
+        const frais = state.pipeline.find(x=>x.id===p.id) || p;
+        await state.db.savePipeline({...frais, journal:nj});
+        await state.db.loadAll();
+      }catch(err){ toast("Note non enregistrée : "+(err.message||err)); }
+    })();
+  };
+  back.querySelector("#pm-addnote").addEventListener("click", pmAddNote);
+  back.querySelector("#pm-newnote").addEventListener("keydown", e=>{ if (e.key==="Enter"){ e.preventDefault(); pmAddNote(); } });
   back.querySelector("#pm-cancel").addEventListener("click", ()=>back.remove());
   back.addEventListener("click", e=>{ if(e.target===back) back.remove(); });
   back.querySelector("#pm-del")?.addEventListener("click", ()=>{ back.remove(); loseModal(p); });
@@ -3136,6 +3176,7 @@ function pipeModal(p, etapeInit){
         priorite: back.querySelector("#pm-prio").value,
         prochaine_action: back.querySelector("#pm-action").value.trim(),
         signature_probable: back.querySelector("#pm-sig").checked,
+        journal: p.journal||[],   /* v98 */
         campagne_id: back.querySelector("#pm-camp")? (+back.querySelector("#pm-camp").value||null) : (p.campagne_id||null),
       });
       const opData = {
