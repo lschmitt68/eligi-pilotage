@@ -3057,8 +3057,10 @@ function pipeModal(p, etapeInit){
   p.journal = p.journal || [];   /* v98 */
   const back = document.createElement("div");
   back.className = "modal-back";
-  back.innerHTML = `<div class="modal">
+  back.innerHTML = `<div class="modal" style="width:1020px;max-width:96vw">
     <h3>${isNew? "Nouvelle affaire" : "Modifier l'affaire"}${isNew? "" : creeLe(p)}</h3>
+    <div style="display:flex;gap:16px;flex-wrap:wrap;align-items:stretch">
+    <div style="flex:1.35;min-width:400px">
     <div class="form-grid">
       ${voitTout()? `<label class="fld"><span>Conseiller</span><select id="pm-cons">
         ${activeConseillers().map(c=>`<option value="${c.id}" ${c.id===p.conseiller_id?"selected":""}>${esc(c.nom)}</option>`).join("")}</select></label>`
@@ -3082,10 +3084,13 @@ function pipeModal(p, etapeInit){
       <label class="fld full"><span><input type="checkbox" id="pm-sig" ${p.signature_probable?"checked":""} style="width:auto;margin-right:8px">Signature probable cette semaine</span></label>
       <div class="dup-warn" id="pm-dup" style="display:none"></div>
     </div>
-    <div style="margin-top:10px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:10px 12px">
-      <h3 class="mt0" style="font-size:14px">💬 Journal de l'affaire <span class="small muted" style="font-weight:400">— repris automatiquement par le back-office / la mission à la signature</span></h3>
-      <div class="inline-controls" style="gap:6px;margin-bottom:8px"><input type="text" id="pm-newnote" placeholder="Écrire une note… (contexte client, échanges, points d'attention)" style="flex:1"><button class="btn secondary small" id="pm-addnote" title="La note est datée et signée — elle suivra l'affaire jusqu'au back-office">Noter</button></div>
-      <div class="tl" id="pm-journal" style="max-height:210px;overflow-y:auto"></div>
+    </div>
+    <div style="flex:1;min-width:310px;background:var(--surface-2);border:1px solid var(--border);border-radius:12px;padding:12px 14px;display:flex;flex-direction:column;max-height:560px">
+      <h3 class="mt0" style="font-size:14px">💬 Journal de l'affaire</h3>
+      <p class="small muted" style="margin:0 0 8px">Repris automatiquement par le back-office / la mission à la signature.</p>
+      <div class="inline-controls" style="gap:6px;margin-bottom:8px"><input type="text" id="pm-newnote" placeholder="Écrire une note… (contexte, échanges, points d'attention)" style="flex:1"><button class="btn secondary small" id="pm-addnote" title="La note est datée et signée — elle suivra l'affaire jusqu'au back-office">Noter</button></div>
+      <div class="tl" id="pm-journal" style="flex:1;overflow-y:auto;min-height:120px;max-height:none"></div>
+    </div>
     </div>
     <div class="modal-actions">
       ${!isNew? `<button class="btn secondary" id="pm-archiver" title="L'affaire disparaît du tableau et des compteurs — récupérable via le filtre 🗄 Archivées">🗄 Archiver</button><button class="btn danger" id="pm-del" style="margin-right:auto">Supprimer</button>`:""}
