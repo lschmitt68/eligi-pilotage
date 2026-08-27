@@ -7261,32 +7261,13 @@ function viewBackoffice(root){
       const st = col.dataset.bost;
       if (!o || o.statut===st) return;
       try{
-        await state.db.saveOperation({...o, statut:st, journal: statutJournal(o.journal, o.statut, st)});   /* v92 */
-        await boNotifierTermine(o, {...o, statut:st});
+        await state.db.saveOperation({...o, statut:st, journal: statutJournal(o.journal, o.statut, st)});   /* v92 · v99.3 : le fil « Du nouveau » remplace la notification-action */
         await state.db.loadAll(); toast(`${o.titre} → ${st} ✓`); render();
       }catch(err){ toast("Erreur : "+(err.message||err)); }
     });
   });
 }
-async function boNotifierTermine(oAvant, oApres){ /* v60 : prévenir le commercial à la clôture */
-  try{
-    if (oApres.statut !== "Terminé" || (oAvant && oAvant.statut === "Terminé")) return;
-    const cid = oApres.conseiller_id;
-    if (!cid || cid === state.profile?.conseiller_id) return;   /* pas de notification à soi-même */
-    const texte = `✅ Back-office terminé : ${oApres.titre}${oApres.client_key? " — " + nomAffiche(oApres.client_key, oApres.client_key) : ""}`;
-    if (state.actions.some(a=>!a.fait && a.conseiller_id===cid && a.texte===texte)) return;   /* déjà signalé */
-    const enCours = (boNotifierTermine._lock = boNotifierTermine._lock || new Set());   /* v99.2 : anti-course */
-    if (enCours.has(texte)) return;
-    enCours.add(texte); setTimeout(()=>enCours.delete(texte), 20000);
-    if (state.db.c){   /* v99.2 : vérification en base — l'état en mémoire peut être en retard */
-      const ex = await state.db.c.from("actions").select("id").eq("conseiller_id", cid).eq("texte", texte).eq("fait", false).limit(1);
-      if (!ex.error && (ex.data||[]).length) return;
-    }
-    await state.db.saveAction({conseiller_id:cid, texte, echeance:new Date().toISOString().slice(0,10),
-      fait:false, client_key:oApres.client_key||null});
-    toast(`📣 ${consName(cid)} sera prévenu(e) sur son Aujourd'hui`);
-  }catch(e){ /* la notification ne doit jamais bloquer la clôture */ }
-}
+/* v99.3 : boNotifierTermine supprimée — le passage en Terminé est visible dans le fil « 🛰 Du nouveau sur tes dossiers » (v92), cliquable et daté. */
 function boResoudreClient(txt){
   const t = normName(txt);
   if (!t) return "";
@@ -7482,8 +7463,7 @@ function boModal(o, statutInitial, clientKey){
         const {_clientTxt, ...row} = o;
         const avant = creation? null : state.operations.find(x=>x.id===o.id);
         if (avant) row.journal = statutJournal(row.journal, avant.statut, row.statut);   /* v92 */
-        await state.db.saveOperation(row);
-        await boNotifierTermine(avant, row);
+        await state.db.saveOperation(row);   /* v99.3 : plus de notification-action — le fil « Du nouveau » informe le conseiller */
         await state.db.loadAll(); back.remove(); toast(creation? "Opération créée ✓" : "Opération enregistrée ✓"); render();
       }catch(err){ toast("Erreur : "+(err.message||err)); }
     });
