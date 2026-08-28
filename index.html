@@ -3674,6 +3674,7 @@ function viewJour(root){
   const noSaisie = mgr? activeConseillers().filter(c=>!isConge(c.id,cur) && !state.saisies.some(s=>s.conseiller_id===c.id && s.semaine===cur)) : [];
   const sansCx = sansContact().filter(x=>{ if (mgr) return true; const cc = clientConseillers(x.key); return !cc.length || cc.includes(meId); });
   const props = propoARelancer().sort((a,b)=>propoJours(b)-propoJours(a));
+  const ages = agesClesList(mgr? null : meId);   /* v101 */
   const aFact = mgr? missionsAFacturer() : [];   /* v54/v66 : la file 💶 est l'affaire du manager, de la facturation et de l'ingénierie — pas du conseiller */
   const enTrait = (!mgr && meId)? [                /* v66 : où en sont MES dossiers confiés au back-office / à l'ingénierie */
     ...state.operations.filter(o=>o.statut!=="Terminé" && o.conseiller_id===meId).map(o=>({t:"bo", r:o})),
@@ -3704,6 +3705,7 @@ function viewJour(root){
       (missTard.length + missSans.length)? {ico:"🧰", txt:`${missTard.length + missSans.length} mission(s) à suivre (échéance dépassée ou absente)`, sc:"#jr-missions"} : null,
       aFact.length? {ico:"💶", txt:`${aFact.length} mission(s) à facturer${(()=>{ const t = aFact.reduce((a,m)=>a+(+m.hono_devis||0),0); return t? " — "+eur(t)+" au devis" : ""; })()}`, sc:"#jr-afact"} : null,
       revues.length? {ico:"📆", txt:`${revues.length} revue(s) annuelle(s) à programmer`, sc:"#jr-revues"} : null,
+      ages.length? {ico:"🎂", txt:`${ages.length} client(s) approchent un âge clé (60 / 70 / 80 ans) dans les 6 mois`, sc:"#jr-ages"} : null,
       sansCx.length? {ico:"💤", txt:`${sansCx.length} client(s) sans contact depuis ≥ ${contactAlerteJ()} j`, sc:"#jr-sanscx"} : null,
       (mgr && (mj===null || mj>30))? {ico:"📈", txt:`Contexte macro ${mj===null? "jamais actualisé" : "actualisé il y a "+mj+" jours"} — un point par mois`, nav:"param"} : null,
       (mgr && !CFG.DEMO && (()=>{ const e = state.paramsCabinet?.export_le; return !e || (Date.now()-new Date(e).getTime()) > 30*86400000; })())?
@@ -3742,7 +3744,7 @@ function viewJour(root){
   </div>` : `
   <div class="sect sect-head"><h2>🔥 Affaires — priorités</h2><span class="sub">rien à relancer, aucun closing sous 14 jours, pas de signature en attente — affaires vivantes ✓</span></div>`}
 
-  ${(props.length || missTard.length || missSans.length || revues.length || sansCx.length || aFact.length || enTrait.length)? `
+  ${(props.length || missTard.length || missSans.length || revues.length || sansCx.length || aFact.length || enTrait.length || ages.length)? `
   <div class="sect sect-head"><h2>🗂 Relation & suivi</h2><span class="sub">propositions envoyées, dossiers en traitement, missions, revues annuelles, clients sans nouvelles</span></div>
   <div class="row">
     ${enTrait.length? `<div class="card grow" id="jr-encours">
@@ -3804,6 +3806,15 @@ function viewJour(root){
       ${sansCx.length>6? `<p class="small muted" style="margin-bottom:0">+ ${sansCx.length-6} autres — ouvre la vue Clients</p>`:""}
       <p class="small muted" style="margin-bottom:0">Un appel de courtoisie suffit souvent — pense à le noter dans la fiche pour lever l'alerte.</p>
     </div>`:""}
+    ${ages.length? `<div class="card grow" id="jr-ages">
+      <h3 class="mt0">🎂 Âges clés à venir <span class="small muted" style="font-weight:400">— 6 prochains mois</span></h3>
+      <div class="jr-wrap"><table class="tbl dense"><tbody>${ages.slice(0,6).map(x=>`<tr class="clickable jr-age" data-key="${esc(x.key)}" title="Ouvrir la fiche">
+        <td><b>${esc(x.nom)}</b></td>
+        <td class="small" style="white-space:nowrap"><b>${x.n} ans</b> le ${x.date.toLocaleDateString("fr-FR",{day:"numeric",month:"short",year:"numeric"})}</td>
+        <td class="small muted">${esc(x.enjeu)}</td></tr>`).join("")}</tbody></table></div>
+      ${ages.length>6? `<p class="small muted" style="margin-bottom:0">+ ${ages.length-6} autres</p>`:""}
+      <p class="small muted" style="margin-bottom:0">Chaque âge clé est une occasion de rendez-vous à forte valeur — à programmer avant la date.</p>
+    </div>`:""}
   </div>` : `
   <div class="sect sect-head"><h2>🗂 Relation & suivi</h2><span class="sub">propositions, missions, revues, contacts : tout est suivi ✓</span></div>`}`;
 
@@ -3833,7 +3844,7 @@ function viewJour(root){
     const p = state.pipeline.find(x=>x.id===+r.dataset.id);
     if (p) pipeModal(p);
   }));
-  root.querySelectorAll(".jr-rev, .jr-sc").forEach(r=>r.addEventListener("click", ()=>{
+  root.querySelectorAll(".jr-rev, .jr-sc, .jr-age").forEach(r=>r.addEventListener("click", ()=>{
     state._cliOpen = r.dataset.key; state._cliSearch = "";
     go("clients");
   }));
@@ -4038,6 +4049,30 @@ function liensPour(key){
   return out;
 }
 function confEtat(info){ const c = info?.conformite||{}; return {faits:CONF_ITEMS.filter(([k])=>c[k]).length, total:CONF_ITEMS.length}; }
+const AGES_CLES = [   /* v101 */
+  [60, "préparer la liquidation retraite — bilan, trimestres, stratégie"],
+  [70, "derniers versements assurance-vie au régime le plus favorable (avant 70 ans)"],
+  [80, "dons familiaux de sommes d'argent exonérés — à faire avant 80 ans"],
+];
+function agesClesList(meId){ /* v101 : clients qui approchent un âge charnière (6 mois) */
+  const out = [];
+  const now = Date.now(), horizon = now + 183*86400000;
+  for (const ci of state.clientsInfos){
+    if (ci.morale || (ci.statut||"Prospect")!=="Client" || !ci.date_naissance) continue;
+    if (meId){
+      const cc = clientConseillers(ci.client_key);
+      if (ci.conseiller_id!==meId && !(cc.length && cc.includes(meId)) && (cc.length || ci.conseiller_id)) continue;
+    }
+    const b = new Date(String(ci.date_naissance).slice(0,10)+"T12:00:00");
+    if (isNaN(b)) continue;
+    for (const [n, enjeu] of AGES_CLES){
+      const d = new Date(b); d.setFullYear(b.getFullYear()+n);
+      const t = d.getTime();
+      if (t >= now && t <= horizon) out.push({key:ci.client_key, nom:nomAffiche(ci.client_key, ci.nom||ci.client_key), n, date:d, enjeu});
+    }
+  }
+  return out.sort((a,b)=>a.date-b.date);
+}
 function clientConseillers(key){
   const ids = new Set();
   const ref = state.clientsInfos.find(ci=>ci.client_key===key)?.conseiller_id;
@@ -8401,6 +8436,13 @@ function viewParam(root){
     </div>
   </div>
 
+  <div class="sect sect-head"><h2>🧹 Hygiène des fiches</h2>
+    <span class="sub">doublons probables et fiches client sans conseiller référent — à nettoyer avec « Renommer / fusionner » et le champ Conseiller de la fiche</span></div>
+  <div class="card">
+    <button class="btn secondary" id="hyg-run">Analyser les fiches</button>
+    <div id="hyg-res" style="margin-top:8px"></div>
+  </div>
+
   <div class="sect sect-head"><h2>Clients dormants</h2>
     <span class="sub">après un gros import : passer en « Inactif » les fiches sans signe de vie depuis longtemps — elles sortent des alertes 💤 mais restent consultables</span></div>
   <div class="card" id="dorm-card">
@@ -8579,6 +8621,38 @@ function viewParam(root){
     try{ await state.db.saveProfile({email:email.trim().toLowerCase(), role:"conseiller", conseiller_id:null});
       await state.db.loadAll(); toast("Accès ajouté — pense à créer le compte dans Supabase"); render(); }
     catch(err){ toast("Erreur : "+(err.message||err)); }
+  });
+  $("#hyg-run")?.addEventListener("click", ()=>{   /* v101 : hygiène des fiches */
+    const fiches = state.clientsInfos.filter(ci=>(ci.statut||"")!=="Archivé");
+    const strip = s => normName(s).replace(/[^a-z0-9]/g,"");
+    const nomDe = ci => nomAffiche(ci.client_key, ci.nom||ci.client_key);
+    const arr = fiches.map(ci=>({ci, k:strip(nomDe(ci))})).filter(x=>x.k.length>=4);
+    const paires = []; const vus = new Set();
+    for (let i=0;i<arr.length;i++) for (let j=i+1;j<arr.length;j++){
+      const a = arr[i], b = arr[j];
+      const egal = a.k===b.k;
+      const incl = !egal && a.k.length>=6 && b.k.length>=6 && (a.k.includes(b.k) || b.k.includes(a.k));
+      if (!egal && !incl) continue;
+      const sig = [a.ci.client_key, b.ci.client_key].sort().join("|");
+      if (vus.has(sig)) continue; vus.add(sig);
+      paires.push({a:a.ci, b:b.ci, egal});
+    }
+    const sansCons = fiches.filter(ci=>(ci.statut||"")==="Client" && !ci.conseiller_id && !clientConseillers(ci.client_key).length);
+    const lien = ci => `<a href="#" class="hyg-open" data-key="${esc(ci.client_key)}"><b>${esc(nomDe(ci))}</b></a>`;
+    const res = $("#hyg-res");
+    res.innerHTML = `
+      <p class="small"><b>${paires.length}</b> paire(s) de doublons probables · <b>${sansCons.length}</b> fiche(s) client sans conseiller référent · ${fiches.length} fiches analysées</p>
+      ${paires.length? `<div class="tbl-scroll" style="max-height:280px"><table class="tbl dense"><thead><tr><th>Fiche A</th><th>Fiche B</th><th>Indice</th></tr></thead><tbody>
+        ${paires.slice(0,40).map(x=>`<tr><td>${lien(x.a)}</td><td>${lien(x.b)}</td><td class="small muted">${x.egal? "noms identiques (à l'orthographe près)" : "l'un contient l'autre"}</td></tr>`).join("")}
+      </tbody></table></div>${paires.length>40? `<p class="small muted">+ ${paires.length-40} autres paires</p>`:""}
+      <p class="small muted">Pour fusionner : ouvrir la fiche à supprimer → « Renommer / fusionner » vers la fiche à garder.</p>`:""}
+      ${sansCons.length? `<div class="tbl-scroll" style="max-height:220px;margin-top:6px"><table class="tbl dense"><tbody>
+        ${sansCons.slice(0,40).map(ci=>`<tr><td>${lien(ci)}</td><td class="small muted">client sans conseiller référent ni dossier rattaché</td></tr>`).join("")}
+      </tbody></table></div>${sansCons.length>40? `<p class="small muted">+ ${sansCons.length-40} autres</p>`:""}`:""}
+      ${(!paires.length && !sansCons.length)? `<p class="small">Rien à signaler — les fiches sont propres ✓</p>`:""}`;
+    res.querySelectorAll(".hyg-open").forEach(a=>a.addEventListener("click", e=>{
+      e.preventDefault(); state._cliOpen = a.dataset.key; state._cliSearch = ""; go("clients");
+    }));
   });
   $("#bkp-json")?.addEventListener("click", backupJSON);
   $("#bkp-xlsx")?.addEventListener("click", backupXLSX);
