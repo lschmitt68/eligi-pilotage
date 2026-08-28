@@ -4504,6 +4504,12 @@ function viewClients(root){
               const caSig = sig.reduce((a,x)=>a+(+x.ca_potentiel||0),0);
               if (!mis.length && !sig.length) return "";
               return `<div class="ci-stats" title="Honoraires des missions de conseil (encaissés / facturés) et CA des affaires signées — archives comprises">💶 Missions : <b>${eur(enc)}</b> encaissés${fac>enc? ` <span class="muted">/ ${eur(fac)} facturés</span>`:""} (${mis.length}) · Affaires signées : <b>${sig.length}</b> pour <b>${eur(caSig)}</b> de CA</div>`; })()}
+            ${(()=>{ const dets = g.info.detentions||[];   /* v102.1 : supports détenus, visibles et modifiables */
+              const libres = SUPPORTS.filter(s=>s!=="Autre" && !dets.includes(s));
+              return `<div class="ci-stats" style="display:flex;align-items:center;gap:6px;flex-wrap:wrap" title="Supports détenus par le client — nourrit le ciblage des campagnes (« a déjà souscrit »). Alimenté par l'import O2S du Paramétrage ou à la main ici.">🎯 Détient :
+                ${dets.length? dets.map(d=>`<span class="tag">${esc(d)} <a href="#" class="ci-det-del" data-key="${esc(g.key)}" data-d="${esc(d)}" title="Retirer cette détention">✕</a></span>`).join(" ") : `<span class="muted">rien de renseigné</span>`}
+                ${libres.length? `<select class="ci-det-sel" style="width:auto;padding:3px 6px;font-size:12px">${libres.map(s=>`<option>${s}</option>`).join("")}</select>
+                <button class="btn secondary small ci-det-add" data-key="${esc(g.key)}" title="Ajouter cette détention à la fiche">＋</button>`:""}</div>`; })()}
             ${(()=>{ const rows = [...g.rows].sort((a,b)=>pondere(b)-pondere(a));
               return `<div class="tl-subhead" style="display:flex;justify-content:space-between;align-items:center">🧭 Affaires (${rows.length})
                 <button class="btn secondary small cli-op-add" data-nom="${esc(g.name)}">＋ Affaire</button></div>` +
@@ -4924,6 +4930,26 @@ function viewClients(root){
       });
       await state.db.loadAll(); toast("Fiche client enregistrée ✓"); viewClients(root);
     }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  root.querySelectorAll(".ci-det-del").forEach(a=>a.addEventListener("click", async e=>{   /* v102.1 */
+    e.preventDefault(); e.stopPropagation();
+    const ci = state.clientsInfos.find(x=>x.client_key===a.dataset.key); if (!ci) return;
+    try{
+      await state.db.saveClientInfo({client_key:ci.client_key, statut:ci.statut||"Prospect", origine:ci.origine||"", notes:ci.notes||"",
+        detentions:(ci.detentions||[]).filter(d=>d!==a.dataset.d)});
+      await state.db.loadAll(); toast(`Détention « ${a.dataset.d} » retirée`); viewClients(root);
+    }catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+  root.querySelectorAll(".ci-det-add").forEach(b=>b.addEventListener("click", async e=>{   /* v102.1 */
+    e.stopPropagation();
+    const ci = state.clientsInfos.find(x=>x.client_key===b.dataset.key); if (!ci) return;
+    const sel = b.closest(".ci-stats")?.querySelector(".ci-det-sel"); if (!sel) return;
+    if (b.disabled) return; b.disabled = true;
+    try{
+      await state.db.saveClientInfo({client_key:ci.client_key, statut:ci.statut||"Prospect", origine:ci.origine||"", notes:ci.notes||"",
+        detentions:[...new Set([...(ci.detentions||[]), sel.value])]});
+      await state.db.loadAll(); toast(`Détention « ${sel.value} » ajoutée ✓`); viewClients(root);
+    }catch(err){ b.disabled = false; toast("Erreur : "+(err.message||err)); }
   }));
   root.querySelectorAll(".ci-revue-now").forEach(b=>b.addEventListener("click", async e=>{
     e.stopPropagation();
