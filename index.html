@@ -4545,7 +4545,8 @@ function viewClients(root){
   root.querySelectorAll(".th-sort").forEach(th=>th.addEventListener("click", ()=>{   /* v100.2 */
     const k = th.dataset.k;
     const cur = state._cliSort || {k:"disp", d:1};
-    state._cliSort = (cur.k===k)? {k, d:-cur.d} : {k, d:(k==="disp"||k==="statut"||k==="cons")? 1 : -1};
+    if (k==="disp") state._cliSort = {k:"disp", d:1};   /* v100.3 : « Client » = toujours retour à l'ordre alphabétique */
+    else state._cliSort = (cur.k===k)? {k, d:-cur.d} : {k, d:(k==="statut"||k==="cons")? 1 : -1};
     viewClients(root);
   }));
   $("#cli-back")?.addEventListener("click", ()=>{ state._cliOpen = null; viewClients(root); });
