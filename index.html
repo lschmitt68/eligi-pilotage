@@ -347,6 +347,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .mi-et .mi-etdel{margin-left:auto; border:0; background:none; color:var(--muted); cursor:pointer; font-size:11px; padding:2px 5px; border-radius:5px}
 .mi-et .mi-etdel:hover{color:var(--critical); background:var(--surface-2)}
 .et-grip{cursor:grab; color:var(--muted); font-size:13px; user-select:none; padding:0 3px; flex:none}
+.etmv{border:0; background:none; color:var(--muted); cursor:pointer; font-size:12px; padding:4px 6px; border-radius:6px; line-height:1; flex:none}
+.etmv:active{color:var(--text); background:var(--surface-2)}
 .et-drag{opacity:.45}
 .et-over{box-shadow:0 -2px 0 0 var(--s1) inset, 0 2px 0 0 var(--s1)}
 
@@ -1725,6 +1727,30 @@ function consColor(id){
   return MIX_COLORS[(idx>=0?idx:0) % MIX_COLORS.length];
 }
 /* Normalisation des noms de clients (anti-doublons) : minuscules, sans accents, espaces réduits */
+const TACTILE = (()=>{ try{ return matchMedia("(pointer: coarse)").matches; }catch(e){ return false; } })();   /* v100 */
+function boStatutDates(o){ /* v100 : passages de statut tracés dans le journal (⚙, depuis v92) */
+  return (o.journal||[]).filter(j=>j.sys && /^⚙ Statut :/.test(String(j.n||""))).sort((a,b)=>String(a.q||"").localeCompare(String(b.q||"")));
+}
+function boDelaisStats(){ /* v100 : délais du back-office */
+  const tous = [...state.operations, ...(state.operationsArch||[])];
+  const termines = [];
+  for (const o of tous){
+    if (o.statut!=="Terminé" || !o.created_at) continue;
+    const evs = boStatutDates(o).filter(e=>/→ Terminé$/.test(String(e.n||"")));
+    if (!evs.length) continue;   /* mesurable seulement si la clôture est tracée */
+    const fin = new Date(evs[evs.length-1].q).getTime(), deb = new Date(o.created_at).getTime();
+    if (fin>deb) termines.push({o, jours:(fin-deb)/86400000, fin});
+  }
+  const j28 = Date.now()-28*86400000;
+  const term28 = termines.filter(t=>t.fin>=j28);
+  const moy = arr => arr.length? arr.reduce((a,t)=>a+t.jours,0)/arr.length : null;
+  const stagn = state.operations.filter(o=>o.statut!=="Terminé").map(o=>{
+    const evs = boStatutDates(o);
+    const dep = evs.length? evs[evs.length-1].q : o.created_at;
+    return {o, jours: dep? (Date.now()-new Date(dep).getTime())/86400000 : null};
+  }).filter(x=>x.jours!==null).sort((a,b)=>b.jours-a.jours);
+  return {nMes:termines.length, moy:moy(termines), n28:term28.length, moy28:moy(term28), stagn};
+}
 function normName(s){
   return String(s||"").normalize("NFD").replace(/[\u0300-\u036f]/g,"").toLowerCase().trim().replace(/\s+/g," ");
 }
@@ -4323,6 +4349,13 @@ function viewClients(root){
               const nApp = ixAn.filter(i=>i.type==="Appel").length, nRdv = ixAn.filter(i=>i.type==="RDV").length;
               const dj = contactJours(g.key);
               return `<div class="ci-stats">📞 ${nApp} · 🤝 ${nRdv} · ${ixAn.length} échange(s) cette année${dj!==null? ` · dernier contact <b>${dj===0? "aujourd'hui" : "il y a "+dj+" j"}</b>`:""}</div>`; })()}
+            ${(()=>{ /* v100 : ce que représente ce client — honoraires et affaires signées, archives comprises */
+              const mis = [...state.missions, ...(state.missionsArch||[])].filter(mm=>mm.client_key===g.key || (mm.co_clients||[]).includes(g.key));
+              const enc = mis.reduce((a,m)=>a+(+m.hono_encaisse||0),0), fac = mis.reduce((a,m)=>a+(+m.hono_facture||0),0);
+              const sig = [...g.rows, ...(state.pipelineArch||[]).filter(x=>normName(x.client)===g.key)].filter(x=>(x.etape||"").toLowerCase()==="signé");
+              const caSig = sig.reduce((a,x)=>a+(+x.ca_potentiel||0),0);
+              if (!mis.length && !sig.length) return "";
+              return `<div class="ci-stats" title="Honoraires des missions de conseil (encaissés / facturés) et CA des affaires signées — archives comprises">💶 Missions : <b>${eur(enc)}</b> encaissés${fac>enc? ` <span class="muted">/ ${eur(fac)} facturés</span>`:""} (${mis.length}) · Affaires signées : <b>${sig.length}</b> pour <b>${eur(caSig)}</b> de CA</div>`; })()}
             ${(()=>{ const rows = [...g.rows].sort((a,b)=>pondere(b)-pondere(a));
               return `<div class="tl-subhead" style="display:flex;justify-content:space-between;align-items:center">🧭 Affaires (${rows.length})
                 <button class="btn secondary small cli-op-add" data-nom="${esc(g.name)}">＋ Affaire</button></div>` +
@@ -6887,7 +6920,7 @@ function missionModal(m, opts={}){
               head = `<div class="mi-etgrp">${g? "📋 "+esc(g) : "Autres étapes"}<span class="mi-etgn">${gr.filter(x=>x.done).length}/${gr.length}</span></div>`;
             }
             prev = g;
-            return head + `<label class="mi-et" draggable="true" data-ei="${i}" title="Glisser pour réordonner"><span class="et-grip">⠿</span><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span><button class="mi-etdel" data-ei="${i}" title="Retirer l'étape">✕</button></label>`;
+            return head + `<label class="mi-et" draggable="true" data-ei="${i}" title="Glisser pour réordonner"><span class="et-grip">⠿</span><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span>${TACTILE? `<button class="etmv mi-etmv" data-ei="${i}" data-d="-1" title="Monter">▲</button><button class="etmv mi-etmv" data-ei="${i}" data-d="1" title="Descendre">▼</button>`:""}<button class="mi-etdel" data-ei="${i}" title="Retirer l'étape">✕</button></label>`;
           }).join("");
         })() || `<div class="empty">Aucune étape — applique un modèle ou ajoute les tiennes</div>`}
       </div>
@@ -6949,6 +6982,15 @@ function missionModal(m, opts={}){
     }));
     back.querySelectorAll(".mi-etdel").forEach(b=>b.addEventListener("click", e=>{
       e.preventDefault(); readForm(); m.etapes.splice(+b.dataset.ei,1); renderModal();
+    }));
+    back.querySelectorAll(".mi-etmv").forEach(b=>b.addEventListener("click", e=>{   /* v100 : tactile */
+      e.preventDefault(); readForm();
+      const i = +b.dataset.ei, d = +b.dataset.d, j = i+d;
+      if (j<0 || j>=m.etapes.length) return;
+      const a = m.etapes[i], v = m.etapes[j];
+      if (String(a.g||"").trim()!==String(v.g||"").trim()) a.g = v.g;
+      else { m.etapes[i]=v; m.etapes[j]=a; }
+      renderModal();
     }));
     { /* v97 : glisser-déposer pour réordonner */
       let srcI = null;
@@ -7206,6 +7248,16 @@ function viewBackoffice(root){
     <span style="flex:1"></span>
     <div class="small muted" style="padding-bottom:8px"><b>${enCours}</b> opération(s) en cours${aRatt? ` · <b>${aRatt}</b> sans client rattaché`:""} · ${state.operations.length} au total</div>
   </div>
+  ${(isManager() || state.profile?.role==="suivi")? (()=>{ const S = boDelaisStats();   /* v100 */
+    const top = S.stagn.filter(x=>x.jours>=10).slice(0,5);
+    return `<div class="card sect" style="margin-bottom:12px;padding:11px 16px">
+      <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:baseline">
+        <b>⏱ Délais de traitement</b>
+        <span class="small">${S.nMes? `création → terminé : <b>${S.moy.toFixed(0)} j</b> en moyenne <span class="muted">(${S.nMes} carte(s) mesurée(s))</span>` : `<span class="muted">encore rien de mesurable — les passages de statut ne sont tracés que depuis fin août, les mesures arrivent avec les prochaines clôtures</span>`}</span>
+        ${S.n28? `<span class="small">4 dernières semaines : <b>${S.moy28.toFixed(0)} j</b> · ${S.n28} terminée(s)</span>`:""}
+      </div>
+      ${top.length? `<div class="small" style="margin-top:5px">💤 Immobiles depuis ≥ 10 j : ${top.map(x=>`<a href="#" class="bo-stagn" data-oid="${x.o.id}" title="Ouvrir la carte">${esc(x.o.titre.slice(0,32))}${x.o.client_key? " · "+esc(boClientDisp(x.o)):""}</a> <b>${Math.floor(x.jours)} j</b> en « ${esc(x.o.statut)} »`).join(" &nbsp;·&nbsp; ")}</div>`:""}
+    </div>`; })() : ""}
   <div class="kanban">${BO_STATUTS.map(st=>{
     const items = visibles.filter(o=>o.statut===st);
     return `<div class="kcol" data-bost="${esc(st)}"${boColStyle(st)}>
@@ -7224,6 +7276,11 @@ function viewBackoffice(root){
     </tr>`).join("")}</tbody></table></div>`:""}`;
 
   $("#bo-add").addEventListener("click", ()=>boModal(null));
+  root.querySelectorAll(".bo-stagn").forEach(a=>a.addEventListener("click", e=>{   /* v100 */
+    e.preventDefault();
+    const o = state.operations.find(x=>x.id===+a.dataset.oid);
+    if (o) boModal(o);
+  }));
   $("#bo-old").addEventListener("click", ()=>{ state._boOld = !state._boOld; render(); });
   $("#bo-arch-toggle")?.addEventListener("click", ()=>{ state._boArch = !state._boArch; render(); });
   root.querySelectorAll(".bo-arch-btn").forEach(b=>b.addEventListener("click", async e=>{
@@ -7326,7 +7383,7 @@ function boModal(o, statutInitial, clientKey){
                 head = `<div class="mi-etgrp">${g? "📋 "+esc(g) : "Autres étapes"}<span class="mi-etgn">${gr.filter(x=>x.done).length}/${gr.length}</span></div>`;
               }
               prev = g;
-              return head + `<div class="inline-controls bo-etrow" draggable="true" data-i="${i}" style="gap:6px;margin:2px 0" title="Glisser pour réordonner"><span class="et-grip">⠿</span><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span><button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`;
+              return head + `<div class="inline-controls bo-etrow" draggable="true" data-i="${i}" style="gap:6px;margin:2px 0" title="Glisser pour réordonner"><span class="et-grip">⠿</span><input type="checkbox" class="bo-et-done" data-i="${i}" ${e.done?"checked":""} style="width:auto"><span style="flex:1;${e.done?"text-decoration:line-through;color:var(--muted)":""}">${esc(e.t)}</span>${TACTILE? `<button class="etmv bo-etmv" data-i="${i}" data-d="-1" title="Monter">▲</button><button class="etmv bo-etmv" data-i="${i}" data-d="1" title="Descendre">▼</button>`:""}<button class="btn danger small bo-et-del" data-i="${i}">✕</button></div>`;
             }).join("");
           })() || `<p class="small muted" style="margin:2px 0">aucune étape</p>`}
           <div class="inline-controls" style="gap:6px;margin-top:4px"><input type="text" id="bo-newet" placeholder="nouvelle étape… (CNI, RIB, bulletin signé…)" style="flex:1"><button class="btn secondary small" id="bo-addet">Ajouter</button></div>
@@ -7419,6 +7476,15 @@ function boModal(o, statutInitial, clientKey){
     if (!creation) pjMount(back.querySelector("#pj-bo"), "op/"+o.id);   /* v71 */
     back.querySelectorAll(".bo-et-done").forEach(c=>c.addEventListener("change", ()=>{ lireForm(); o.etapes[+c.dataset.i].done = c.checked; rendre(); }));
     back.querySelectorAll(".bo-et-del").forEach(b=>b.addEventListener("click", ()=>{ lireForm(); o.etapes.splice(+b.dataset.i,1); rendre(); }));
+    back.querySelectorAll(".bo-etmv").forEach(b=>b.addEventListener("click", ()=>{   /* v100 : tactile */
+      lireForm();
+      const i = +b.dataset.i, d = +b.dataset.d, j = i+d;
+      if (j<0 || j>=o.etapes.length) return;
+      const a = o.etapes[i], v = o.etapes[j];
+      if (String(a.g||"").trim()!==String(v.g||"").trim()) a.g = v.g;
+      else { o.etapes[i]=v; o.etapes[j]=a; }
+      rendre();
+    }));
     { /* v97 : glisser-déposer pour réordonner */
       let srcI = null;
       const rowsBo = back.querySelectorAll(".bo-etrow");
