@@ -4245,7 +4245,20 @@ function viewClients(root){
   const fSt = state._cliStatut || "";
   if (fSt) list = list.filter(g=>(g.info.statut||"Prospect")===fSt);
   else list = list.filter(g=>(g.info.statut||"Prospect")!=="Archivé");   /* v51 : les archivés n'encombrent pas la liste */
-  list.sort((a,b)=>a.disp.localeCompare(b.disp, "fr", {sensitivity:"base"}));
+  const CSORT = state._cliSort || {k:"disp", d:1};   /* v100.2 : colonnes triables */
+  const csVal = g => CSORT.k==="statut"? (g.info.statut||"Prospect")
+    : CSORT.k==="cons"? ((g.cons[0]||g.info.conseiller_id)? consName(g.cons[0]||g.info.conseiller_id) : "")
+    : CSORT.k==="dossiers"? g.rows.length
+    : CSORT.k==="coll"? g.coll
+    : CSORT.k==="pond"? g.pond
+    : CSORT.k==="signe"? g.signe
+    : CSORT.k==="relance"? g.relance
+    : g.disp;
+  list.sort((a,b)=>{
+    const va = csVal(a), vb = csVal(b);
+    const c = (typeof va==="number")? va-vb : String(va).localeCompare(String(vb), "fr", {sensitivity:"base"});
+    return CSORT.d * c || a.disp.localeCompare(b.disp, "fr", {sensitivity:"base"});
+  });
   /* v39 : la fiche ouverte devient une pleine page ; sa chronologie n'est calculée que pour elle */
   const gOpen = state._cliOpen? tous.find(x=>x.key===state._cliOpen) : null;
   if (gOpen) gOpen.suivi = suiviClient(gOpen);
@@ -4506,8 +4519,8 @@ function viewClients(root){
     </div>
   </div>
   <div class="card tbl-scroll"><table class="tbl">
-    <thead><tr><th>Client</th><th>Statut</th><th>Conseiller(s)</th><th class="num">Dossiers</th>
-    <th class="num">Collecte pot.</th><th class="num">Pondéré</th><th class="num">Dont validé</th><th>À relancer</th></tr></thead>
+    <thead><tr>${(()=>{ const th = (k,l,num)=>`<th class="${num? "num ":""}th-sort" data-k="${k}" style="cursor:pointer;user-select:none" title="Cliquer pour trier${CSORT.k===k? " (cliquer encore pour inverser)":""}">${l}${CSORT.k===k? (CSORT.d>0? " ▲":" ▼"):""}</th>`;
+      return th("disp","Client")+th("statut","Statut")+th("cons","Conseiller(s)")+th("dossiers","Dossiers",1)+th("coll","Collecte pot.",1)+th("pond","Pondéré",1)+th("signe","Dont validé",1)+th("relance","À relancer"); })()}</tr></thead>
     <tbody>${list.map((g,i)=>`
       <tr class="clickable cli-row" data-key="${esc(g.key)}" title="Ouvrir la fiche client">
         <td>${g.info.morale? `<span title="Personne morale">🏢</span> `:""}<b>${esc(g.disp)}</b></td>
@@ -4529,6 +4542,12 @@ function viewClients(root){
   bindClients(root);
   function bindClients(root){
   $("#cli-new")?.addEventListener("click", ()=>clientModal(()=>viewClients(root)));
+  root.querySelectorAll(".th-sort").forEach(th=>th.addEventListener("click", ()=>{   /* v100.2 */
+    const k = th.dataset.k;
+    const cur = state._cliSort || {k:"disp", d:1};
+    state._cliSort = (cur.k===k)? {k, d:-cur.d} : {k, d:(k==="disp"||k==="statut"||k==="cons")? 1 : -1};
+    viewClients(root);
+  }));
   $("#cli-back")?.addEventListener("click", ()=>{ state._cliOpen = null; viewClients(root); });
   $("#cli-fav")?.addEventListener("click", e=>{
     gsToggleFav(e.currentTarget.dataset.key);
