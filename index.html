@@ -7248,7 +7248,7 @@ function viewBackoffice(root){
     <span style="flex:1"></span>
     <div class="small muted" style="padding-bottom:8px"><b>${enCours}</b> opération(s) en cours${aRatt? ` · <b>${aRatt}</b> sans client rattaché`:""} · ${state.operations.length} au total</div>
   </div>
-  ${(isManager() || state.profile?.role==="suivi")? (()=>{ const S = boDelaisStats();   /* v100 */
+  ${isManager()? (()=>{ const S = boDelaisStats();   /* v100 · v100.1 : managers uniquement */
     const top = S.stagn.filter(x=>x.jours>=10).slice(0,5);
     return `<div class="card sect" style="margin-bottom:12px;padding:11px 16px">
       <div style="display:flex;gap:22px;flex-wrap:wrap;align-items:baseline">
