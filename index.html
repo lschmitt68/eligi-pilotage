@@ -1156,6 +1156,7 @@ class SupaDB {
     if (info.conformite !== undefined) row.conformite = info.conformite || {};
     if (info.morale !== undefined) row.morale = !!info.morale;
     if (info.liens !== undefined) row.liens = info.liens || [];
+    if (info.detentions !== undefined) row.detentions = info.detentions || [];   /* v102 */
     if (info.encours !== undefined) row.encours = (info.encours ?? null);
     if (info.encours_maj !== undefined) row.encours_maj = info.encours_maj || null;
     const {error} = await this.c.from("clients_infos").upsert(row, {onConflict:"client_key"});
@@ -1466,6 +1467,7 @@ class DemoDB {
     if (info.date_naissance !== undefined) row.date_naissance = info.date_naissance || null;
     if (info.conseiller_id !== undefined) row.conseiller_id = info.conseiller_id || null;
     if (info.conformite !== undefined) row.conformite = info.conformite || {};
+    if (info.detentions !== undefined) row.detentions = info.detentions || [];   /* v102 */
     if (info.morale !== undefined) row.morale = !!info.morale;
     if (info.liens !== undefined) row.liens = info.liens || [];
     if (info.encours !== undefined) row.encours = (info.encours ?? null);
@@ -2648,6 +2650,45 @@ function campagneStats(camp, consId){
                     : activeConseillers().reduce((a,c)=>a+(+(camp.objectifs||{})[c.id]||0),0);
   return {signe, pond, obj, n:rows.length};
 }
+function campCibleDef(camp){ return (camp.objectifs||{})._cible || null; }   /* v102 */
+function clientDetient(ci, support){ /* v102 : détention importée (O2S) OU affaire signée sur ce support */
+  if ((ci.detentions||[]).includes(support)) return true;
+  const key = ci.client_key;
+  return [...state.pipeline, ...(state.pipelineArch||[])].some(p=>normName(p.client)===key && p.support===support && (p.etape||"").toLowerCase()==="signé");
+}
+function campCibleList(camp, meId){ /* v102 : clients dans la cible, sans affaire déjà créée sur la campagne */
+  const cible = campCibleDef(camp);
+  if (!cible) return [];
+  const dejas = new Set([...state.pipeline, ...(state.pipelineArch||[])].filter(p=>p.campagne_id===camp.id).map(p=>normName(p.client)));
+  const out = [];
+  for (const ci of state.clientsInfos){
+    const st = ci.statut||"Prospect";
+    if (st==="Archivé" || st==="Inactif" || ci.morale) continue;
+    if (cible.statut){ if (st!==cible.statut) continue; }
+    else if (!(st==="Client" || st==="Prospect")) continue;
+    if (cible.amin || cible.amax){
+      const a = ageDe(ci.date_naissance);
+      if (a===null) continue;
+      if (cible.amin && a < cible.amin) continue;
+      if (cible.amax && a > cible.amax) continue;
+    }
+    if (cible.support && !clientDetient(ci, cible.support)) continue;
+    if (dejas.has(ci.client_key)) continue;
+    if (meId){
+      const cc = clientConseillers(ci.client_key);
+      if (ci.conseiller_id!==meId && !(cc.length && cc.includes(meId)) && (cc.length || ci.conseiller_id)) continue;
+    }
+    out.push({ci, age:ageDe(ci.date_naissance)});
+  }
+  return out.sort((a,b)=>nomAffiche(a.ci.client_key, a.ci.nom||a.ci.client_key).localeCompare(nomAffiche(b.ci.client_key, b.ci.nom||b.ci.client_key), "fr"));
+}
+function campCibleTxt(cd){ /* v102 : résumé lisible de la cible */
+  return [
+    (cd.amin||cd.amax)? `${cd.amin||"…"}–${cd.amax||"…"} ans` : "",
+    cd.statut? cd.statut+"s" : "",
+    cd.support? `détient ${cd.support}` : "",
+  ].filter(Boolean).join(" · ");
+}
 function campagneCardHTML(camp, forCons){
   const j = campagneJoursRestants(camp);
   const badge = j<0? `<span class="badge neutral"><span class="dot"></span>terminée</span>`
@@ -2663,6 +2704,10 @@ function campagneCardHTML(camp, forCons){
         <button class="btn secondary small camp-docs" data-cid="${camp.id}" title="Brochure PDF, plaquette produit, présentation, exemples — visibles par toute l'équipe">📎 Documents</button>
         ${isManager()? `<button class="btn secondary small camp-edit" data-cid="${camp.id}">Modifier</button>`:""}</span></h3>
     <p class="small muted" style="margin:0 0 8px">Commercialisation jusqu'au <b>${new Date(String(camp.date_fin).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</b>${camp.description? ` — ${esc(camp.description)}`:""}</p>
+    ${(()=>{ const cd = campCibleDef(camp); if (!cd) return "";   /* v102 */
+      const rest = campCibleList(camp, null).length;
+      const naff = [...state.pipeline, ...(state.pipelineArch||[])].filter(p=>p.campagne_id===camp.id).length;
+      return `<p class="small" style="margin:0 0 8px">🎯 Cible : ${esc(campCibleTxt(cd))} — <b>${rest}</b> client(s) restant à contacter · <b>${naff}</b> affaire(s) créée(s)</p>`; })()}
     <div class="camp-files" data-cid="${camp.id}" style="display:none;flex-wrap:wrap;gap:6px;margin:0 0 8px"></div>
     <div class="jr-wrap"><table class="tbl dense">
       <thead><tr><th>Conseiller</th><th class="num">Objectif collecte</th><th class="num">Validé</th><th class="num">Pondéré</th><th style="min-width:90px"></th><th class="num">Atteint</th></tr></thead>
@@ -2762,6 +2807,17 @@ function campagneModal(camp){
       <label class="fld"><span>Début</span><input type="date" id="cg-debut" value="${camp.date_debut? String(camp.date_debut).slice(0,10):""}"></label>
       <label class="fld"><span>Fin de commercialisation</span><input type="date" id="cg-fin" value="${camp.date_fin? String(camp.date_fin).slice(0,10):""}"></label>
       <label class="fld full"><span>Description (taux, échéance, points clés…)</span><input type="text" id="cg-desc" value="${esc(camp.description||"")}"></label>
+      <div class="full"><span class="small" style="font-weight:700">🎯 Cible <span class="muted" style="font-weight:400">— optionnelle et cumulable : les clients correspondants seront suggérés aux conseillers sur leur journée pendant la campagne</span></span></div>
+      <label class="fld"><span>Âge minimum</span><input type="number" id="cg-amin" value="${(camp.objectifs._cible||{}).amin||""}" min="18" max="110" placeholder="—"></label>
+      <label class="fld"><span>Âge maximum</span><input type="number" id="cg-amax" value="${(camp.objectifs._cible||{}).amax||""}" min="18" max="110" placeholder="—"></label>
+      <label class="fld"><span>Statut</span><select id="cg-cstatut">
+        <option value="">Clients + prospects</option>
+        <option value="Client" ${(camp.objectifs._cible||{}).statut==="Client"?"selected":""}>Clients uniquement</option>
+        <option value="Prospect" ${(camp.objectifs._cible||{}).statut==="Prospect"?"selected":""}>Prospects uniquement</option></select></label>
+      <label class="fld"><span>A déjà souscrit <span class="small muted">(O2S + affaires signées)</span></span><select id="cg-cdet">
+        <option value="">— peu importe —</option>
+        ${SUPPORTS.map(s=>`<option ${s===(camp.objectifs._cible||{}).support?"selected":""}>${s}</option>`).join("")}</select></label>
+      <div class="full small" id="cg-cible-n" style="color:var(--s1)"></div>
     </div>
     <h3 style="margin:12px 0 6px">Objectifs de collecte par conseiller</h3>
     <table class="tbl dense"><tbody>
@@ -2784,6 +2840,21 @@ function campagneModal(camp){
     try{ await state.db.deleteCampagne(camp.id); back.remove(); await state.db.loadAll(); toast("Campagne supprimée"); render(); }
     catch(err){ toast("Erreur : "+(err.message||err)); }
   });
+  const cgCible = ()=>{   /* v102 : la cible lue depuis le formulaire */
+    const amin = +back.querySelector("#cg-amin").value||0, amax = +back.querySelector("#cg-amax").value||0;
+    const statut = back.querySelector("#cg-cstatut").value, support = back.querySelector("#cg-cdet").value;
+    if (!amin && !amax && !statut && !support) return null;
+    return {amin:amin||null, amax:amax||null, statut:statut||null, support:support||null};
+  };
+  const cgMajN = ()=>{
+    const cible = cgCible();
+    const el = back.querySelector("#cg-cible-n");
+    if (!cible){ el.textContent = ""; return; }
+    const n = campCibleList({id:camp.id||-1, objectifs:{_cible:cible}}, null).length;
+    el.innerHTML = `<b>${n}</b> client(s) dans la cible aujourd'hui${(cible.amin||cible.amax)? " (les fiches sans date de naissance ne comptent pas)":""}`;
+  };
+  ["cg-amin","cg-amax","cg-cstatut","cg-cdet"].forEach(id=>{ const el = back.querySelector("#"+id); el.addEventListener("input", cgMajN); el.addEventListener("change", cgMajN); });
+  cgMajN();
   back.querySelector("#cg-save").addEventListener("click", async ()=>{
     const nom = back.querySelector("#cg-nom").value.trim();
     const fin = back.querySelector("#cg-fin").value;
@@ -2791,6 +2862,7 @@ function campagneModal(camp){
     if (!fin){ toast("Indique la date de fin de commercialisation"); return; }
     const objectifs = {};
     back.querySelectorAll(".cg-obj").forEach(inp=>{ const v = +inp.value||0; if (v>0) objectifs[inp.dataset.cid] = v; });
+    const cible = cgCible(); if (cible) objectifs._cible = cible;   /* v102 */
     try{
       await state.db.saveCampagne({id:camp.id, nom, support:back.querySelector("#cg-support").value,
         date_debut:back.querySelector("#cg-debut").value||null, date_fin:fin,
@@ -3081,7 +3153,7 @@ function loseModal(p){
   });
 }
 function pipeModal(p, etapeInit){
-  const isNew = !p;
+  const isNew = !p || !p.id;   /* v102 : un brouillon pré-rempli (sans id) reste une création */
   p = p || {conseiller_id: voitTout()? activeConseillers()[0]?.id : state.profile.conseiller_id,
             client:"", support:"SCPI", etape:etapeInit||"Prise de contact", collecte_potentielle:0, ca_potentiel:0,
             probabilite:0.5, closing_prevu:null, priorite:"Moyenne", prochaine_action:"", signature_probable:false, journal:[], description:""};
@@ -3675,6 +3747,8 @@ function viewJour(root){
   const sansCx = sansContact().filter(x=>{ if (mgr) return true; const cc = clientConseillers(x.key); return !cc.length || cc.includes(meId); });
   const props = propoARelancer().sort((a,b)=>propoJours(b)-propoJours(a));
   const ages = agesClesList(mgr? null : meId);   /* v101 */
+  const campSugs = campagnesActives().map(cg=>({cg, l:campCibleList(cg, mgr? null : meId)})).filter(x=>x.l.length);   /* v102 */
+  const nSugs = campSugs.reduce((a,x)=>a+x.l.length,0);
   const aFact = mgr? missionsAFacturer() : [];   /* v54/v66 : la file 💶 est l'affaire du manager, de la facturation et de l'ingénierie — pas du conseiller */
   const enTrait = (!mgr && meId)? [                /* v66 : où en sont MES dossiers confiés au back-office / à l'ingénierie */
     ...state.operations.filter(o=>o.statut!=="Terminé" && o.conseiller_id===meId).map(o=>({t:"bo", r:o})),
@@ -3706,6 +3780,7 @@ function viewJour(root){
       aFact.length? {ico:"💶", txt:`${aFact.length} mission(s) à facturer${(()=>{ const t = aFact.reduce((a,m)=>a+(+m.hono_devis||0),0); return t? " — "+eur(t)+" au devis" : ""; })()}`, sc:"#jr-afact"} : null,
       revues.length? {ico:"📆", txt:`${revues.length} revue(s) annuelle(s) à programmer`, sc:"#jr-revues"} : null,
       ages.length? {ico:"🎂", txt:`${ages.length} client(s) approchent un âge clé (60 / 70 / 80 ans) dans les 6 mois`, sc:"#jr-ages"} : null,
+      nSugs? {ico:"🎯", txt:`${nSugs} client(s) à contacter pour les campagnes en cours`, sc:"#jr-camp"} : null,
       sansCx.length? {ico:"💤", txt:`${sansCx.length} client(s) sans contact depuis ≥ ${contactAlerteJ()} j`, sc:"#jr-sanscx"} : null,
       (mgr && (mj===null || mj>30))? {ico:"📈", txt:`Contexte macro ${mj===null? "jamais actualisé" : "actualisé il y a "+mj+" jours"} — un point par mois`, nav:"param"} : null,
       (mgr && !CFG.DEMO && (()=>{ const e = state.paramsCabinet?.export_le; return !e || (Date.now()-new Date(e).getTime()) > 30*86400000; })())?
@@ -3744,7 +3819,7 @@ function viewJour(root){
   </div>` : `
   <div class="sect sect-head"><h2>🔥 Affaires — priorités</h2><span class="sub">rien à relancer, aucun closing sous 14 jours, pas de signature en attente — affaires vivantes ✓</span></div>`}
 
-  ${(props.length || missTard.length || missSans.length || revues.length || sansCx.length || aFact.length || enTrait.length || ages.length)? `
+  ${(props.length || missTard.length || missSans.length || revues.length || sansCx.length || aFact.length || enTrait.length || ages.length || nSugs)? `
   <div class="sect sect-head"><h2>🗂 Relation & suivi</h2><span class="sub">propositions envoyées, dossiers en traitement, missions, revues annuelles, clients sans nouvelles</span></div>
   <div class="row">
     ${enTrait.length? `<div class="card grow" id="jr-encours">
@@ -3806,6 +3881,18 @@ function viewJour(root){
       ${sansCx.length>6? `<p class="small muted" style="margin-bottom:0">+ ${sansCx.length-6} autres — ouvre la vue Clients</p>`:""}
       <p class="small muted" style="margin-bottom:0">Un appel de courtoisie suffit souvent — pense à le noter dans la fiche pour lever l'alerte.</p>
     </div>`:""}
+    ${nSugs? `<div class="card grow" id="jr-camp" style="border-left:4px solid var(--s1)">
+      <h3 class="mt0">🎯 À proposer — campagnes en cours</h3>
+      ${campSugs.map(x=>`
+        <div class="tl-subhead" style="display:flex;justify-content:space-between;align-items:center">🚀 ${esc(x.cg.nom)} <span class="small muted">${esc(campCibleTxt(campCibleDef(x.cg)))} · ${x.l.length} client(s)</span></div>
+        <div class="jr-wrap"><table class="tbl dense"><tbody>${x.l.slice(0,6).map(y=>`
+          <tr><td class="clickable jr-camp-cli" data-key="${esc(y.ci.client_key)}" title="Ouvrir la fiche"><b>${esc(nomAffiche(y.ci.client_key, y.ci.nom||y.ci.client_key))}</b></td>
+          <td class="small muted" style="white-space:nowrap">${y.age!==null? y.age+" ans":""}</td>
+          <td class="num"><button class="btn secondary small jr-camp-aff" data-key="${esc(y.ci.client_key)}" data-cid="${x.cg.id}" title="Créer l'affaire pré-remplie (client, support, campagne) — il ne reste que les montants">＋ Affaire</button></td></tr>`).join("")}
+        </tbody></table></div>
+        ${x.l.length>6? `<p class="small muted">+ ${x.l.length-6} autres dans la cible</p>`:""}`).join("")}
+      <p class="small muted" style="margin-bottom:0">Un client sort de la liste dès qu'une affaire de la campagne existe pour lui.</p>
+    </div>`:""}
     ${ages.length? `<div class="card grow" id="jr-ages">
       <h3 class="mt0">🎂 Âges clés à venir <span class="small muted" style="font-weight:400">— 6 prochains mois</span></h3>
       <div class="jr-wrap"><table class="tbl dense"><tbody>${ages.slice(0,6).map(x=>`<tr class="clickable jr-age" data-key="${esc(x.key)}" title="Ouvrir la fiche">
@@ -3843,6 +3930,19 @@ function viewJour(root){
   root.querySelectorAll(".jr-op").forEach(r=>r.addEventListener("click", ()=>{
     const p = state.pipeline.find(x=>x.id===+r.dataset.id);
     if (p) pipeModal(p);
+  }));
+  root.querySelectorAll(".jr-camp-cli").forEach(r=>r.addEventListener("click", ()=>{   /* v102 */
+    state._cliOpen = r.dataset.key; state._cliSearch = ""; go("clients");
+  }));
+  root.querySelectorAll(".jr-camp-aff").forEach(b=>b.addEventListener("click", e=>{
+    e.stopPropagation();
+    const cg = state.campagnes.find(c=>c.id===+b.dataset.cid);
+    const ci = state.clientsInfos.find(c=>c.client_key===b.dataset.key);
+    if (!cg || !ci) return;
+    pipeModal({conseiller_id: (!mgr && meId)? meId : (ci.conseiller_id || clientConseillers(ci.client_key)[0] || state.profile.conseiller_id || activeConseillers()[0]?.id),
+      client: (ci.nom||ci.client_key), support: cg.support, etape:"Prise de contact",
+      collecte_potentielle:0, ca_potentiel:0, probabilite:0.5, closing_prevu: cg.date_fin? String(cg.date_fin).slice(0,10) : null,
+      priorite:"Moyenne", prochaine_action:"Proposer "+cg.nom, signature_probable:false, journal:[], description:"", campagne_id:cg.id});
   }));
   root.querySelectorAll(".jr-rev, .jr-sc, .jr-age").forEach(r=>r.addEventListener("click", ()=>{
     state._cliOpen = r.dataset.key; state._cliSearch = "";
@@ -8436,6 +8536,21 @@ function viewParam(root){
     </div>
   </div>
 
+  <div class="sect sect-head"><h2>🎯 Détentions par support</h2>
+    <span class="sub">qui détient quoi (source O2S) — alimente le critère « a déjà souscrit » du ciblage des campagnes</span></div>
+  <div class="card">
+    <p class="small muted" style="margin-top:0">Exportez d'O2S la liste des clients détenteurs d'un type de support, collez les noms ci-dessous (un par ligne, format NOM Prénom), choisissez le support, Importer. Rejouable sans doublon à chaque nouvel export.
+      ${(()=>{ const cnt = {}; for (const ci of state.clientsInfos) for (const d of (ci.detentions||[])) cnt[d] = (cnt[d]||0)+1;
+        const l = Object.entries(cnt).map(([s,n])=>`${esc(s)} : <b>${n}</b>`).join(" · ");
+        return l? `<br>Actuellement : ${l}.` : ""; })()}</p>
+    <div class="inline-controls" style="gap:8px;flex-wrap:wrap">
+      <label class="fld"><span>Support détenu</span><select id="det-support">${SUPPORTS.map(s=>`<option>${s}</option>`).join("")}</select></label>
+      <label class="fld" style="flex:1;min-width:280px"><span>Noms (un par ligne)</span><textarea id="det-noms" rows="3" placeholder="DUPONT Jean&#10;MARTIN Sophie&#10;…"></textarea></label>
+      <button class="btn secondary" id="det-imp" style="margin-bottom:8px">Importer</button>
+    </div>
+    <div id="det-res" class="small" style="margin-top:4px"></div>
+  </div>
+
   <div class="sect sect-head"><h2>🧹 Hygiène des fiches</h2>
     <span class="sub">doublons probables et fiches client sans conseiller référent — à nettoyer avec « Renommer / fusionner » et le champ Conseiller de la fiche</span></div>
   <div class="card">
@@ -8700,6 +8815,39 @@ function viewParam(root){
     }));
   };
   $("#hyg-run")?.addEventListener("click", hygAnalyse);
+  $("#det-imp")?.addEventListener("click", async ()=>{   /* v102 : import des détentions */
+    const b = $("#det-imp"); if (b.disabled) return;
+    const support = $("#det-support").value;
+    const noms = $("#det-noms").value.split("\n").map(x=>x.trim()).filter(Boolean);
+    if (!noms.length){ toast("Colle la liste des noms d'abord"); return; }
+    b.disabled = true;
+    const resoudre = nom => {
+      const k1 = normName(nom);
+      if (state.clientsInfos.some(c=>c.client_key===k1)) return k1;
+      const ci = state.clientsInfos.find(c=>normName(c.nom||"")===k1);
+      if (ci) return ci.client_key;
+      const toks = k1.split(" ").filter(t=>t.length>1);
+      const cand = state.clientsInfos.filter(c=>toks.every(t=>c.client_key.indexOf(t)>-1));
+      return cand.length===1? cand[0].client_key : null;
+    };
+    let maj = 0, deja = 0; const miss = [];
+    try{
+      for (const nom of noms){
+        const key = resoudre(nom);
+        if (!key){ miss.push(nom); continue; }
+        const ci = state.clientsInfos.find(c=>c.client_key===key);
+        if ((ci.detentions||[]).includes(support)){ deja++; continue; }
+        await state.db.saveClientInfo({client_key:key, statut:ci.statut||"Prospect", origine:ci.origine||"", notes:ci.notes||"",
+          detentions:[...(ci.detentions||[]), support]});
+        ci.detentions = [...(ci.detentions||[]), support];
+        maj++;
+      }
+      await state.db.loadAll();
+      $("#det-res").innerHTML = `<b>${maj}</b> fiche(s) marquée(s) « ${esc(support)} » · ${deja} déjà marquée(s) · ${miss.length} introuvable(s)${miss.length? " : "+miss.map(esc).join(", ") : ""}`;
+      toast("Détentions importées ✓");
+    }catch(err){ $("#det-res").textContent = "Erreur : "+(err.message||err); }
+    b.disabled = false;
+  });
   $("#bkp-json")?.addEventListener("click", backupJSON);
   $("#bkp-xlsx")?.addEventListener("click", backupXLSX);
   /* ---- v50 : reclassement des clients dormants ---- */
