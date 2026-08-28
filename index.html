@@ -8622,10 +8622,11 @@ function viewParam(root){
       await state.db.loadAll(); toast("Accès ajouté — pense à créer le compte dans Supabase"); render(); }
     catch(err){ toast("Erreur : "+(err.message||err)); }
   });
-  $("#hyg-run")?.addEventListener("click", ()=>{   /* v101 : hygiène des fiches */
+  const hygAnalyse = ()=>{   /* v101 : hygiène des fiches · v101.1 : corrections sur place */
     const fiches = state.clientsInfos.filter(ci=>(ci.statut||"")!=="Archivé");
     const strip = s => normName(s).replace(/[^a-z0-9]/g,"");
     const nomDe = ci => nomAffiche(ci.client_key, ci.nom||ci.client_key);
+    const ignores = new Set(state.paramsCabinet?.hyg_ignore || []);
     const arr = fiches.map(ci=>({ci, k:strip(nomDe(ci))})).filter(x=>x.k.length>=4);
     const paires = []; const vus = new Set();
     for (let i=0;i<arr.length;i++) for (let j=i+1;j<arr.length;j++){
@@ -8634,26 +8635,71 @@ function viewParam(root){
       const incl = !egal && a.k.length>=6 && b.k.length>=6 && (a.k.includes(b.k) || b.k.includes(a.k));
       if (!egal && !incl) continue;
       const sig = [a.ci.client_key, b.ci.client_key].sort().join("|");
-      if (vus.has(sig)) continue; vus.add(sig);
-      paires.push({a:a.ci, b:b.ci, egal});
+      if (vus.has(sig) || ignores.has(sig)) continue; vus.add(sig);
+      paires.push({a:a.ci, b:b.ci, egal, sig});
     }
     const sansCons = fiches.filter(ci=>(ci.statut||"")==="Client" && !ci.conseiller_id && !clientConseillers(ci.client_key).length);
     const lien = ci => `<a href="#" class="hyg-open" data-key="${esc(ci.client_key)}"><b>${esc(nomDe(ci))}</b></a>`;
+    const consOpts = activeConseillers().map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join("");
     const res = $("#hyg-res");
     res.innerHTML = `
-      <p class="small"><b>${paires.length}</b> paire(s) de doublons probables · <b>${sansCons.length}</b> fiche(s) client sans conseiller référent · ${fiches.length} fiches analysées</p>
-      ${paires.length? `<div class="tbl-scroll" style="max-height:280px"><table class="tbl dense"><thead><tr><th>Fiche A</th><th>Fiche B</th><th>Indice</th></tr></thead><tbody>
-        ${paires.slice(0,40).map(x=>`<tr><td>${lien(x.a)}</td><td>${lien(x.b)}</td><td class="small muted">${x.egal? "noms identiques (à l'orthographe près)" : "l'un contient l'autre"}</td></tr>`).join("")}
-      </tbody></table></div>${paires.length>40? `<p class="small muted">+ ${paires.length-40} autres paires</p>`:""}
-      <p class="small muted">Pour fusionner : ouvrir la fiche à supprimer → « Renommer / fusionner » vers la fiche à garder.</p>`:""}
-      ${sansCons.length? `<div class="tbl-scroll" style="max-height:220px;margin-top:6px"><table class="tbl dense"><tbody>
-        ${sansCons.slice(0,40).map(ci=>`<tr><td>${lien(ci)}</td><td class="small muted">client sans conseiller référent ni dossier rattaché</td></tr>`).join("")}
+      <p class="small"><b>${paires.length}</b> paire(s) de doublons probables · <b>${sansCons.length}</b> fiche(s) client sans conseiller référent · ${fiches.length} fiches analysées${ignores.size? ` · ${ignores.size} paire(s) écartée(s) comme « pas un doublon »`:""}</p>
+      ${paires.length? `<div class="tbl-scroll" style="max-height:320px"><table class="tbl dense"><thead><tr><th>Fiche A</th><th>Fiche B</th><th>Indice</th><th>Action</th></tr></thead><tbody>
+        ${paires.slice(0,40).map((x,i)=>`<tr>
+          <td>${lien(x.a)}</td><td>${lien(x.b)}</td>
+          <td class="small muted">${x.egal? "noms identiques (à l'orthographe près)" : "l'un contient l'autre"}</td>
+          <td style="white-space:nowrap">
+            <button class="btn secondary small hyg-fuse" data-garde="${esc(x.a.client_key)}" data-fond="${esc(x.b.client_key)}" title="Fusionner : tout l'historique de B bascule sur A, la fiche B disparaît">← Garder A</button>
+            <button class="btn secondary small hyg-fuse" data-garde="${esc(x.b.client_key)}" data-fond="${esc(x.a.client_key)}" title="Fusionner : tout l'historique de A bascule sur B, la fiche A disparaît">Garder B →</button>
+            <button class="btn secondary small hyg-ign" data-sig="${esc(x.sig)}" title="Ce ne sont pas les mêmes personnes — la paire ne sera plus signalée (mémorisé pour tout le cabinet)">✕ Pas un doublon</button>
+          </td></tr>`).join("")}
+      </tbody></table></div>${paires.length>40? `<p class="small muted">+ ${paires.length-40} autres paires — relancer l'analyse après nettoyage</p>`:""}`:""}
+      ${sansCons.length? `<div class="tbl-scroll" style="max-height:280px;margin-top:6px"><table class="tbl dense"><tbody>
+        ${sansCons.slice(0,40).map(ci=>`<tr><td>${lien(ci)}</td><td class="small muted">client sans conseiller référent ni dossier rattaché</td>
+          <td style="white-space:nowrap"><select class="hyg-cons" data-key="${esc(ci.client_key)}" style="width:auto;padding:4px 8px">${consOpts}</select>
+          <button class="btn secondary small hyg-attr" data-key="${esc(ci.client_key)}" title="Attribuer ce conseiller référent à la fiche">Valider</button></td></tr>`).join("")}
       </tbody></table></div>${sansCons.length>40? `<p class="small muted">+ ${sansCons.length-40} autres</p>`:""}`:""}
       ${(!paires.length && !sansCons.length)? `<p class="small">Rien à signaler — les fiches sont propres ✓</p>`:""}`;
     res.querySelectorAll(".hyg-open").forEach(a=>a.addEventListener("click", e=>{
       e.preventDefault(); state._cliOpen = a.dataset.key; state._cliSearch = ""; go("clients");
     }));
-  });
+    res.querySelectorAll(".hyg-fuse").forEach(b=>b.addEventListener("click", async ()=>{
+      const garde = fiches.find(ci=>ci.client_key===b.dataset.garde);
+      const fond = fiches.find(ci=>ci.client_key===b.dataset.fond);
+      if (!garde || !fond) return;
+      if (!confirm(`Fusionner « ${nomDe(fond)} » dans « ${nomDe(garde)} » ?\n\nTout l'historique (dossiers, échanges, missions, back-office) bascule sur « ${nomDe(garde)} », puis la fiche « ${nomDe(fond)} » disparaît.\n\nCette opération n'est pas réversible.`)) return;
+      if (b.disabled) return; b.disabled = true;
+      try{
+        await state.db.renameClient(fond.client_key, (garde.nom||garde.client_key));
+        await state.db.loadAll();
+        toast(`Fiches fusionnées — « ${nomDe(garde)} » conservée ✓`);
+        hygAnalyse();
+      }catch(err){ b.disabled = false; toast("Erreur : "+(err.message||err)); }
+    }));
+    res.querySelectorAll(".hyg-ign").forEach(b=>b.addEventListener("click", async ()=>{
+      if (b.disabled) return; b.disabled = true;
+      try{
+        const l = [...new Set([...(state.paramsCabinet?.hyg_ignore||[]), b.dataset.sig])];
+        await state.db.saveParamsCabinet({...state.paramsCabinet, hyg_ignore:l});
+        state.paramsCabinet = {...state.paramsCabinet, hyg_ignore:l};
+        toast("Paire écartée — elle ne sera plus signalée");
+        hygAnalyse();
+      }catch(err){ b.disabled = false; toast("Erreur : "+(err.message||err)); }
+    }));
+    res.querySelectorAll(".hyg-attr").forEach(b=>b.addEventListener("click", async ()=>{
+      const ci = fiches.find(x=>x.client_key===b.dataset.key);
+      const sel = res.querySelector(`.hyg-cons[data-key="${CSS.escape(b.dataset.key)}"]`);
+      if (!ci || !sel) return;
+      if (b.disabled) return; b.disabled = true;
+      try{
+        await state.db.saveClientInfo({client_key:ci.client_key, statut:ci.statut||"Client", origine:ci.origine||"", notes:ci.notes||"", conseiller_id:+sel.value});
+        await state.db.loadAll();
+        toast(`${consName(+sel.value)} attribué(e) à « ${nomDe(ci)} » ✓`);
+        hygAnalyse();
+      }catch(err){ b.disabled = false; toast("Erreur : "+(err.message||err)); }
+    }));
+  };
+  $("#hyg-run")?.addEventListener("click", hygAnalyse);
   $("#bkp-json")?.addEventListener("click", backupJSON);
   $("#bkp-xlsx")?.addEventListener("click", backupXLSX);
   /* ---- v50 : reclassement des clients dormants ---- */
