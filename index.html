@@ -9724,8 +9724,8 @@ function render(){
   if (state.view==="jour"){   /* v81 : la carte 🔔 arrive sur toutes les variantes d'Aujourd'hui */
     const th = tagsCardHTML();
     if (th){
-      const anc = $("#view").querySelector(".tiles");
-      if (anc) anc.insertAdjacentHTML("afterend", th); else $("#view").insertAdjacentHTML("beforeend", th);
+      const anc = $("#view").querySelector(".vhead") || $("#view").querySelector(".tiles");   /* v103.2 : toujours en haut de page */
+      if (anc) anc.insertAdjacentHTML("afterend", th); else $("#view").insertAdjacentHTML("afterbegin", th);
       bindTags($("#view"));
     }
     const fh = filDossiersHTML();   /* v92 : le fil « du nouveau sur tes dossiers » */
