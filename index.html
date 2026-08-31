@@ -2281,7 +2281,8 @@ function meetStagesHTML(consId){
 function meetingMode(){
   const cons = activeConseillers();
   let slide = 0;
-  const total = cons.length + 4;   /* v65 : + Missions (Lina) + Back-office (Malay) */
+  const total = cons.length + 6 + (campagnesActives().length? 1:0);   /* v103 : + ouverture, campagnes, décisions */
+  const actionsAvant = new Set(state.actions.map(a=>a.id));   /* v103 : pour la diapo Décisions */   /* v65 : + Missions (Lina) + Back-office (Malay) */
   const back = document.createElement("div");
   back.className = "meeting";
 
@@ -2298,13 +2299,19 @@ function meetingMode(){
       ${tile("Collecte", eur(collEq))}
       ${tile("Projection", eur(projEq))}
       ${tile("RDV", fmtNum.format(rows.reduce((a,r)=>a+(r.w.rdv||0),0)))}
+      ${(()=>{ /* v103 : le fil rouge annuel */
+        const cus = cons.map(c=>cumul(c.id, state.week));
+        const anCA = cus.reduce((a,c)=>a+c.ca,0), anObj = cus.reduce((a,c)=>a+c.objCA,0);
+        const nSem = Math.max(1, cus[0]?.nSemaines||1), yTot = yearWeeks(curYear()).length || 52;
+        const objAn = cons.reduce((a,c)=>a+objForYear(c.id, curYear()).ca,0);
+        const projAn = anCA/nSem*yTot;
+        return tile("CA cumulé "+curYear(), eur(anCA), `objectif à date ${eur(anObj)}${anObj? " · "+fmtPct(anCA/anObj):""}`, anObj? anCA/anObj:0)
+          + tile("🏁 Projection fin d'année", eur(projAn), `au rythme actuel${objAn? ` · objectif annuel ${eur(objAn)} (${fmtPct(projAn/objAn)})`:""}`); })()}
     </div>
     <div class="row">
       <div class="card grow" style="min-width:min(460px,100%)"><h3 class="mt0">🏁 Course à l'objectif de la semaine</h3>${meetRaceHTML(rows)}</div>
       <div class="card grow" style="min-width:min(380px,100%)"><h3 class="mt0">Entonnoir équipe</h3>${meetStagesHTML(null)}</div>
     </div>
-    ${(()=>{ const cs = campagnesActives().sort((a,b)=>String(a.date_fin).localeCompare(String(b.date_fin)));
-      return cs.length? `<div class="row" style="margin-top:14px">${cs.map(c=>campagneCardHTML(c)).join("")}</div>` : ""; })()}
     <div class="card tbl-scroll" style="margin-top:14px"><table class="tbl">
       <thead><tr><th>Conseiller</th><th class="num">CA</th><th class="num">Collecte</th><th class="num">Affaires</th><th class="num">Projection</th><th>Statut</th></tr></thead>
       <tbody>${rows.map(r=>`<tr><td><span class="cdot" style="background:${consColor(r.c.id)}"></span><b>${esc(r.c.nom)}</b></td>
@@ -2332,7 +2339,7 @@ function meetingMode(){
       ${tile("RDV", `${fmtNum.format(w.rdv)} <span class="small muted">/ ${fmtNum.format(ow.rdv)}</span>`)}
       ${tile("Collecte", eur(w.collecte_totale))}
       ${tile("Projection", eur(proj))}
-      ${tile("CA cumulé", eur(cu.ca), `${cu.objCA?fmtPct(cu.ca/cu.objCA):"—"} de l'objectif`)}
+      ${tile("CA cumulé", eur(cu.ca), `${cu.objCA?fmtPct(cu.ca/cu.objCA):"—"} de l'objectif · proj. année ${eur(cu.nSemaines? cu.ca/cu.nSemaines*(yearWeeks(curYear()).length||52) : cu.ca)}`)}
     </div>
     ${comm? `<div class="card" style="margin-top:12px;border-left:4px solid var(--s1);padding:11px 16px">
       <b>💬 Son commentaire de la semaine :</b> <span style="white-space:pre-wrap">${esc(comm)}</span></div>`
@@ -2364,6 +2371,109 @@ function meetingMode(){
         <ol class="challenge"><li>Quels dossiers doivent signer cette semaine ?</li>
         <li>Quel blocage empêche la signature ?</li><li>Quelle action concrète d'ici la prochaine réunion ?</li></ol></div>
       ${actionsCardHTML(c.id, `Actions — ${esc(c.nom)}`)}
+    </div>`;
+  }
+  function slideOuverture(){ /* v103 : ce qui s'est réellement passé cette semaine */
+    const lundi = String(state.semaines.find(s=>s.code===state.week)?.lundi||"").slice(0,10);
+    const d0 = lundi? new Date(lundi+"T00:00:00").getTime() : Date.now()-7*86400000;
+    const d1 = d0 + 7*86400000;
+    const dansSem = e => { const t = new Date(e.quand||0).getTime(); return t>=d0 && t<d1; };
+    const tousP = [...state.pipeline, ...(state.pipelineArch||[])];
+    const pById = new Map(tousP.map(x=>[x.id, x]));
+    const sigs = [...new Map(state.pipeEvents.filter(e=>e.vers_etape==="Signé" && dansSem(e)).map(e=>[e.pipeline_id, e])).values()]
+      .map(e=>({e, p:pById.get(e.pipeline_id)})).filter(x=>x.p);
+    const caSig = sigs.reduce((a,x)=>a+(+x.p.ca_potentiel||0),0);
+    const collSig = sigs.reduce((a,x)=>a+(+x.p.collecte_potentielle||0),0);
+    const nouv = [...new Map(state.pipeEvents.filter(e=>!e.de_etape && dansSem(e)).map(e=>[e.pipeline_id, e])).values()]
+      .map(e=>pById.get(e.pipeline_id)).filter(Boolean);
+    const pondNouv = nouv.reduce((a,x)=>a+pondere(x),0);
+    const weeks = weeksUpTo(state.week).slice(-12);
+    const serie = weeks.map(w=>{
+      const rws = state.saisies.filter(s=>s.semaine===w).map(computed);
+      return {w, ca:rws.reduce((a,s)=>a+s.ca_total,0), obj:cons.reduce((a,c)=>a+objFor(c.id,w).ca,0)};
+    });
+    back._serie = {labels:serie.map(r=>r.w), series:[
+      {name:"CA équipe", color:"var(--s1)", values:serie.map(r=>r.ca)},
+      {name:"Objectif", color:"var(--s2)", values:serie.map(r=>r.obj), dashed:true},
+    ], height:230};
+    return `<h1>La semaine en un coup d'œil <span class="small muted" style="font-weight:500">· ${esc(weekDates(state.week))}</span></h1>
+    <div class="bigtiles tiles">
+      ${tile("✍ Signatures de la semaine", fmtNum.format(sigs.length), sigs.length? `${eur(caSig)} de CA · ${eur(collSig)} de collecte` : "aucune signature enregistrée")}
+      ${tile("🆕 Affaires créées", fmtNum.format(nouv.length), nouv.length? eur(pondNouv)+" en pondéré" : "aucune nouvelle affaire")}
+    </div>
+    <div class="row" style="margin-top:14px">
+      <div class="card grow" style="min-width:min(420px,100%)"><h3 class="mt0">✍ Qui a signé quoi</h3>
+        ${sigs.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${sigs.sort((a,b)=>(+b.p.ca_potentiel||0)-(+a.p.ca_potentiel||0)).map(x=>`<tr>
+          <td><span class="cdot" style="background:${consColor(x.p.conseiller_id)}"></span>${esc(consName(x.p.conseiller_id))}</td>
+          <td><b>${esc(cliAff(x.p.client))}</b></td><td class="small">${esc(x.p.support)}</td>
+          <td class="num"><b>${eur(x.p.ca_potentiel)}</b></td>
+          <td class="small muted">${new Date(x.e.quand).toLocaleDateString("fr-FR",{weekday:"short",day:"numeric"})}</td></tr>`).join("")}</tbody></table></div>
+        <p class="small muted" style="margin:6px 0 0">De quoi ouvrir la réunion — bravo à voix haute, ça coûte zéro et ça rapporte.</p>`
+        : `<div class="empty">Aucune signature cette semaine — la diapo Signatures dira ce qui est proche.</div>`}
+      </div>
+      <div class="card grow" style="min-width:min(380px,100%)"><h3 class="mt0">🆕 Nouvelles affaires de la semaine</h3>
+        ${nouv.length? `<div class="jr-wrap"><table class="tbl dense"><tbody>${nouv.sort((a,b)=>pondere(b)-pondere(a)).slice(0,7).map(x=>`<tr>
+          <td><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
+          <td><b>${esc(cliAff(x.client))}</b></td><td class="small">${esc(x.support)}</td>
+          <td class="num"><b>${eur(pondere(x))}</b></td></tr>`).join("")}</tbody></table></div>
+        ${nouv.length>7? `<p class="small muted" style="margin:6px 0 0">+ ${nouv.length-7} autre(s)</p>`:""}`
+        : `<div class="empty">Rien de nouveau au pipe — d'où viendra le CA du mois prochain ?</div>`}
+      </div>
+    </div>
+    <div class="card" style="margin-top:14px"><h3 class="mt0">📈 CA équipe — 12 dernières semaines</h3><div id="mt-chart"></div></div>`;
+  }
+  function slideCampagnes(){ /* v103 : le point commercial */
+    const cs = campagnesActives().sort((a,b)=>String(a.date_fin).localeCompare(String(b.date_fin)));
+    const recap = cs.map(c=>{
+      const rows = [...state.pipeline, ...(state.pipelineArch||[])].filter(x=>x.campagne_id===c.id);
+      const sig = rows.filter(x=>(x.etape||"").toLowerCase()==="signé");
+      return {c, n:rows.length, nSig:sig.length,
+        coll:sig.reduce((a,x)=>a+(+x.collecte_potentielle||0),0),
+        ca:sig.reduce((a,x)=>a+(+x.ca_potentiel||0),0),
+        rest:campCibleDef(c)? campCibleList(c, null).length : null};
+    });
+    return `<h1>🚀 Campagnes <span class="small muted" style="font-weight:500">· le point commercial</span></h1>
+    <div class="row" style="margin-top:14px">
+      <div class="card grow tbl-scroll" style="min-width:min(520px,100%)"><h3 class="mt0">Transformation</h3>
+        <table class="tbl"><thead><tr><th>Campagne</th><th>Fin</th><th class="num">🎯 Restant à contacter</th><th class="num">Affaires</th><th class="num">Signées</th><th class="num">Collecte signée</th><th class="num">CA</th></tr></thead>
+        <tbody>${recap.map(r=>`<tr><td><b>${esc(r.c.nom)}</b> <span class="tag">${esc(r.c.support)}</span></td>
+          <td class="small">${new Date(String(r.c.date_fin).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"})}</td>
+          <td class="num">${r.rest===null? '<span class="muted small">pas de cible</span>' : `<b>${r.rest}</b>`}</td>
+          <td class="num">${r.n}</td><td class="num"><b>${r.nSig}</b>${r.n? ` <span class="small muted">(${fmtPct(r.nSig/r.n)})</span>`:""}</td>
+          <td class="num">${eur(r.coll)}</td><td class="num"><b>${eur(r.ca)}</b></td></tr>`).join("")}</tbody></table>
+      </div>
+      <div class="card" style="width:320px;max-width:100%"><h3 class="mt0">Points à challenger</h3>
+        <ol class="challenge"><li>Qui n'a pas encore attaqué sa liste « 🎯 À proposer » ?</li>
+        <li>Combien de contacts prévus d'ici la prochaine réunion ?</li>
+        <li>Faut-il prolonger, relancer ou clore une campagne ?</li></ol></div>
+    </div>
+    <div class="row" style="margin-top:14px">${cs.map(c=>campagneCardHTML(c)).join("")}</div>`;
+  }
+  function slideDecisions(){ /* v103 : la réunion se conclut par des décisions */
+    const nouvelles = state.actions.filter(a=>!actionsAvant.has(a.id));
+    const today = new Date().toISOString().slice(0,10);
+    const retard = state.actions.filter(a=>!a.fait && a.echeance && a.echeance < today && actionsAvant.has(a.id))
+      .sort((a,b)=>String(a.echeance).localeCompare(String(b.echeance)));
+    const locked = isLocked(state.week);
+    const ligne = a => `<div class="action-item ${a.fait?"done":""}">
+      <span class="cdot" style="background:${consColor(a.conseiller_id)}"></span>
+      <span class="ac-text">${esc(a.texte)} <span class="muted small">(${esc(consName(a.conseiller_id))})</span></span>
+      <span class="ac-due ${!a.fait && a.echeance && a.echeance<today? "overdue":""}">${a.echeance? new Date(a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</span></div>`;
+    return `<h1>📋 Décisions de la réunion</h1>
+    <div class="row" style="margin-top:14px">
+      <div class="card grow" style="min-width:min(400px,100%)">
+        <h3 class="mt0">✅ Décidé pendant cette réunion</h3>
+        ${nouvelles.length? `<div>${nouvelles.map(ligne).join("")}</div>`
+          : `<div class="empty">Rien d'acté pour l'instant — les actions ajoutées sur les diapos conseillers apparaissent ici.</div>`}
+        ${retard.length? `<h3 style="margin-top:16px">⏰ En retard — à rediscuter</h3><div>${retard.slice(0,8).map(ligne).join("")}</div>
+          ${retard.length>8? `<p class="small muted" style="margin:6px 0 0">+ ${retard.length-8} autre(s)</p>`:""}`:""}
+      </div>
+      ${actionsCardHTML(null, "Toutes les actions de l'équipe")}
+      <div class="card" style="width:300px;max-width:100%"><h3 class="mt0">🔒 Clôture</h3>
+        ${locked? `<p class="small">✔ Semaine ${esc(state.week)} validée — saisies verrouillées.</p>`
+        : `<p class="small muted">Valider fige les saisies de la semaine ${esc(state.week)} — seul un manager pourra encore les modifier.</p>
+          <button class="btn" id="mt-lock" style="width:100%;justify-content:center">✔ Valider la semaine</button>`}
+        <p class="small muted" style="margin-bottom:0">Bonne réunion = chacun repart avec ses actions et ses cibles.</p></div>
     </div>`;
   }
   function slideSignatures(){
@@ -2469,11 +2579,9 @@ function meetingMode(){
     </div>`;
   }
   function renderSlide(){
-    const inner = slide===0? slideTeam()
-      : slide<=cons.length? slideCons(cons[slide-1])
-      : slide===cons.length+1? slideSignatures()
-      : slide===cons.length+2? slideMissions()
-      : slideBO();
+    const list = [slideOuverture, slideTeam, ...cons.map(c=>()=>slideCons(c)), slideSignatures,
+      ...(campagnesActives().length? [slideCampagnes]:[]), slideMissions, slideBO, slideDecisions];   /* v103 */
+    const inner = list[Math.min(slide, list.length-1)]();
     back.innerHTML = `<div class="meeting-top">
         <span class="mt-week">Réunion hebdo — ${esc(state.week)}</span>
         <button class="btn secondary meeting-close" id="mt-close">${ICONS.close} Quitter</button>
@@ -2485,6 +2593,14 @@ function meetingMode(){
         <button class="wk-btn" id="mt-next" ${slide===total-1?"disabled":""}>${ICONS.right}</button>
       </div>`;
     back.querySelector("#mt-close").addEventListener("click", closeMeeting);
+    const lc = back.querySelector("#mt-chart");   /* v103 */
+    if (lc && back._serie) lineChart(lc, back._serie);
+    back.querySelector("#mt-lock")?.addEventListener("click", async ()=>{   /* v103 */
+      const b = back.querySelector("#mt-lock"); if (b.disabled) return; b.disabled = true;
+      try{ await state.db.validerSemaine(state.week); await state.db.loadAll();
+        toast(`Semaine ${state.week} validée — saisies verrouillées 🔒`); renderSlide(); }
+      catch(err){ b.disabled = false; toast("Erreur : "+(err.message||err)); }
+    });
     bindActionsCards(back, renderSlide);
     back.querySelector("#mt-prev").addEventListener("click", ()=>{ if(slide>0){slide--; renderSlide();} });
     back.querySelector("#mt-next").addEventListener("click", ()=>{ if(slide<total-1){slide++; renderSlide();} });
