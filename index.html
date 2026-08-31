@@ -2817,6 +2817,7 @@ function campagneCardHTML(camp, forCons){
     <h3 class="mt0" style="display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap">
       <span>🚀 ${esc(camp.nom)} <span class="tag">${esc(camp.support)}</span></span>
       <span style="display:flex;gap:6px;align-items:center">${badge}
+        <button class="btn secondary small camp-cli" data-cid="${camp.id}" title="Qui a validé, qui est en cours, qui reste à contacter">👥 Clients</button>
         <button class="btn secondary small camp-docs" data-cid="${camp.id}" title="Brochure PDF, plaquette produit, présentation, exemples — visibles par toute l'équipe">📎 Documents</button>
         ${isManager()? `<button class="btn secondary small camp-edit" data-cid="${camp.id}">Modifier</button>`:""}</span></h3>
     <p class="small muted" style="margin:0 0 8px">Commercialisation jusqu'au <b>${new Date(String(camp.date_fin).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}</b>${camp.description? ` — ${esc(camp.description)}`:""}</p>
@@ -2894,6 +2895,57 @@ function campBindFiles(root){ /* v81.1/81.3 : un seul chip court (« 📄 Brochu
     }catch(e){ el.remove(); }
   });
 }
+function campClientsModal(camp){ /* v103.1 : où en sont les clients de la campagne */
+  const rows = [...state.pipeline, ...(state.pipelineArch||[])].filter(p=>p.campagne_id===camp.id);
+  const sig = rows.filter(p=>(p.etape||"").toLowerCase()==="signé").sort((a,b)=>(+b.ca_potentiel||0)-(+a.ca_potentiel||0));
+  const enCours = rows.filter(p=>(p.etape||"").toLowerCase()!=="signé").sort((a,b)=>pondere(b)-pondere(a));
+  const restants = campCibleDef(camp)? campCibleList(camp, null) : null;
+  const cliLink = (nom, key) => `<a href="#" class="cc-open" data-key="${esc(key)}"><b>${esc(nom)}</b></a>`;
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal" style="width:680px;max-height:86vh;overflow:auto">
+    <h3>👥 ${esc(camp.nom)} <span class="tag">${esc(camp.support)}</span> — où en sont les clients</h3>
+    <div class="tl-subhead">✓ Ont validé (${sig.length})${sig.length? ` — ${eur(sig.reduce((a,x)=>a+(+x.collecte_potentielle||0),0))} de collecte · ${eur(sig.reduce((a,x)=>a+(+x.ca_potentiel||0),0))} de CA`:""}</div>
+    ${sig.length? `<div class="tbl-scroll" style="max-height:240px"><table class="tbl dense"><tbody>${sig.map(x=>`<tr>
+      <td>${cliLink(cliAff(x.client), normName(x.client))}</td>
+      <td class="small"><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
+      <td class="num">${eur(x.collecte_potentielle)}</td><td class="num"><b>${eur(x.ca_potentiel)}</b></td>
+      <td class="small muted">${x.archive? "archivée":""}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="small muted" style="margin:4px 0">Personne n'a encore validé.</p>`}
+    <div class="tl-subhead" style="margin-top:12px">🔄 En cours (${enCours.length})</div>
+    ${enCours.length? `<div class="tbl-scroll" style="max-height:220px"><table class="tbl dense"><tbody>${enCours.map(x=>`<tr>
+      <td>${cliLink(cliAff(x.client), normName(x.client))}</td>
+      <td class="small"><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
+      <td class="small">${esc(x.etape)}</td>
+      <td class="num">${fmtPct(x.probabilite||0)} de ${eur(x.ca_potentiel)}</td>
+      <td class="small muted">${esc(String(x.prochaine_action||"").slice(0,28))}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="small muted" style="margin:4px 0">Aucune affaire en cours.</p>`}
+    ${restants!==null? `<div class="tl-subhead" style="margin-top:12px">🎯 Restant à contacter (${restants.length})</div>
+    ${restants.length? `<div class="tbl-scroll" style="max-height:220px"><table class="tbl dense"><tbody>${restants.map(x=>`<tr>
+      <td>${cliLink(nomAffiche(x.ci.client_key, x.ci.nom||x.ci.client_key), x.ci.client_key)}</td>
+      <td class="small">${x.age!==null? x.age+" ans":""}</td>
+      <td class="small">${(()=>{ const cid = x.ci.conseiller_id || clientConseillers(x.ci.client_key)[0]; return cid? `<span class="cdot" style="background:${consColor(cid)}"></span>${esc(consName(cid))}` : '<span class="muted">sans conseiller</span>'; })()}</td>
+      <td class="small">${esc(x.ci.statut||"Prospect")}</td></tr>`).join("")}</tbody></table></div>`
+      : `<p class="small" style="margin:4px 0">Toute la cible a été contactée ✓</p>`}` : ""}
+    <div class="modal-actions"><button class="btn secondary" id="cc-close">Fermer</button></div>
+  </div>`;
+  if (document.querySelector(".meeting")) back.style.zIndex = "75";   /* au-dessus de l'écran réunion (z 70) */
+  document.body.appendChild(back);
+  back.querySelector("#cc-close").addEventListener("click", ()=>back.remove());
+  back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
+  back.querySelectorAll(".cc-open").forEach(a=>a.addEventListener("click", e=>{
+    e.preventDefault(); back.remove();
+    document.querySelector(".meeting")?.remove();   /* en mode réunion : on sort pour voir la fiche */
+    state._cliOpen = a.dataset.key; state._cliSearch = ""; go("clients");
+  }));
+}
+document.addEventListener("click", e=>{ /* v103.1 : 👥 Clients actif partout, mode réunion compris */
+  const b = e.target.closest?.(".camp-cli");
+  if (!b) return;
+  e.stopPropagation();
+  const c = state.campagnes.find(x=>x.id===+b.dataset.cid);
+  if (c) campClientsModal(c);
+});
 function bindCampagnes(root){
   campBindFiles(root);   /* v81.1 */
   root.querySelectorAll(".camp-docs").forEach(b=>b.addEventListener("click", e=>{   /* v81 */
