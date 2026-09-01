@@ -3915,6 +3915,7 @@ function viewJour(root){
   const sansCx = sansContact().filter(x=>{ if (mgr) return true; const cc = clientConseillers(x.key); return !cc.length || cc.includes(meId); });
   const props = propoARelancer().sort((a,b)=>propoJours(b)-propoJours(a));
   const ages = agesClesList(mgr? null : meId);   /* v101 */
+  const annivs = annivList(mgr? null : meId);   /* v105 */
   const campSugs = campagnesActives().map(cg=>({cg, l:campCibleList(cg, mgr? null : meId)})).filter(x=>x.l.length);   /* v102 */
   const nSugs = campSugs.reduce((a,x)=>a+x.l.length,0);
   const aFact = mgr? missionsAFacturer() : [];   /* v54/v66 : la file 💶 est l'affaire du manager, de la facturation et de l'ingénierie — pas du conseiller */
@@ -3948,6 +3949,7 @@ function viewJour(root){
       aFact.length? {ico:"💶", txt:`${aFact.length} mission(s) à facturer${(()=>{ const t = aFact.reduce((a,m)=>a+(+m.hono_devis||0),0); return t? " — "+eur(t)+" au devis" : ""; })()}`, sc:"#jr-afact"} : null,
       revues.length? {ico:"📆", txt:`${revues.length} revue(s) annuelle(s) à programmer`, sc:"#jr-revues"} : null,
       ages.length? {ico:"🎂", txt:`${ages.length} client(s) approchent un âge clé (60 / 70 / 80 ans) dans les 6 mois`, sc:"#jr-ages"} : null,
+      annivs.length? {ico:"🎉", txt:`${annivs.length} anniversaire(s) cette semaine — l'appel de 2 minutes qui entretient la relation`, sc:"#jr-anniv"} : null,
       nSugs? {ico:"🎯", txt:`${nSugs} client(s) à contacter pour les campagnes en cours`, sc:"#jr-camp"} : null,
       sansCx.length? {ico:"💤", txt:`${sansCx.length} client(s) sans contact depuis ≥ ${contactAlerteJ()} j`, sc:"#jr-sanscx"} : null,
       (mgr && (mj===null || mj>30))? {ico:"📈", txt:`Contexte macro ${mj===null? "jamais actualisé" : "actualisé il y a "+mj+" jours"} — un point par mois`, nav:"param"} : null,
@@ -3987,7 +3989,7 @@ function viewJour(root){
   </div>` : `
   <div class="sect sect-head"><h2>🔥 Affaires — priorités</h2><span class="sub">rien à relancer, aucun closing sous 14 jours, pas de signature en attente — affaires vivantes ✓</span></div>`}
 
-  ${(props.length || missTard.length || missSans.length || revues.length || sansCx.length || aFact.length || enTrait.length || ages.length || nSugs)? `
+  ${(props.length || missTard.length || missSans.length || revues.length || sansCx.length || aFact.length || enTrait.length || ages.length || annivs.length || nSugs)? `
   <div class="sect sect-head"><h2>🗂 Relation & suivi</h2><span class="sub">propositions envoyées, dossiers en traitement, missions, revues annuelles, clients sans nouvelles</span></div>
   <div class="row">
     ${enTrait.length? `<div class="card grow" id="jr-encours">
@@ -4069,6 +4071,15 @@ function viewJour(root){
         <td class="small muted">${esc(x.enjeu)}</td></tr>`).join("")}</tbody></table></div>
       ${ages.length>6? `<p class="small muted" style="margin-bottom:0">+ ${ages.length-6} autres</p>`:""}
       <p class="small muted" style="margin-bottom:0">Chaque âge clé est une occasion de rendez-vous à forte valeur — à programmer avant la date.</p>
+    </div>`:""}
+    ${annivs.length? `<div class="card grow" id="jr-anniv">
+      <h3 class="mt0">🎉 Anniversaires <span class="small muted" style="font-weight:400">— 7 prochains jours</span></h3>
+      <div class="jr-wrap"><table class="tbl dense"><tbody>${annivs.slice(0,7).map(x=>`<tr class="clickable jr-age" data-key="${esc(x.key)}" title="Ouvrir la fiche">
+        <td><b>${esc(x.nom)}</b></td>
+        <td class="small" style="white-space:nowrap">${x.jours===0? "<b>aujourd'hui 🎂</b>" : x.jours===1? "demain" : x.date.toLocaleDateString("fr-FR",{weekday:"long", day:"numeric", month:"short"})}</td>
+        <td class="small muted">${x.age} ans</td></tr>`).join("")}</tbody></table></div>
+      ${annivs.length>7? `<p class="small muted" style="margin-bottom:0">+ ${annivs.length-7} autres</p>`:""}
+      <p class="small muted" style="margin-bottom:0">Un appel de deux minutes, noté dans la fiche — la relation d'abord, le reste suit.</p>
     </div>`:""}
   </div>` : `
   <div class="sect sect-head"><h2>🗂 Relation & suivi</h2><span class="sub">propositions, missions, revues, contacts : tout est suivi ✓</span></div>`}`;
@@ -4322,6 +4333,25 @@ const AGES_CLES = [   /* v101 */
   [70, "derniers versements assurance-vie au régime le plus favorable (avant 70 ans)"],
   [80, "dons familiaux de sommes d'argent exonérés — à faire avant 80 ans"],
 ];
+function annivList(meId){ /* v105 : anniversaires dans les 7 prochains jours */
+  const out = [];
+  const now = new Date(); now.setHours(0,0,0,0);
+  for (const ci of state.clientsInfos){
+    if (ci.morale || (ci.statut||"Prospect")!=="Client" || !ci.date_naissance) continue;
+    if (meId){
+      const cc = clientConseillers(ci.client_key);
+      if (ci.conseiller_id!==meId && !(cc.length && cc.includes(meId)) && (cc.length || ci.conseiller_id)) continue;
+    }
+    const b = new Date(String(ci.date_naissance).slice(0,10)+"T12:00:00");
+    if (isNaN(b)) continue;
+    let d = new Date(now.getFullYear(), b.getMonth(), b.getDate(), 12);
+    if (d < now) d = new Date(now.getFullYear()+1, b.getMonth(), b.getDate(), 12);
+    const jours = Math.round((d - now)/86400000 - 0.5);
+    if (jours > 6) continue;
+    out.push({key:ci.client_key, nom:nomAffiche(ci.client_key, ci.nom||ci.client_key), date:d, jours, age:d.getFullYear()-b.getFullYear()});
+  }
+  return out.sort((a,b)=>a.jours-b.jours);
+}
 function agesClesList(meId){ /* v101 : clients qui approchent un âge charnière (6 mois) */
   const out = [];
   const now = Date.now(), horizon = now + 183*86400000;
