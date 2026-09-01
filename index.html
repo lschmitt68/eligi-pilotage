@@ -8425,6 +8425,22 @@ function telechargerFichier(nom, contenu, type){
   a.download = nom; document.body.appendChild(a); a.click(); a.remove();
   setTimeout(()=>URL.revokeObjectURL(a.href), 4000);
 }
+function autoBackupCheck(){ /* v104 : sauvegarde automatique du vendredi (poste manager) */
+  try{
+    if (!state.profile || !isManager()) return;
+    if (window._bkpChecked) return; window._bkpChecked = true;
+    const d = new Date(); const dow = d.getDay();          /* dim 0 … ven 5, sam 6 */
+    d.setDate(d.getDate() - ((dow >= 5)? dow-5 : dow+2));  /* dernier vendredi (aujourd'hui si vendredi) */
+    const vendredi = d.toISOString().slice(0,10);
+    let dernier = ""; try{ dernier = localStorage.getItem("eligi_bkp_auto") || ""; }catch(e){}
+    if (dernier >= vendredi) return;                       /* déjà couvert cette semaine sur ce poste */
+    setTimeout(()=>{
+      backupJSON();
+      try{ localStorage.setItem("eligi_bkp_auto", new Date().toISOString().slice(0,10)); }catch(e){}
+      toast("💾 Sauvegarde hebdomadaire automatique téléchargée — pense à la ranger (OneDrive, disque…)");
+    }, 2500);
+  }catch(e){}
+}
 function backupJSON(){
   telechargerFichier(`eligi-sauvegarde-${new Date().toISOString().slice(0,10)}.json`,
     JSON.stringify(backupData(), null, 1), "application/json");
@@ -8728,6 +8744,9 @@ function viewParam(root){
       <button class="btn" id="bkp-json">💾 Sauvegarde complète (JSON)</button>
       <button class="btn secondary" id="bkp-xlsx">📊 Export Excel (un onglet par table)</button>
     </div>
+    <p class="small muted" style="margin:8px 0 0">🔄 Une sauvegarde JSON se télécharge <b>automatiquement chaque vendredi</b> sur le poste des managers
+      (ou à la première ouverture qui suit, si le portail n'était pas ouvert le vendredi). Dernière sauvegarde automatique sur ce poste :
+      <b>${(()=>{ try{ const v = localStorage.getItem("eligi_bkp_auto"); return v? new Date(v+"T00:00:00").toLocaleDateString("fr-FR") : "jamais"; }catch(e){ return "—"; } })()}</b>.</p>
   </div>
 
   <div class="sect sect-head"><h2>🎯 Détentions par support</h2>
@@ -9743,6 +9762,7 @@ function render(){
   if (rem) $("#view").insertAdjacentHTML("afterbegin", rem);   // DANS la zone principale : jamais en colonne à côté
   bindReminder();
   majTitreOnglet();   /* v89 */
+  autoBackupCheck();   /* v104 */
   setTimeout(tagPopupCheck, 400);   /* v87 : signale les nouveaux tags 🔔 */
 }
 
