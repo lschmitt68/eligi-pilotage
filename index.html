@@ -9930,6 +9930,7 @@ function render(){
         <div class="user-mini">
           <b>${esc(String(state.profile.nom_affichage||"").trim() || myConseiller()?.nom || state.profile.email)}</b>
           <span>${state.profile.role==="manager"?"Manager":state.profile.role==="suivi"?"Suivi":state.profile.role==="ingenieur"?"Ingénieur patrimonial":"Conseiller"}</span><br>
+          <button id="mfa-open" title="Activer ou gérer la double authentification de ton compte">🔐 Double authentification</button><br>
           <button id="logout">Déconnexion</button>
         </div>
       </div>
@@ -9942,6 +9943,7 @@ function render(){
   }));
   $("#gs-open").addEventListener("click", globalSearchModal);
   $("#logout").addEventListener("click", logout);
+  $("#mfa-open")?.addEventListener("click", mfaModal);
   $("#side-toggle").addEventListener("click", ()=>{
     SIDE_MIN = !SIDE_MIN;
     try{ localStorage.setItem("eligi_side", SIDE_MIN? "min" : "full"); }catch(e){}
@@ -10068,7 +10070,122 @@ function renderPasswordReset(){
   });
 }
 
+function renderMfaChallenge(){ /* v108 : la session doit monter en aal2 */
+  if (document.getElementById("mfa-code")) return;   /* déjà affiché (les rafraîchissements de session ne doivent pas effacer la saisie) */
+  $("#app").innerHTML = `<div class="login-shell"><div class="card login-card">
+    <img src="logo-teal.png" alt="Eligi" style="width:150px;display:block;margin-bottom:6px" onerror="this.outerHTML='<div class=brandbig>ELIGI</div>'">
+    <div class="sub">🔐 Double authentification</div>
+    <p class="small">Ouvre ton application d'authentification (Google Authenticator, Microsoft Authenticator…) et saisis le code à 6 chiffres du <b>Portail Eligi</b>.</p>
+    <label class="fld"><span>Code</span><input type="text" id="mfa-code" inputmode="numeric" autocomplete="one-time-code" maxlength="6" placeholder="000000" style="font-size:22px;letter-spacing:6px;text-align:center"></label>
+    <div class="error-box" id="mfa-err"></div>
+    <button class="btn" id="mfa-btn" style="width:100%;justify-content:center">Vérifier</button>
+    <div style="text-align:center;margin-top:12px"><button id="mfa-out" style="background:none;border:0;cursor:pointer;color:var(--muted);font-size:12.5px;text-decoration:underline">Se déconnecter</button></div>
+  </div></div>`;
+  const go = async ()=>{
+    const code = $("#mfa-code").value.trim();
+    if (!/^\d{6}$/.test(code)){ $("#mfa-err").textContent = "Le code fait 6 chiffres."; return; }
+    const btn = $("#mfa-btn"); btn.disabled = true; $("#mfa-err").textContent = "";
+    try{
+      const lf = await state.authClient.auth.mfa.listFactors();
+      const totp = (lf.data?.totp||[]).find(x=>x.status==="verified");
+      if (!totp) throw new Error("aucun facteur d'authentification trouvé sur ce compte");
+      const ch = await state.authClient.auth.mfa.challenge({factorId: totp.id});
+      if (ch.error) throw ch.error;
+      const vr = await state.authClient.auth.mfa.verify({factorId: totp.id, challengeId: ch.data.id, code});
+      if (vr.error) throw vr.error;
+      const {data} = await state.authClient.auth.getSession();
+      if (data.session) onSignedIn(data.session); else render();
+    }catch(err){
+      $("#mfa-err").textContent = /invalid|expired|code/i.test(err.message||"")? "Code incorrect ou expiré — réessaie." : "Erreur : "+(err.message||err);
+      btn.disabled = false; $("#mfa-code").value = ""; $("#mfa-code").focus();
+    }
+  };
+  $("#mfa-btn").addEventListener("click", go);
+  $("#mfa-code").addEventListener("keydown", e=>{ if (e.key==="Enter") go(); });
+  $("#mfa-code").focus();
+  $("#mfa-out").addEventListener("click", logout);
+}
+async function mfaModal(){ /* v108 : activer / gérer SA double authentification */
+  if (CFG.DEMO){ toast("Indisponible en mode démo — la 2FA fonctionne sur le vrai portail"); return; }
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  back.innerHTML = `<div class="modal" style="width:520px"><h3>🔐 Double authentification</h3><div id="mfa-body"><div class="loader"><span class="spinner"></span></div></div>
+    <div class="modal-actions"><button class="btn secondary" id="mfa-close">Fermer</button></div></div>`;
+  document.body.appendChild(back);
+  back.querySelector("#mfa-close").addEventListener("click", ()=>back.remove());
+  back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
+  const body = back.querySelector("#mfa-body");
+  const rendre = async ()=>{
+    const lf = await state.authClient.auth.mfa.listFactors();
+    if (lf.error){ body.innerHTML = `<p class="small">Erreur : ${esc(lf.error.message)}</p>`; return; }
+    /* nettoie les tentatives d'activation abandonnées */
+    for (const f of (lf.data?.totp||[]).filter(x=>x.status!=="verified"))
+      try{ await state.authClient.auth.mfa.unenroll({factorId: f.id}); }catch(e){}
+    const actif = (lf.data?.totp||[]).find(x=>x.status==="verified");
+    if (actif){
+      body.innerHTML = `<p class="small">✅ <b>La double authentification est activée</b> sur ton compte${actif.created_at? ` depuis le ${new Date(actif.created_at).toLocaleDateString("fr-FR")}`:""}.
+        À chaque connexion, le portail demande le code de ton application d'authentification.</p>
+        <p class="small muted">Téléphone perdu ou changé ? Préviens Loïc : il peut réinitialiser ton facteur depuis la console d'administration, puis tu le réactives ici.</p>
+        <button class="btn danger" id="mfa-off">Désactiver la double authentification</button>`;
+      body.querySelector("#mfa-off").addEventListener("click", async ()=>{
+        if (!confirm("Désactiver la double authentification ?\n\nTon compte ne sera plus protégé que par le mot de passe.")) return;
+        try{
+          const r = await state.authClient.auth.mfa.unenroll({factorId: actif.id});
+          if (r.error) throw r.error;
+          toast("Double authentification désactivée");
+          rendre();
+        }catch(err){ toast("Erreur : "+(err.message||err)); }
+      });
+    } else {
+      body.innerHTML = `<p class="small">Protège ton compte : après le mot de passe, le portail demandera un <b>code à 6 chiffres</b>
+        généré par une application d'authentification sur ton téléphone (Google Authenticator, Microsoft Authenticator, Authy…).</p>
+        <p class="small muted">Recommandé pour tout le cabinet — nos fiches contiennent des données clients sensibles.</p>
+        <button class="btn" id="mfa-on">Activer la double authentification</button>`;
+      body.querySelector("#mfa-on").addEventListener("click", async ()=>{
+        body.innerHTML = `<div class="loader"><span class="spinner"></span>Préparation…</div>`;
+        try{
+          const en = await state.authClient.auth.mfa.enroll({factorType:"totp", friendlyName:"Portail Eligi"});
+          if (en.error) throw en.error;
+          body.innerHTML = `
+            <p class="small"><b>1.</b> Ouvre ton application d'authentification et scanne ce QR code :</p>
+            <div style="text-align:center;margin:8px 0"><img src="${en.data.totp.qr_code}" alt="QR code" style="width:190px;height:190px;background:#fff;padding:8px;border-radius:10px;border:1px solid var(--border)"></div>
+            <p class="small muted" style="overflow-wrap:anywhere">Impossible de scanner ? Saisis cette clé à la main : <b>${esc(en.data.totp.secret)}</b></p>
+            <p class="small"><b>2.</b> Saisis le code à 6 chiffres affiché par l'application :</p>
+            <div class="inline-controls"><input type="text" id="mfa-new" inputmode="numeric" maxlength="6" placeholder="000000" style="font-size:20px;letter-spacing:5px;text-align:center;width:150px">
+            <button class="btn" id="mfa-ok">Valider</button></div>
+            <div class="error-box" id="mfa-e2" style="margin-top:6px"></div>`;
+          const valider = async ()=>{
+            const code = body.querySelector("#mfa-new").value.trim();
+            if (!/^\d{6}$/.test(code)){ body.querySelector("#mfa-e2").textContent = "Le code fait 6 chiffres."; return; }
+            try{
+              const ch = await state.authClient.auth.mfa.challenge({factorId: en.data.id});
+              if (ch.error) throw ch.error;
+              const vr = await state.authClient.auth.mfa.verify({factorId: en.data.id, challengeId: ch.data.id, code});
+              if (vr.error) throw vr.error;
+              toast("🔐 Double authentification activée ✓");
+              rendre();
+            }catch(err){ body.querySelector("#mfa-e2").textContent = "Code incorrect — vérifie l'heure du téléphone et réessaie."; }
+          };
+          body.querySelector("#mfa-ok").addEventListener("click", valider);
+          body.querySelector("#mfa-new").addEventListener("keydown", e=>{ if (e.key==="Enter") valider(); });
+          body.querySelector("#mfa-new").focus();
+        }catch(err){ body.innerHTML = `<p class="small">Erreur : ${esc(err.message||err)}</p>`; }
+      });
+    }
+  };
+  rendre();
+}
 async function onSignedIn(session){
+  /* v108 : si la 2FA est activée sur le compte, la session doit d'abord monter en aal2 */
+  if (!CFG.DEMO){
+    try{
+      const aal = await state.authClient.auth.mfa.getAuthenticatorAssuranceLevel();
+      if (aal.data && aal.data.nextLevel === "aal2" && aal.data.currentLevel !== "aal2"){ renderMfaChallenge(); return; }
+    }catch(e){ /* si l'API MFA est indisponible, on ne bloque pas la connexion */ }
+  }
+  return onSignedInSuite(session);
+}
+async function onSignedInSuite(session){
   try{
     $("#app").innerHTML = `<div class="loader"><span class="spinner"></span>Chargement des données…</div>`;
     const email = session.user.email;
