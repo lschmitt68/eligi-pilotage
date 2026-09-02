@@ -1175,7 +1175,8 @@ class SupaDB {
     if (r.error) throw r.error;
   }
   async saveAction(a){
-    const row = {conseiller_id:a.conseiller_id, texte:a.texte, echeance:a.echeance||null, semaine:a.semaine||null, fait:!!a.fait, client_key:a.client_key||null,
+    const row = {conseiller_id:a.conseiller_id||null, texte:a.texte, echeance:a.echeance||null, semaine:a.semaine||null, fait:!!a.fait, client_key:a.client_key||null,
+      assigne_email: a.assigne_email||null,   /* v106 : tâche pour un profil sans fiche conseiller */
       auteur: a.auteur ?? monNom()};   /* v47 : la tâche est signée par qui la crée */
     const sans = ({auteur, ...r}) => r;   /* tolérant tant que la migration v47 n'est pas passée */
     if (a.id){
@@ -1766,6 +1767,17 @@ function suiviVues(){
 }
 function isIngenieur(){ return state.profile?.role === "ingenieur"; }   /* v38 : ingénieur patrimonial (Lina) */
 function voitTout(){ return isManager() || isSuivi() || isIngenieur(); }   // visibilité étendue (manager + suivi + ingénieur)
+function equipeNonCons(){ /* v106 : profils sans fiche conseiller (ingénierie, back-office, facturation) */
+  return state.profiles.filter(pr=>!pr.conseiller_id && pr.role!=="manager")
+    .map(pr=>({email:pr.email, nom:String(pr.nom_affichage||pr.email.split("@")[0]).trim()}))
+    .sort((a,b)=>a.nom.localeCompare(b.nom,"fr"));
+}
+function assigneNom(a){ /* v106 : à qui appartient une action */
+  if (a.conseiller_id) return consName(a.conseiller_id);
+  if (a.assigne_email){ const pr = state.profiles.find(x=>x.email===a.assigne_email);
+    return pr? String(pr.nom_affichage||pr.email.split("@")[0]).trim() : a.assigne_email; }
+  return "—";
+}
 function monNom(){
   /* nom de la personne connectée : nom d'affichage choisi, sinon conseiller lié, sinon dérivé de l'e-mail */
   const na = String(state.profile?.nom_affichage||"").trim();
@@ -1862,13 +1874,13 @@ function actionsCardHTML(consId, title="Actions"){
     <h3 class="mt0">📋 ${title}${enRetard? ` <span class="badge urgent" style="vertical-align:2px"><span class="dot"></span>${enRetard} en retard</span>`:""}</h3>
     <div>${list.map(a=>`<div class="action-item ${a.fait?"done":""}">
       <input type="checkbox" class="ac-done" data-id="${a.id}" ${a.fait?"checked":""}>
-      ${!consId? `<span class="cdot" style="background:${consColor(a.conseiller_id)}" title="${esc(consName(a.conseiller_id))}"></span>`:""}
-      <span class="ac-text">${esc(a.texte)}${!consId? ` <span class="muted small">(${esc(consName(a.conseiller_id))})</span>`:""}${(a.auteur && a.auteur !== consName(a.conseiller_id))? ` <span class="muted small">— par ${esc(a.auteur)}</span>`:""}</span>
+      ${!consId? `<span class="cdot" style="background:${a.conseiller_id? consColor(a.conseiller_id) : "#8a9aa8"}" title="${esc(assigneNom(a))}"></span>`:""}
+      <span class="ac-text">${esc(a.texte)}${!consId? ` <span class="muted small">(${esc(assigneNom(a))})</span>`:""}${(a.auteur && a.auteur !== assigneNom(a))? ` <span class="muted small">— par ${esc(a.auteur)}</span>`:""}</span>
       <span class="ac-due ${!a.fait && a.echeance && a.echeance<today? "overdue":""}">${a.echeance? new Date(a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</span>
       ${isManager()? `<button class="btn danger small ac-del" data-id="${a.id}" style="padding:1px 7px">✕</button>`:""}
     </div>`).join("") || `<div class="empty">Aucune action en cours</div>`}</div>
     <div class="inline-controls" style="margin-top:10px">
-      ${!consId? `<label class="fld" style="min-width:110px"><select class="ac-cons">${activeConseillers().map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join("")}</select></label>`:""}
+      ${!consId? `<label class="fld" style="min-width:110px"><select class="ac-cons">${activeConseillers().map(c=>`<option value="${c.id}">${esc(c.nom)}</option>`).join("")}${(()=>{ const eq = equipeNonCons(); return eq.length? eq.map(pr=>`<option value="p:${esc(pr.email)}">${esc(pr.nom)}</option>`).join("") : ""; })()}</select></label>`:""}
       <label class="fld" style="flex:1;min-width:160px"><input type="text" class="ac-text-new" placeholder="Nouvelle action…"></label>
       <label class="fld" style="min-width:130px"><input type="date" class="ac-due-new"></label>
       <button class="btn small ac-add">Ajouter</button>
@@ -1891,9 +1903,10 @@ function bindActionsCards(scope, refresh){
     card.querySelector(".ac-add")?.addEventListener("click", async ()=>{
       const texte = card.querySelector(".ac-text-new").value.trim();
       if (!texte){ toast("Écris l'action d'abord"); return; }
-      const consId = consAttr? +consAttr : +card.querySelector(".ac-cons").value;
+      const val = consAttr || card.querySelector(".ac-cons").value;   /* v106 : conseiller OU profil équipe */
+      const qui = String(val).startsWith("p:")? {conseiller_id:null, assigne_email:String(val).slice(2)} : {conseiller_id:+val, assigne_email:null};
       try{
-        await state.db.saveAction({conseiller_id:consId, texte, echeance:card.querySelector(".ac-due-new").value||null, semaine:state.week, fait:false});
+        await state.db.saveAction({...qui, texte, echeance:card.querySelector(".ac-due-new").value||null, semaine:state.week, fait:false});
         await state.db.loadAll(); toast("Action ajoutée ✓"); done();
       }catch(err){ toast("Erreur : "+(err.message||err)); }
     });
@@ -2817,6 +2830,7 @@ function campagneCardHTML(camp, forCons){
     <h3 class="mt0" style="display:flex;align-items:center;gap:8px;justify-content:space-between;flex-wrap:wrap">
       <span>🚀 ${esc(camp.nom)} <span class="tag">${esc(camp.support)}</span></span>
       <span style="display:flex;gap:6px;align-items:center">${badge}
+        ${isManager()? `<button class="btn secondary small camp-bilan" data-cid="${camp.id}" title="Bilan de la campagne : transformation, CA attendu vs encaissé, détail par conseiller">🏁 Bilan</button>`:""}
         <button class="btn secondary small camp-cli" data-cid="${camp.id}" title="Qui a validé, qui est en cours, qui reste à contacter">👥 Clients</button>
         <button class="btn secondary small camp-docs" data-cid="${camp.id}" title="Brochure PDF, plaquette produit, présentation, exemples — visibles par toute l'équipe">📎 Documents</button>
         ${isManager()? `<button class="btn secondary small camp-edit" data-cid="${camp.id}">Modifier</button>`:""}</span></h3>
@@ -2825,6 +2839,13 @@ function campagneCardHTML(camp, forCons){
       const rest = campCibleList(camp, null).length;
       const naff = [...state.pipeline, ...(state.pipelineArch||[])].filter(p=>p.campagne_id===camp.id).length;
       return `<p class="small" style="margin:0 0 8px">🎯 Cible : ${esc(campCibleTxt(cd))} — <b>${rest}</b> client(s) restant à contacter · <b>${naff}</b> affaire(s) créée(s)</p>`; })()}
+    ${(()=>{ if (!isManager()) return "";   /* v106 : le CA partenaire est une affaire de manager */
+      const sig = [...state.pipeline, ...(state.pipelineArch||[])].filter(x=>x.campagne_id===camp.id && (x.etape||"").toLowerCase()==="signé");
+      if (!sig.length) return "";
+      const att = sig.reduce((a,x)=>a+(+x.ca_potentiel||0),0);
+      const encR = sig.filter(x=>x.ca_encaisse);
+      const enc = encR.reduce((a,x)=>a+(+x.ca_potentiel||0),0);
+      return `<p class="small" style="margin:0 0 8px">💶 CA partenaire : <b>${eur(enc)}</b> encaissé / <b>${eur(att)}</b> attendu (${encR.length}/${sig.length} affaires)${att>enc? ` — <b>${eur(att-enc)} restant dû</b>` : att? " — soldé ✓" : ""}</p>`; })()}
     <div class="camp-files" data-cid="${camp.id}" style="display:none;flex-wrap:wrap;gap:6px;margin:0 0 8px"></div>
     <div class="jr-wrap"><table class="tbl dense">
       <thead><tr><th>Conseiller</th><th class="num">Objectif collecte</th><th class="num">Validé</th><th class="num">Pondéré</th><th style="min-width:90px"></th><th class="num">Atteint</th></tr></thead>
@@ -2905,11 +2926,12 @@ function campClientsModal(camp){ /* v103.1 : où en sont les clients de la campa
   back.className = "modal-back";
   back.innerHTML = `<div class="modal" style="width:680px;max-height:86vh;overflow:auto">
     <h3>👥 ${esc(camp.nom)} <span class="tag">${esc(camp.support)}</span> — où en sont les clients</h3>
-    <div class="tl-subhead">✓ Ont validé (${sig.length})${sig.length? ` — ${eur(sig.reduce((a,x)=>a+(+x.collecte_potentielle||0),0))} de collecte · ${eur(sig.reduce((a,x)=>a+(+x.ca_potentiel||0),0))} de CA`:""}</div>
+    <div class="tl-subhead">✓ Ont validé (${sig.length})${sig.length? ` — ${eur(sig.reduce((a,x)=>a+(+x.collecte_potentielle||0),0))} de collecte · ${eur(sig.reduce((a,x)=>a+(+x.ca_potentiel||0),0))} de CA${isManager()? ` <span class="muted">dont ${eur(sig.filter(x=>x.ca_encaisse).reduce((a,x)=>a+(+x.ca_potentiel||0),0))} encaissés</span>`:""}`:""}</div>
     ${sig.length? `<div class="tbl-scroll" style="max-height:240px"><table class="tbl dense"><tbody>${sig.map(x=>`<tr>
       <td>${cliLink(cliAff(x.client), normName(x.client))}</td>
       <td class="small"><span class="cdot" style="background:${consColor(x.conseiller_id)}"></span>${esc(consName(x.conseiller_id))}</td>
       <td class="num">${eur(x.collecte_potentielle)}</td><td class="num"><b>${eur(x.ca_potentiel)}</b></td>
+      ${isManager()? `<td style="white-space:nowrap"><button class="btn secondary small cc-enc" data-id="${x.id}" title="${x.ca_encaisse? `Encaissé le ${new Date(String(x.ca_encaisse).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR")} — cliquer pour annuler` : "Cocher quand la rémunération du partenaire (up-front) est arrivée"}">${x.ca_encaisse? "💶 Encaissé ✓" : "☐ À encaisser"}</button></td>`:""}
       <td class="small muted">${x.archive? "archivée":""}</td></tr>`).join("")}</tbody></table></div>`
       : `<p class="small muted" style="margin:4px 0">Personne n'a encore validé.</p>`}
     <div class="tl-subhead" style="margin-top:12px">🔄 En cours (${enCours.length})</div>
@@ -2938,6 +2960,18 @@ function campClientsModal(camp){ /* v103.1 : où en sont les clients de la campa
     document.querySelector(".meeting")?.remove();   /* en mode réunion : on sort pour voir la fiche */
     state._cliOpen = a.dataset.key; state._cliSearch = ""; go("clients");
   }));
+  back.querySelectorAll(".cc-enc").forEach(b=>b.addEventListener("click", async ()=>{   /* v106 : encaissement manager */
+    if (b.disabled) return; b.disabled = true;
+    const x = rows.find(r=>r.id===+b.dataset.id); if (!x) return;
+    try{
+      await state.db.savePipeline({...x, ca_encaisse: x.ca_encaisse? null : new Date().toISOString().slice(0,10)});
+      await state.db.loadAll();
+      toast(x.ca_encaisse? "Encaissement annulé" : "💶 CA marqué encaissé ✓");
+      back.remove();
+      if (!document.querySelector(".meeting")) render();   /* la vue sous le modal reflète l'encaissement */
+      campClientsModal(state.campagnes.find(c=>c.id===camp.id) || camp);
+    }catch(err){ b.disabled = false; toast("Erreur : "+(err.message||err)); }
+  }));
 }
 document.addEventListener("click", e=>{ /* v103.1 : 👥 Clients actif partout, mode réunion compris */
   const b = e.target.closest?.(".camp-cli");
@@ -2945,6 +2979,55 @@ document.addEventListener("click", e=>{ /* v103.1 : 👥 Clients actif partout, 
   e.stopPropagation();
   const c = state.campagnes.find(x=>x.id===+b.dataset.cid);
   if (c) campClientsModal(c);
+});
+function campBilanModal(camp){ /* v106 : le bilan — en cours de campagne ou après (manager) */
+  const j = campagneJoursRestants(camp);
+  const rows = [...state.pipeline, ...(state.pipelineArch||[])].filter(x=>x.campagne_id===camp.id);
+  const sig = rows.filter(x=>(x.etape||"").toLowerCase()==="signé");
+  const att = sig.reduce((a,x)=>a+(+x.ca_potentiel||0),0);
+  const enc = sig.filter(x=>x.ca_encaisse).reduce((a,x)=>a+(+x.ca_potentiel||0),0);
+  const coll = sig.reduce((a,x)=>a+(+x.collecte_potentielle||0),0);
+  const rest = campCibleDef(camp)? campCibleList(camp, null).length : null;
+  const parCons = activeConseillers().map(c=>{
+    const r = rows.filter(x=>x.conseiller_id===c.id), s = r.filter(x=>(x.etape||"").toLowerCase()==="signé");
+    const st = campagneStats(camp, c.id);
+    return {c, n:r.length, nSig:s.length, coll:s.reduce((a,x)=>a+(+x.collecte_potentielle||0),0),
+      ca:s.reduce((a,x)=>a+(+x.ca_potentiel||0),0), enc:s.filter(x=>x.ca_encaisse).reduce((a,x)=>a+(+x.ca_potentiel||0),0), obj:st.obj};
+  }).filter(x=>x.n || x.obj);
+  const back = document.createElement("div");
+  back.className = "modal-back";
+  if (document.querySelector(".meeting")) back.style.zIndex = "75";
+  back.innerHTML = `<div class="modal" style="width:720px;max-height:86vh;overflow:auto">
+    <h3>🏁 ${j<0? "Bilan de campagne" : "Bilan à date"} — ${esc(camp.nom)} <span class="tag">${esc(camp.support)}</span></h3>
+    <p class="small muted" style="margin-top:0">Commercialisation jusqu'au ${new Date(String(camp.date_fin).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"long",year:"numeric"})}
+      — ${j<0? `terminée depuis ${-j} jour(s)` : `encore ${j} jour(s)`}.</p>
+    <div class="tiles" style="margin:10px 0">
+      ${tile("Affaires", fmtNum.format(rows.length), rest!==null? rest+" client(s) de la cible non contactés" : "")}
+      ${tile("✓ Signées", fmtNum.format(sig.length), rows.length? fmtPct(sig.length/rows.length)+" de transformation" : "")}
+      ${tile("Collecte signée", eur(coll))}
+      ${tile("💶 CA encaissé", eur(enc), att? `sur ${eur(att)} attendus${att>enc? " · "+eur(att-enc)+" restant dû" : " · soldé ✓"}` : "aucun CA attendu", att? enc/att : 0)}
+    </div>
+    ${parCons.length? `<div class="tbl-scroll"><table class="tbl dense">
+      <thead><tr><th>Conseiller</th><th class="num">Affaires</th><th class="num">Signées</th><th class="num">Collecte</th><th class="num">Objectif</th><th class="num">CA</th><th class="num">dont encaissé</th></tr></thead>
+      <tbody>${parCons.map(x=>`<tr>
+        <td><span class="cdot" style="background:${consColor(x.c.id)}"></span>${esc(x.c.nom)}</td>
+        <td class="num">${x.n}</td><td class="num"><b>${x.nSig}</b></td>
+        <td class="num">${eur(x.coll)}</td><td class="num">${x.obj? eur(x.obj)+" · "+fmtPct(x.coll/x.obj) : "—"}</td>
+        <td class="num"><b>${eur(x.ca)}</b></td><td class="num">${eur(x.enc)}</td></tr>`).join("")}</tbody>
+    </table></div>`:""}
+    <p class="small muted" style="margin:8px 0 0">L'encaissement se coche affaire par affaire dans « 👥 Clients » (ou sur l'affaire signée elle-même) dès que la rémunération du partenaire arrive.</p>
+    <div class="modal-actions"><button class="btn secondary" id="cb-close">Fermer</button></div>
+  </div>`;
+  document.body.appendChild(back);
+  back.querySelector("#cb-close").addEventListener("click", ()=>back.remove());
+  back.addEventListener("click", e=>{ if (e.target===back) back.remove(); });
+}
+document.addEventListener("click", e=>{ /* v106 : 🏁 Bilan actif partout (manager) */
+  const b = e.target.closest?.(".camp-bilan");
+  if (!b) return;
+  e.stopPropagation();
+  const c = state.campagnes.find(x=>x.id===+b.dataset.cid);
+  if (c && isManager()) campBilanModal(c);
 });
 function bindCampagnes(root){
   campBindFiles(root);   /* v81.1 */
@@ -3356,6 +3439,7 @@ function pipeModal(p, etapeInit){
         <textarea id="pm-desc" rows="3" style="resize:vertical;font-family:inherit">${esc(p.description||"")}</textarea></label>
       <label class="fld full"><span>Prochaine action</span><input type="text" id="pm-action" value="${esc(p.prochaine_action)}"></label>
       <label class="fld full"><span><input type="checkbox" id="pm-sig" ${p.signature_probable?"checked":""} style="width:auto;margin-right:8px">Signature probable cette semaine</span></label>
+      ${(isManager() && (p.etape||"").toLowerCase()==="signé")? `<label class="fld full"><span><input type="checkbox" id="pm-enc" ${p.ca_encaisse?"checked":""} style="width:auto;margin-right:8px">💶 CA encaissé — la rémunération du partenaire (up-front) est arrivée${p.ca_encaisse? ` <span class="small muted">(le ${new Date(String(p.ca_encaisse).slice(0,10)+"T00:00:00").toLocaleDateString("fr-FR")})</span>`:""}</span></label>`:""}
       <div class="dup-warn" id="pm-dup" style="display:none"></div>
     </div>
     </div>
@@ -3458,6 +3542,7 @@ function pipeModal(p, etapeInit){
         journal: p.journal||[],   /* v98 */
         description: back.querySelector("#pm-desc").value.trim(),   /* v99 */
         campagne_id: back.querySelector("#pm-camp")? (+back.querySelector("#pm-camp").value||null) : (p.campagne_id||null),
+        ca_encaisse: back.querySelector("#pm-enc")? (back.querySelector("#pm-enc").checked? (p.ca_encaisse || new Date().toISOString().slice(0,10)) : null) : (p.ca_encaisse ?? null),   /* v106 */
       });
       const opData = {
         conseiller_id: voitTout()? +back.querySelector("#pm-cons")?.value || p.conseiller_id : p.conseiller_id,
@@ -6944,6 +7029,30 @@ function tagLabelHTML(x){ /* v92.2 : le client toujours visible dans les listes 
   const c = boClientDisp(x.r);
   return `<b>${c? "👤 "+esc(c) : esc(x.r.titre)}</b>${c? ` <span class="small muted">· ${esc(x.r.titre)}</span>`:""}`;
 }
+function actionsPersoCardHTML(){ /* v106 : tâches assignées à un profil sans fiche conseiller */
+  const email = state.profile?.email;
+  if (!email || state.profile?.conseiller_id) return "";
+  const today = new Date().toISOString().slice(0,10);
+  const list = state.actions.filter(a=>a.assigne_email===email)
+    .sort((a,b)=> (a.fait?1:0)-(b.fait?1:0) || String(a.echeance||"9999").localeCompare(String(b.echeance||"9999")));
+  if (!list.length) return "";
+  const enRetard = list.filter(a=>!a.fait && a.echeance && a.echeance < today).length;
+  return `<div class="card sect" style="margin-top:10px" id="jr-taches">
+    <h3 class="mt0">📋 Mes tâches${enRetard? ` <span class="badge urgent" style="vertical-align:2px"><span class="dot"></span>${enRetard} en retard</span>`:""}</h3>
+    <div>${list.map(a=>`<div class="action-item ${a.fait?"done":""}">
+      <input type="checkbox" class="acp-done" data-id="${a.id}" ${a.fait?"checked":""}>
+      <span class="ac-text">${esc(a.texte)}${a.auteur? ` <span class="muted small">— par ${esc(a.auteur)}</span>`:""}</span>
+      <span class="ac-due ${!a.fait && a.echeance && a.echeance<today? "overdue":""}">${a.echeance? new Date(a.echeance+"T00:00:00").toLocaleDateString("fr-FR",{day:"numeric",month:"short"}):""}</span>
+    </div>`).join("")}</div>
+  </div>`;
+}
+function bindActionsPerso(root){ /* v106 */
+  root.querySelectorAll(".acp-done").forEach(cb=>cb.addEventListener("change", async ()=>{
+    const a = state.actions.find(x=>x.id===+cb.dataset.id);
+    try{ await state.db.saveAction({...a, fait:cb.checked}); await state.db.loadAll(); render(); }
+    catch(err){ toast("Erreur : "+(err.message||err)); }
+  }));
+}
 function tagsCardHTML(){
   const tags = tagsPourMoi();
   if (!tags.length) return "";
@@ -9776,6 +9885,12 @@ function render(){
       const anc = $("#view").querySelector(".vhead") || $("#view").querySelector(".tiles");   /* v103.2 : toujours en haut de page */
       if (anc) anc.insertAdjacentHTML("afterend", th); else $("#view").insertAdjacentHTML("afterbegin", th);
       bindTags($("#view"));
+    }
+    const ah = actionsPersoCardHTML();   /* v106 : les tâches de Lina / Malay / Tatiana, en haut aussi */
+    if (ah){
+      const anc3 = $("#view").querySelector("#jr-tags") || $("#view").querySelector(".vhead") || $("#view").querySelector(".tiles");
+      if (anc3) anc3.insertAdjacentHTML("afterend", ah); else $("#view").insertAdjacentHTML("afterbegin", ah);
+      bindActionsPerso($("#view"));
     }
     const fh = filDossiersHTML();   /* v92 : le fil « du nouveau sur tes dossiers » */
     if (fh){
