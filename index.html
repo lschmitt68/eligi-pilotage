@@ -5,6 +5,15 @@
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Portail Eligi</title>
 <link rel="icon" type="image/png" href="favicon.png">
+<link rel="manifest" href="manifest.webmanifest">
+<meta name="theme-color" content="#1c2733">
+<link rel="apple-touch-icon" href="apple-touch-icon.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<meta name="apple-mobile-web-app-title" content="Eligi">
+<script>/* v107 : PWA — installable sur l'écran d'accueil */
+if ("serviceWorker" in navigator){ navigator.serviceWorker.register("sw.js").catch(()=>{}); }
+</script>
 <style>
 /* ============ Tokens (palette validée, clair + sombre) ============ */
 :root{
@@ -1777,6 +1786,24 @@ function assigneNom(a){ /* v106 : à qui appartient une action */
   if (a.assigne_email){ const pr = state.profiles.find(x=>x.email===a.assigne_email);
     return pr? String(pr.nom_affichage||pr.email.split("@")[0]).trim() : a.assigne_email; }
   return "—";
+}
+async function iaReformulerCR(texte, client, dateIso){ /* v107 : notes brutes → compte rendu (fonction serveur « ia ») */
+  if (CFG.DEMO){ /* mode démo : aperçu simulé, sans réseau */
+    await new Promise(r=>setTimeout(r, 300));
+    return "Contexte\nRendez-vous avec " + (client||"le client") + ".\n\nPoints abordés\n" + String(texte).trim() + "\n\n(Exemple de mise en forme — en production, la rédaction est faite par l'IA.)";
+  }
+  const sess = (await state.db.c.auth.getSession())?.data?.session;
+  if (!sess) throw new Error("session expirée — reconnecte-toi");
+  const r = await fetch(CFG.SUPABASE_URL + "/functions/v1/ia", {
+    method: "POST",
+    headers: {"Content-Type":"application/json", "Authorization":"Bearer " + sess.access_token, "apikey": CFG.SUPABASE_ANON_KEY},
+    body: JSON.stringify({tache:"cr_rdv", texte, client, date: dateIso}),
+  });
+  if (r.status === 404) throw new Error("la fonction IA n'est pas encore activée sur Supabase");
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(j.error || ("erreur IA (" + r.status + ")"));
+  if (!j.text) throw new Error("réponse vide");
+  return j.text;
 }
 function monNom(){
   /* nom de la personne connectée : nom d'affichage choisi, sinon conseiller lié, sinon dérivé de l'e-mail */
@@ -6793,6 +6820,7 @@ function rdvNoteModal(clientKey){
       </div>
       <input type="date" id="rdvn-date" title="Date du rendez-vous — le compte rendu sera enregistré à cette date dans la fiche" value="${(reprise && draft.date)? esc(draft.date) : new Date().toISOString().slice(0,10)}" style="width:auto">
       <button class="btn secondary small" id="rdvn-trame" title="Insère une trame de compte rendu : Contexte / Points abordés / Décisions / Actions à prévoir">📑 Trame</button>
+      <button class="btn secondary small" id="rdvn-ia" title="L'IA transforme tes notes brutes en compte rendu client structuré — tu relis avant de remplacer">✨ Mettre en forme</button>
       <span class="rdvn-saved" id="rdvn-saved"></span>
     </div>
     <textarea id="rdvn-txt" placeholder="Prise de notes au fil de l'eau… (la dictée du Mac ou de l'iPhone fonctionne ici)">${reprise? esc(draft.txt||"") : ""}</textarea>
@@ -6860,6 +6888,35 @@ function rdvNoteModal(clientKey){
   inCli.addEventListener("input", ()=>{ cli = null; majListe(); });
   inCli.addEventListener("focus", majListe);
   inCli.addEventListener("blur", ()=>setTimeout(()=>{ list.style.display = "none"; }, 250));
+  $$("#rdvn-ia")?.addEventListener("click", async ()=>{   /* v107 */
+    const btn = $$("#rdvn-ia");
+    const texte = $$("#rdvn-txt").value.trim();
+    if (texte.length < 30){ toast("Écris d'abord tes notes — l'IA a besoin de matière"); return; }
+    if (btn.disabled) return;
+    btn.disabled = true; const lblAv = btn.textContent; btn.textContent = "✨ Rédaction…";
+    try{
+      const cr = await iaReformulerCR(texte, $$("#rdvn-cli").value.trim(), $$("#rdvn-date").value);
+      const bk = document.createElement("div");
+      bk.className = "modal-back"; bk.style.zIndex = "75";
+      bk.innerHTML = `<div class="modal" style="width:640px;max-height:86vh;display:flex;flex-direction:column">
+        <h3>✨ Proposition de compte rendu</h3>
+        <p class="small muted" style="margin-top:0">Relis et corrige ce qu'il faut — tes notes brutes ne sont pas perdues tant que tu n'as pas remplacé.</p>
+        <textarea id="ia-cr" style="flex:1;min-height:280px;resize:vertical;font-family:inherit">${esc(cr)}</textarea>
+        <div class="modal-actions">
+          <button class="btn secondary" id="ia-garder">Garder mes notes</button>
+          <button class="btn" id="ia-remplacer">Remplacer par ce compte rendu</button>
+        </div>
+      </div>`;
+      document.body.appendChild(bk);
+      bk.querySelector("#ia-garder").addEventListener("click", ()=>bk.remove());
+      bk.querySelector("#ia-remplacer").addEventListener("click", ()=>{
+        $$("#rdvn-txt").value = bk.querySelector("#ia-cr").value;
+        $$("#rdvn-txt").dispatchEvent(new Event("input", {bubbles:true}));   /* le brouillon auto se met à jour */
+        bk.remove(); toast("Compte rendu en place — relis avant d'enregistrer ✓");
+      });
+    }catch(err){ toast("IA : " + (err.message||err)); }
+    btn.disabled = false; btn.textContent = lblAv;
+  });
   /* ---- trame ---- */
   $$("#rdvn-trame").addEventListener("click", ()=>{
     ta.value = ta.value.trim()? RDVN_TRAME+"\n"+ta.value : RDVN_TRAME;
