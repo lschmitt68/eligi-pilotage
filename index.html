@@ -7463,8 +7463,10 @@ function missionModal(m, opts={}){
     </div>
     <div class="card" style="margin-top:10px">
       <h3 class="mt0" style="display:flex;justify-content:space-between;align-items:center"><span>Check-list ${pr.total? `<span class="small muted">${pr.done}/${pr.total}</span>`:""}</span>
-        ${!m.etapes.length? `<select id="mi-modele" class="small" style="max-width:230px"><option value="">Appliquer un modèle…</option>
-          ${missionModeles().map((mo,i)=>`<option value="${i}">${esc(mo.nom)} (${mo.items.length})</option>`).join("")}</select>`:""}</h3>
+        <span style="display:flex;gap:6px;align-items:center;flex-wrap:wrap">
+          <select id="mi-modele" class="small" style="max-width:230px"><option value="">${m.etapes.length? "Ajouter un modèle en liste…" : "Appliquer un modèle…"}</option>
+          ${missionModeles().map((mo,i)=>`<option value="${i}">${esc(mo.nom)} (${mo.items.length})</option>`).join("")}</select>
+          <button class="btn secondary small" id="mi-addliste" title="Crée une nouvelle check-list titrée sur la carte — comme les listes multiples de Trello">＋ Liste</button></span></h3>
       <div id="mi-etapes" style="max-height:min(46vh,440px);overflow-y:auto">
         ${(()=>{ /* v80 : sections = les check-lists Trello d'origine */
           const avecG = m.etapes.some(e=>String(e.g||"").trim());
@@ -7474,7 +7476,7 @@ function missionModal(m, opts={}){
             let head = "";
             if (avecG && g !== prev){
               const gr = m.etapes.filter(x=>String(x.g||"").trim()===g);
-              head = `<div class="mi-etgrp">${g? "📋 "+esc(g) : "Autres étapes"}<span class="mi-etgn">${gr.filter(x=>x.done).length}/${gr.length}</span></div>`;
+              head = `<div class="mi-etgrp">${g? "📋 "+esc(g) : "Autres étapes"}${g? ` <a href="#" class="mi-etren" data-g="${esc(g)}" title="Renommer cette liste (donner le nom d'une autre liste les fusionne)">✏️</a>`:""}<span class="mi-etgn">${gr.filter(x=>x.done).length}/${gr.length}</span></div>`;
             }
             prev = g;
             return head + `<label class="mi-et" draggable="true" data-ei="${i}" title="Glisser pour réordonner"><span class="et-grip">⠿</span><input type="checkbox" data-ei="${i}" ${e.done?"checked":""} style="width:auto;flex:none"><span class="${e.done?"mi-done":""}">${esc(e.t)}</span>${TACTILE? `<button class="etmv mi-etmv" data-ei="${i}" data-d="-1" title="Monter">▲</button><button class="etmv mi-etmv" data-ei="${i}" data-d="1" title="Descendre">▼</button>`:""}<button class="mi-etdel" data-ei="${i}" title="Retirer l'étape">✕</button></label>`;
@@ -7532,8 +7534,38 @@ function missionModal(m, opts={}){
     back.addEventListener("click", e=>{ if (e.target===back) back.remove(); }, {once:true});
     back.querySelector("#mi-modele")?.addEventListener("change", e=>{
       const mo = missionModeles()[+e.target.value];
-      if (mo){ readForm(); m.etapes = mo.items.map(t=>({t, done:false})); if (!m.titre) m.titre = mo.nom; renderModal(); }
+      if (!mo) return;
+      readForm();
+      if (!m.etapes.length){ m.etapes = mo.items.map(t=>({t, done:false})); if (!m.titre) m.titre = mo.nom; }
+      else {   /* v109 : le modèle s'ajoute comme nouvelle liste, sans écraser l'existant */
+        if (!m.etapes.some(x=>String(x.g||"").trim()) ) m.etapes.forEach(x=>{ if (!x.g) x.g = "Check-list"; });
+        m.etapes.push(...mo.items.map(t=>({t, done:false, g: mo.nom})));
+        toast(`Liste « ${mo.nom} » ajoutée (${mo.items.length} étapes)`);
+      }
+      renderModal();
     });
+    back.querySelector("#mi-addliste")?.addEventListener("click", ()=>{   /* v109 */
+      const titre = (prompt("Nom de la nouvelle liste :\n(ex : Formalités INPI, Volet fiscal, Pièces à réunir…)")||"").trim();
+      if (!titre) return;
+      readForm();
+      if (m.etapes.some(x=>String(x.g||"").trim().toLowerCase()===titre.toLowerCase())){ toast("Une liste porte déjà ce nom — les nouvelles étapes la rejoindront"); }
+      if (m.etapes.length && !m.etapes.some(x=>String(x.g||"").trim())) m.etapes.forEach(x=>{ if (!x.g) x.g = "Check-list"; });
+      m._nvListe = titre;   /* la prochaine étape saisie ouvrira la liste */
+      renderModal();
+      const el = back.querySelector("#mi-newet");
+      el.placeholder = `Première étape de « ${titre} »…`;
+      el.focus();
+      toast(`Liste « ${titre} » prête — saisis sa première étape`);
+    });
+    back.querySelectorAll(".mi-etren").forEach(a=>a.addEventListener("click", e=>{   /* v109 */
+      e.preventDefault();
+      const g = a.dataset.g;
+      const nv = (prompt(`Nouveau nom de la liste « ${g} » :`, g)||"").trim();
+      if (!nv || nv === g) return;
+      readForm();
+      m.etapes.forEach(x=>{ if (String(x.g||"").trim() === g) x.g = nv; });
+      renderModal();
+    }));
     back.querySelectorAll("#mi-etapes input[type=checkbox]").forEach(cb=>cb.addEventListener("change", ()=>{
       m.etapes[+cb.dataset.ei].done = cb.checked;
     }));
@@ -7574,7 +7606,10 @@ function missionModal(m, opts={}){
       const el = back.querySelector("#mi-newet"); const t = el.value.trim();
       if (!t) return; readForm();
       const der = m.etapes[m.etapes.length-1];   /* v80 : elle rejoint la dernière section */
-      m.etapes.push({t, done:false, ...(der?.g? {g:der.g} : {})}); renderModal();
+      const g = m._nvListe ?? (der?.g || "");   /* v109 : sauf si une nouvelle liste vient d'être créée */
+      m.etapes.push({t, done:false, ...(g? {g} : {})});
+      delete m._nvListe;   /* les suivantes suivront naturellement la dernière section */
+      renderModal();
     };
     const addCo = ()=>{   /* v97 */
       const el = back.querySelector("#mi-cocli"); const brut = el.value.trim();
