@@ -3563,7 +3563,7 @@ function pipeModal(p, etapeInit){
     const connu = state.pipeline.some(x=>normName(x.client)===keyCli) || state.clientsInfos.some(c=>c.client_key===keyCli);
     if (nomCli && !connu && !nomPrenomOk(nomCli)){ toast(MSG_NOM_PRENOM); return; }
     try{
-      const etaitSigne = (p.etape||"").toLowerCase() === "signé";
+      const etaitSigne = !isNew && (p.etape||"").toLowerCase() === "signé";   /* v109.1 : une CRÉATION directement en Validé doit déclencher report + « Et maintenant ? » */
       const nouvelleEtape = back.querySelector("#pm-etape").value;
       await state.db.savePipeline({
         id: p.id,
@@ -3573,7 +3573,7 @@ function pipeModal(p, etapeInit){
         etape: back.querySelector("#pm-etape").value,
         collecte_potentielle: +back.querySelector("#pm-coll").value||0,
         ca_potentiel: +back.querySelector("#pm-ca").value||0,
-        probabilite: +back.querySelector("#pm-proba").value||0,
+        probabilite: nouvelleEtape === "Signé"? 1 : (+back.querySelector("#pm-proba").value||0),   /* v109.1 : signé = 100 % */
         closing_prevu: back.querySelector("#pm-closing").value || null,
         priorite: back.querySelector("#pm-prio").value,
         prochaine_action: back.querySelector("#pm-action").value.trim(),
