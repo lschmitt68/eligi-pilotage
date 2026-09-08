@@ -6833,6 +6833,7 @@ function rdvNoteModal(clientKey){
       <input type="date" id="rdvn-date" title="Date du rendez-vous — le compte rendu sera enregistré à cette date dans la fiche" value="${(reprise && draft.date)? esc(draft.date) : new Date().toISOString().slice(0,10)}" style="width:auto">
       <button class="btn secondary small" id="rdvn-trame" title="Insère une trame de compte rendu : Contexte / Points abordés / Décisions / Actions à prévoir">📑 Trame</button>
       <button class="btn secondary small" id="rdvn-ia" title="L'IA transforme tes notes brutes en compte rendu client structuré — tu relis avant de remplacer">✨ Mettre en forme</button>
+      <button class="btn secondary small" id="rdvn-mic" title="Dictée vocale : parle, le texte s'écrit dans les notes (Chrome / Edge — sur iPhone et Mac, la dictée du clavier fonctionne aussi)">🎙 Dicter</button>
       <span class="rdvn-saved" id="rdvn-saved"></span>
     </div>
     <textarea id="rdvn-txt" placeholder="Prise de notes au fil de l'eau… (la dictée du Mac ou de l'iPhone fonctionne ici)">${reprise? esc(draft.txt||"") : ""}</textarea>
@@ -6900,6 +6901,51 @@ function rdvNoteModal(clientKey){
   inCli.addEventListener("input", ()=>{ cli = null; majListe(); });
   inCli.addEventListener("focus", majListe);
   inCli.addEventListener("blur", ()=>setTimeout(()=>{ list.style.display = "none"; }, 250));
+  { /* v110 : dictée vocale */
+    const micBtn = $$("#rdvn-mic");
+    const SR = window.SpeechRecognition || window.webkitSpeechRecognition;
+    let rec = null, dicteeOn = false;
+    const stopDictee = ()=>{
+      dicteeOn = false;
+      if (rec){ try{ rec.stop(); }catch(e){} rec = null; }
+      if (micBtn){ micBtn.textContent = "🎙 Dicter"; micBtn.style.background = ""; micBtn.style.color = ""; }
+    };
+    micBtn?.addEventListener("click", ()=>{
+      if (!SR){ toast("Dictée non disponible sur ce navigateur — utilise Chrome ou Edge (ou la dictée du clavier sur iPhone/Mac)"); return; }
+      if (dicteeOn){ stopDictee(); toast("Dictée arrêtée"); return; }
+      try{
+        rec = new SR();
+        rec.lang = "fr-FR"; rec.continuous = true; rec.interimResults = false;
+        rec.onresult = (ev)=>{
+          if (!document.body.contains(ta)){ stopDictee(); return; }   /* le modal a été fermé */
+          let ajout = "";
+          for (let i = ev.resultIndex; i < ev.results.length; i++)
+            if (ev.results[i].isFinal) ajout += ev.results[i][0].transcript;
+          ajout = ajout.trim();
+          if (!ajout) return;
+          const sep = ta.value && !/[\s\n]$/.test(ta.value)? " " : "";
+          ta.value += sep + ajout;
+          ta.scrollTop = ta.scrollHeight;
+          persistSoon();   /* le brouillon auto suit la dictée */
+        };
+        rec.onerror = (ev)=>{
+          if (ev.error === "not-allowed" || ev.error === "service-not-allowed"){
+            stopDictee(); toast("Micro refusé — autorise le micro pour le portail dans le navigateur");
+          }
+          /* no-speech / aborted : le redémarrage auto s'en charge */
+        };
+        rec.onend = ()=>{   /* Chrome coupe après un silence : on relance tant que la dictée est active */
+          if (dicteeOn && rec && document.body.contains(ta)){ try{ rec.start(); }catch(e){} }
+          else stopDictee();
+        };
+        rec.start();
+        dicteeOn = true;
+        micBtn.textContent = "⏹ Dictée en cours…";
+        micBtn.style.background = "var(--bad, #c0392b)"; micBtn.style.color = "#fff";
+        toast("🎙 Parle — le texte s'écrit dans les notes. Re-cliquer pour arrêter.");
+      }catch(err){ stopDictee(); toast("Dictée impossible : " + (err.message||err)); }
+    });
+  }
   $$("#rdvn-ia")?.addEventListener("click", async ()=>{   /* v107 */
     const btn = $$("#rdvn-ia");
     const texte = $$("#rdvn-txt").value.trim();
