@@ -1817,6 +1817,23 @@ async function iaReformulerCR(texte, client, dateIso){ /* v107 : notes brutes �
   if (!j.text) throw new Error("réponse vide");
   return iaNettoie(j.text);
 }
+async function transcrireAudio(blob){ /* v111 : audio du RDV → texte (fonction serveur « transcribe ») */
+  if (CFG.DEMO){ await new Promise(r=>setTimeout(r, 400));
+    return "(Transcription simulée du rendez-vous — en production, tout l'échange apparaîtrait ici, prêt pour « ✨ Mettre en forme ».)"; }
+  if (blob.size > 24*1024*1024) throw new Error("enregistrement trop volumineux (~3 h max) — coupe en deux la prochaine fois");
+  const sess = (await state.db.c.auth.getSession())?.data?.session;
+  if (!sess) throw new Error("session expirée — reconnecte-toi");
+  const r = await fetch(CFG.SUPABASE_URL + "/functions/v1/transcribe", {
+    method: "POST",
+    headers: {"Content-Type": blob.type || "audio/webm", "Authorization": "Bearer " + sess.access_token, "apikey": CFG.SUPABASE_ANON_KEY},
+    body: blob,
+  });
+  if (r.status === 404) throw new Error("la fonction de transcription n'est pas encore activée sur Supabase");
+  const j = await r.json().catch(()=>({}));
+  if (!r.ok) throw new Error(j.error || ("erreur transcription (" + r.status + ")"));
+  if (!j.text) throw new Error("transcription vide");
+  return j.text;
+}
 function monNom(){
   /* nom de la personne connectée : nom d'affichage choisi, sinon conseiller lié, sinon dérivé de l'e-mail */
   const na = String(state.profile?.nom_affichage||"").trim();
@@ -6834,6 +6851,7 @@ function rdvNoteModal(clientKey){
       <button class="btn secondary small" id="rdvn-trame" title="Insère une trame de compte rendu : Contexte / Points abordés / Décisions / Actions à prévoir">📑 Trame</button>
       <button class="btn secondary small" id="rdvn-ia" title="L'IA transforme tes notes brutes en compte rendu client structuré — tu relis avant de remplacer">✨ Mettre en forme</button>
       <button class="btn secondary small" id="rdvn-mic" title="Dictée vocale : parle, le texte s'écrit dans les notes (Chrome / Edge — sur iPhone et Mac, la dictée du clavier fonctionne aussi)">🎙 Dicter</button>
+      <button class="btn secondary small" id="rdvn-rec" title="Enregistre tout le rendez-vous puis le transcrit en texte dans les notes. ACCORD DU CLIENT OBLIGATOIRE avant d'enregistrer. L'audio est détruit après transcription.">⏺ Enregistrer le RDV</button>
       <span class="rdvn-saved" id="rdvn-saved"></span>
     </div>
     <textarea id="rdvn-txt" placeholder="Prise de notes au fil de l'eau… (la dictée du Mac ou de l'iPhone fonctionne ici)">${reprise? esc(draft.txt||"") : ""}</textarea>
@@ -6944,6 +6962,76 @@ function rdvNoteModal(clientKey){
         micBtn.style.background = "var(--bad, #c0392b)"; micBtn.style.color = "#fff";
         toast("🎙 Parle — le texte s'écrit dans les notes. Re-cliquer pour arrêter.");
       }catch(err){ stopDictee(); toast("Dictée impossible : " + (err.message||err)); }
+    });
+  }
+  { /* v111 : enregistrement du rendez-vous + transcription */
+    const recBtn = $$("#rdvn-rec");
+    let mr = null, chunks = [], flux = null, tick = null, t0 = 0, demoRec = false;
+    const CONSENT = "Enregistrement du rendez-vous\n\nAvez-vous informé le client que l'échange est enregistré pour établir le compte rendu, et recueilli son accord ?\n\n(Enregistrer sans accord est pénalement sanctionné.)\nL'audio est transcrit puis immédiatement détruit — seul le texte reste dans les notes.";
+    const recReset = ()=>{
+      if (tick){ clearInterval(tick); tick = null; }
+      if (flux){ flux.getTracks().forEach(t=>t.stop()); flux = null; }
+      chunks = []; mr = null; demoRec = false;
+      if (recBtn){ recBtn.disabled = false; recBtn.textContent = "⏺ Enregistrer le RDV"; recBtn.style.background = ""; recBtn.style.color = ""; }
+    };
+    const recAffiche = ()=>{
+      if (!document.body.contains(recBtn)){ if (mr && mr.state === "recording"){ try{ mr.stop(); }catch(e){} } recReset(); return; }
+      const s = Math.floor((Date.now()-t0)/1000);
+      recBtn.textContent = "⏹ " + String(Math.floor(s/60)).padStart(2,"0") + ":" + String(s%60).padStart(2,"0") + " — arrêter";
+    };
+    const recDemarre = ()=>{
+      t0 = Date.now();
+      recBtn.style.background = "var(--bad, #c0392b)"; recBtn.style.color = "#fff";
+      recBtn.textContent = "⏹ 00:00 — arrêter";
+      tick = setInterval(recAffiche, 1000);
+      toast("⏺ Enregistrement en cours — re-cliquer pour arrêter et transcrire");
+    };
+    const recTexte = (texte)=>{
+      const sep = ta.value.trim()? "\n\n" : "";
+      ta.value += sep + "— Transcription du rendez-vous —\n" + texte;
+      ta.dispatchEvent(new Event("input", {bubbles:true}));
+      ta.scrollTop = ta.scrollHeight;
+      toast("Transcription terminée ✓ — « ✨ Mettre en forme » pour en faire le compte rendu");
+    };
+    recBtn?.addEventListener("click", async ()=>{
+      if (recBtn.disabled) return;
+      /* --- arrêt --- */
+      if (demoRec){
+        recBtn.disabled = true; recBtn.textContent = "⏳ Transcription…"; recBtn.style.background = ""; recBtn.style.color = "";
+        try{ recTexte(await transcrireAudio(new Blob(["demo"], {type:"audio/webm"}))); }catch(err){ toast("Transcription : " + (err.message||err)); }
+        recReset(); return;
+      }
+      if (mr && mr.state === "recording"){
+        if (tick){ clearInterval(tick); tick = null; }
+        recBtn.disabled = true; recBtn.textContent = "⏳ Transcription…"; recBtn.style.background = ""; recBtn.style.color = "";
+        try{ mr.stop(); }catch(e){ recReset(); }
+        return;
+      }
+      /* --- démarrage : consentement d'abord --- */
+      if (!confirm(CONSENT)) return;
+      if (CFG.DEMO){ demoRec = true; recDemarre(); return; }
+      try{ flux = await navigator.mediaDevices.getUserMedia({audio: true}); }
+      catch(e){ toast("Micro refusé — autorise le micro pour le portail dans le navigateur"); return; }
+      chunks = [];
+      const mime = (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus"))? "audio/webm;codecs=opus" : "";
+      try{ mr = new MediaRecorder(flux, {...(mime? {mimeType:mime} : {}), audioBitsPerSecond: 32000}); }
+      catch(e){ recReset(); toast("Enregistrement non supporté par ce navigateur"); return; }
+      mr.ondataavailable = ev=>{
+        if (ev.data && ev.data.size) chunks.push(ev.data);
+        if (!document.body.contains(ta)){ try{ mr.stop(); }catch(e){} recReset(); }   /* modal fermé : on coupe le micro, rien n'est gardé */
+      };
+      mr.onstop = async ()=>{
+        if (flux){ flux.getTracks().forEach(t=>t.stop()); flux = null; }
+        const blob = new Blob(chunks, {type: mime || "audio/webm"});
+        chunks = [];   /* l'audio ne vit que le temps de l'envoi */
+        if (!document.body.contains(ta)){ recReset(); return; }
+        if (blob.size < 4000){ toast("Enregistrement trop court"); recReset(); return; }
+        try{ recTexte(await transcrireAudio(blob)); }
+        catch(err){ toast("Transcription : " + (err.message||err)); }
+        recReset();
+      };
+      mr.start(1000);
+      recDemarre();
     });
   }
   $$("#rdvn-ia")?.addEventListener("click", async ()=>{   /* v107 */
