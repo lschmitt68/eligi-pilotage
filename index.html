@@ -6908,6 +6908,32 @@ function rdvNoteModal(clientKey){
   const persistSoon = ()=>{ clearTimeout(t); t = setTimeout(persist, 800); };
   ta.addEventListener("input", persistSoon);
   $$("#rdvn-date").addEventListener("change", persistSoon);   /* v95 */
+  { /* v111.5 : une transcription en réserve, absente des notes → on propose de l'insérer */
+    let sec = null;
+    try{ sec = JSON.parse(localStorage.getItem("eligi_trx_secours") || "null"); }catch(e){}
+    if (sec && sec.t && !ta.value.includes(String(sec.t).slice(0, 60))){
+      const pSec = document.createElement("p");
+      pSec.className = "small";
+      pSec.style.cssText = "margin:0 0 8px;color:var(--s1)";
+      pSec.innerHTML = `🎙 Une transcription de RDV (${new Date(sec.q).toLocaleString("fr-FR",{day:"numeric",month:"short",hour:"2-digit",minute:"2-digit"})}) est en réserve et n'apparaît pas dans ces notes. <a href="#" id="rdvn-trx-ins">L'insérer</a> · <a href="#" id="rdvn-trx-del" style="color:var(--bad)">L'oublier</a>`;
+      ta.parentElement.insertBefore(pSec, ta);
+      pSec.querySelector("#rdvn-trx-ins").addEventListener("click", e=>{
+        e.preventDefault();
+        const sep = ta.value.trim()? "\n\n" : "";
+        ta.value += sep + "— Transcription du rendez-vous —\n" + sec.t;
+        ta.dispatchEvent(new Event("input", {bubbles:true}));
+        persist();
+        pSec.remove();
+        toast("Transcription insérée dans les notes ✓");
+      });
+      pSec.querySelector("#rdvn-trx-del").addEventListener("click", e=>{
+        e.preventDefault();
+        if (!confirm("Oublier définitivement cette transcription en réserve ?")) return;
+        try{ localStorage.removeItem("eligi_trx_secours"); }catch(err){}
+        pSec.remove();
+      });
+    }
+  }
   $$("#rdvn-pdf").addEventListener("click", ()=>crApercuPdf(cli?.nom || inCli.value.trim() || "Client", $$("#rdvn-date").value, ta.value));
   /* ---- recherche client ---- */
   const cliCandidats = q => {
@@ -7028,6 +7054,7 @@ function rdvNoteModal(clientKey){
       const sep = ta.value.trim()? "\n\n" : "";
       ta.value += sep + "— Transcription du rendez-vous —\n" + texte;
       ta.dispatchEvent(new Event("input", {bubbles:true}));
+      persist();   /* v111.5 : brouillon enregistré IMMÉDIATEMENT — la minuterie de 0,8 s pouvait être tuée par une boîte de dialogue */
       ta.scrollTop = ta.scrollHeight;
       if (document.body.contains(ta)) toast("Transcription terminée ✓ — « ✨ Mettre en forme » pour en faire le compte rendu");
     };
@@ -7085,7 +7112,11 @@ function rdvNoteModal(clientKey){
           try{ texte += (texte? "\n\n" : "") + await transcrireAudio(lot[i]); fait++; }
           catch(e){ err0 = e; break; }
         }
-        if (texte) recTexte(texte + (err0? "\n\n[⚠ Transcription interrompue — la fin du rendez-vous n'a pas pu être transcrite.]" : ""));
+        if (texte){
+          const tf = texte + (err0? "\n\n[⚠ Transcription interrompue — la fin du rendez-vous n'a pas pu être transcrite.]" : "");
+          if (!CFG.DEMO){ try{ localStorage.setItem("eligi_trx_secours", JSON.stringify({q: new Date().toISOString(), t: tf})); }catch(e){} }   /* v111.5 : copie en réserve, au cas où le brouillon serait perdu */
+          recTexte(tf);
+        }
         if (!enPage && texte) toast("Transcription terminée ✓ — rangée dans le brouillon de la note de RDV");
         if (err0){
           /* erreur BLOQUANTE + filet de sécurité : la partie non transcrite peut être téléchargée au lieu d'être perdue */
@@ -7242,6 +7273,8 @@ function rdvNoteModal(clientKey){
       await state.db.addInteraction({client_key:cli.key, conseiller_id:state.profile.conseiller_id||null,
         type:"RDV", note:"🤝 Compte rendu de RDV\n"+txt+(faits.length? "\n\n⚡ Actions créées :\n"+faits.map(f=>"• "+f).join("\n"):""), ...(quand? {quand}:{})});
       rdvnDraftSave(null);
+      try{ const sec = JSON.parse(localStorage.getItem("eligi_trx_secours") || "null");   /* v111.5 */
+        if (sec && sec.t && txt.includes(String(sec.t).slice(0, 60))) localStorage.removeItem("eligi_trx_secours"); }catch(e){}
       close();
       await state.db.loadAll();
       const nAff = acts.filter(a=>a.t==="aff").length, nMi = acts.filter(a=>a.t==="mi").length,
