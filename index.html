@@ -6982,18 +6982,26 @@ function rdvNoteModal(clientKey){
   { /* v111 : enregistrement du rendez-vous + transcription */
     const recBtn = $$("#rdvn-rec");
     let mr = null, chunks = [], flux = null, tick = null, t0 = 0, demoRec = false, recVeille = false;
+    let segs = [], segT0 = 0, finVoulu = false;   /* v111.3 : segments de 30 min */
+    const SEG_MS = 30 * 60 * 1000;
     const CONSENT = "Enregistrement du rendez-vous\n\nAvez-vous informé le client que l'échange est enregistré pour établir le compte rendu, et recueilli son accord ?\n\n(Enregistrer sans accord est pénalement sanctionné.)\nL'audio est transcrit puis immédiatement détruit — seul le texte reste dans les notes.";
     const recReset = ()=>{
       if (recVeille){ veilleLibere(); recVeille = false; }   /* v111.1 */
       if (tick){ clearInterval(tick); tick = null; }
       if (flux){ flux.getTracks().forEach(t=>t.stop()); flux = null; }
-      chunks = []; mr = null; demoRec = false;
+      chunks = []; segs = []; mr = null; demoRec = false; finVoulu = false; segT0 = 0;
       if (recBtn){ recBtn.disabled = false; recBtn.textContent = "⏺ Enregistrer le RDV"; recBtn.style.background = ""; recBtn.style.color = ""; }
     };
     const recAffiche = ()=>{
-      if (!document.body.contains(recBtn)){ if (mr && mr.state === "recording"){ try{ mr.stop(); }catch(e){} } recReset(); return; }
+      if (!document.body.contains(recBtn)){   /* v111.3 : la note a été fermée — on arrête, l'audio sera transcrit dans le brouillon */
+        if (tick){ clearInterval(tick); tick = null; }
+        if (mr && mr.state === "recording"){ finVoulu = true; try{ mr.stop(); }catch(e){ recReset(); } }
+        return;
+      }
       const s = Math.floor((Date.now()-t0)/1000);
       recBtn.textContent = "⏹ " + String(Math.floor(s/60)).padStart(2,"0") + ":" + String(s%60).padStart(2,"0") + " — arrêter";
+      /* v111.3 : toutes les 30 min, l'enregistreur redémarre sur un nouveau segment (aucune limite de durée) */
+      if (mr && mr.state === "recording" && segT0 && Date.now() - segT0 > SEG_MS){ try{ mr.stop(); }catch(e){} }
     };
     const recDemarre = ()=>{
       if (!recVeille){ veilleBloque(); recVeille = true; }   /* v111.1 : pas de mise en veille pendant le RDV */
@@ -7021,6 +7029,7 @@ function rdvNoteModal(clientKey){
       if (mr && mr.state === "recording"){
         if (tick){ clearInterval(tick); tick = null; }
         recBtn.disabled = true; recBtn.textContent = "⏳ Transcription…"; recBtn.style.background = ""; recBtn.style.color = "";
+        finVoulu = true;   /* v111.3 : vraie fin (pas une rotation de segment) */
         try{ mr.stop(); }catch(e){ recReset(); }
         return;
       }
@@ -7029,39 +7038,59 @@ function rdvNoteModal(clientKey){
       if (CFG.DEMO){ demoRec = true; recDemarre(); return; }
       try{ flux = await navigator.mediaDevices.getUserMedia({audio: true}); }
       catch(e){ toast("Micro refusé — autorise le micro pour le portail dans le navigateur"); return; }
-      chunks = [];
+      chunks = []; segs = []; finVoulu = false;
       const mime = (window.MediaRecorder && MediaRecorder.isTypeSupported("audio/webm;codecs=opus"))? "audio/webm;codecs=opus" : "";
-      try{ mr = new MediaRecorder(flux, {...(mime? {mimeType:mime} : {}), audioBitsPerSecond: 32000}); }
-      catch(e){ recReset(); toast("Enregistrement non supporté par ce navigateur"); return; }
-      mr.ondataavailable = ev=>{
-        if (ev.data && ev.data.size) chunks.push(ev.data);
-        if (mr && mr.state === "recording" && !document.body.contains(ta)){ try{ mr.stop(); }catch(e){} }   /* v111.2 : modal fermé → on arrête et on transcrit quand même (le texte ira dans le brouillon) */
+      const telecharge = (b, num)=>{   /* v111.3 : filet de sécurité — télécharger un segment non transcrit */
+        const u = URL.createObjectURL(b);
+        const a = document.createElement("a");
+        a.href = u; a.download = "rdv-" + new Date().toISOString().slice(0,10) + (num? "-partie" + num : "") + (String(b.type).includes("mp4")? ".m4a" : ".webm");
+        document.body.appendChild(a); a.click(); a.remove();
+        setTimeout(()=>URL.revokeObjectURL(u), 60000);
       };
-      mr.onstop = async ()=>{
+      const finSegment = async ()=>{
+        const realType = ((mr && mr.mimeType) || mime || "audio/webm").split(";")[0];   /* Safari enregistre en audio/mp4 — on envoie le vrai type */
+        if (chunks.length){ segs.push(new Blob(chunks, {type: realType})); }
+        chunks = [];
+        /* rotation : le RDV continue sur un nouveau segment indépendant */
+        if (!finVoulu && flux && flux.getTracks().some(t=>t.readyState === "live")){
+          try{
+            mr = new MediaRecorder(flux, {...(mime? {mimeType:mime} : {}), audioBitsPerSecond: 32000});
+            mr.ondataavailable = surDonnees; mr.onstop = finSegment;
+            segT0 = Date.now(); mr.start(1000);
+            return;
+          }catch(e){ /* relance impossible : on transcrit ce qu'on a */ }
+        }
+        /* vraie fin */
         if (flux){ flux.getTracks().forEach(t=>t.stop()); flux = null; }
-        const realType = ((mr && mr.mimeType) || mime || "audio/webm").split(";")[0];   /* v111.2 : Safari enregistre en audio/mp4 — on envoie le vrai type */
-        const blob = new Blob(chunks, {type: realType});
-        chunks = [];   /* l'audio ne vit que le temps de l'envoi */
         const enPage = document.body.contains(ta);
-        if (blob.size < 4000){ if (enPage) toast("Enregistrement trop court"); recReset(); return; }
+        const lot = segs.filter(b=>b.size >= 4000); segs = [];   /* l'audio ne vit que le temps de l'envoi */
+        if (!lot.length){ if (enPage) toast("Enregistrement trop court"); recReset(); return; }
         if (enPage) toast("⏳ Transcription en cours — de quelques secondes à quelques minutes selon la durée du rendez-vous…");
-        try{
-          const texte = await transcrireAudio(blob);
-          recTexte(texte);
-          if (!enPage) toast("Transcription terminée ✓ — rangée dans le brouillon de la note de RDV");
-        }catch(err){
-          /* v111.2 : erreur BLOQUANTE + filet de sécurité : l'audio peut être téléchargé au lieu d'être perdu */
-          const garder = confirm("La transcription a échoué :\n" + (err.message||err) + "\n\nTélécharger l'audio du rendez-vous pour ne pas le perdre ?\n(OK = télécharger — Annuler = l'audio est détruit.)");
-          if (garder){
-            const u = URL.createObjectURL(blob);
-            const a = document.createElement("a");
-            a.href = u; a.download = "rdv-" + new Date().toISOString().slice(0,10) + (realType.includes("mp4")? ".m4a" : ".webm");
-            document.body.appendChild(a); a.click(); a.remove();
-            setTimeout(()=>URL.revokeObjectURL(u), 60000);
-          }
+        let texte = "", fait = 0, err0 = null;
+        for (let i = 0; i < lot.length; i++){
+          if (recBtn && document.body.contains(recBtn)){ recBtn.textContent = "⏳ Transcription…" + (lot.length > 1? " " + (i+1) + "/" + lot.length : ""); }
+          try{ texte += (texte? "\n\n" : "") + await transcrireAudio(lot[i]); fait++; }
+          catch(e){ err0 = e; break; }
+        }
+        if (texte) recTexte(texte + (err0? "\n\n[⚠ Transcription interrompue — la fin du rendez-vous n'a pas pu être transcrite.]" : ""));
+        if (!enPage && texte) toast("Transcription terminée ✓ — rangée dans le brouillon de la note de RDV");
+        if (err0){
+          /* erreur BLOQUANTE + filet de sécurité : la partie non transcrite peut être téléchargée au lieu d'être perdue */
+          const restant = lot.slice(fait);
+          const garder = confirm("La transcription a échoué" + (fait? " en cours de route" : "") + " :\n" + (err0.message||err0) + "\n\n" + (fait? "Le début du rendez-vous est déjà transcrit dans les notes.\n" : "") + "Télécharger la partie non transcrite (" + restant.length + " fichier" + (restant.length > 1? "s" : "") + ") pour ne pas la perdre ?\n(OK = télécharger — Annuler = l'audio est détruit.)");
+          if (garder) restant.forEach((b,k)=>telecharge(b, lot.length > 1? fait + k + 1 : 0));
         }
         recReset();
       };
+      const surDonnees = ev=>{
+        if (ev.data && ev.data.size) chunks.push(ev.data);
+        if (mr && mr.state === "recording" && !document.body.contains(ta)){ finVoulu = true; try{ mr.stop(); }catch(e){} }   /* modal fermé → on arrête et on transcrit quand même (le texte ira dans le brouillon) */
+      };
+      try{ mr = new MediaRecorder(flux, {...(mime? {mimeType:mime} : {}), audioBitsPerSecond: 32000}); }
+      catch(e){ recReset(); toast("Enregistrement non supporté par ce navigateur"); return; }
+      mr.ondataavailable = surDonnees;
+      mr.onstop = finSegment;
+      segT0 = Date.now();
       mr.start(1000);
       recDemarre();
     });
