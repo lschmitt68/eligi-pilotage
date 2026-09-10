@@ -1685,11 +1685,16 @@ function lineChart(el, {labels, series, height=260}){
 
 /* Barres horizontales pour le mix produits (identité => couleurs catégorielles fixes) */
 function mixBars(el, items){
-  const max = Math.max(1, ...items.map(i=>i.value));
-  el.innerHTML = `<div class="mix">` + items.map((it,i)=>`
+  const max = Math.max(1, ...items.filter(i=>!i.sansBarre).map(i=>i.value));   /* v112.1 : l'échelle ignore les lignes sans barre */
+  el.innerHTML = `<div class="mix">` + items.map((it,i)=>it.sansBarre? `
+    <div class="mrow" style="border-top:1px solid var(--grid);padding-top:7px;margin-top:5px">
+      <span class="mlabel">${esc(it.label)}</span>
+      <span class="mtrack" style="background:none"></span>
+      <span class="mval"><b>${eur(it.value)}</b></span>
+    </div>` : `
     <div class="mrow">
       <span class="mlabel"><span class="sw" style="display:inline-block;width:9px;height:9px;border-radius:2px;background:${MIX_COLORS[i%MIX_COLORS.length]};margin-right:7px"></span>${esc(it.label)}</span>
-      <span class="mtrack"><span class="mfill" style="width:${Math.max(it.value>0?1.5:0, it.value/max*100)}%;background:${MIX_COLORS[i%MIX_COLORS.length]}"></span></span>
+      <span class="mtrack"><span class="mfill" style="width:${Math.max(it.value>0?1.5:0, Math.min(100, it.value/max*100))}%;background:${MIX_COLORS[i%MIX_COLORS.length]}"></span></span>
       <span class="mval">${eur(it.value)}</span>
     </div>`).join("") + `</div>`;
 }
@@ -2221,7 +2226,7 @@ function viewDashboard(root){
     {label:"CA structurés", value:sum("ca_structures")},
     {label:"CA audit / hono.", value:sum("ca_audit")},
     {label:"CA autres", value:sum("ca_autres")},
-    {label:"Collecte totale", value:collEq},
+    {label:"Collecte totale", value:collEq, sansBarre:true},   /* v112.1 : montant seul — pas comparable au CA */
   ];
 
   root.innerHTML = `
