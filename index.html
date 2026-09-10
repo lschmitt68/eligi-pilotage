@@ -272,8 +272,10 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
 .modal-actions{display:flex; justify-content:flex-end; gap:10px; margin-top:6px}
 
 /* ============ Mode réunion ============ */
-.meeting{position:fixed; inset:0; z-index:70; background:var(--page); overflow:auto; padding:34px 48px 90px}
-.meeting-top{display:flex; align-items:center; gap:14px; margin-bottom:22px}
+.meeting{position:fixed; inset:0; z-index:70; background:var(--page); overflow:auto; padding:28px 0 84px}
+.meeting-top{display:flex; align-items:center; gap:14px; margin-bottom:18px; max-width:1280px; margin-left:auto; margin-right:auto; padding:0 44px; box-sizing:border-box}
+.meeting .mt-body{max-width:1280px; margin:0 auto; padding:0 44px; box-sizing:border-box}   /* v112 : largeur de diapo, quel que soit l'écran */
+.meeting .mt-body #mt-chart svg{max-width:880px; display:block}   /* v112 : le graphique ne grossit plus avec l'écran */
 .meeting-top .mt-week{font-size:14px; color:var(--muted); font-weight:600}
 .meeting h1{font-size:26px}
 .meeting-nav{position:fixed; bottom:22px; left:50%; transform:translateX(-50%); display:flex; gap:8px; align-items:center;
@@ -526,7 +528,8 @@ input:focus,select:focus,textarea:focus{border-color:var(--s1); box-shadow:0 0 0
   .user-mini{border:0; padding:0} .user-mini span{display:none}
   .main{padding:14px 14px 60px}
   .form-grid{grid-template-columns:1fr}
-  .meeting{padding:20px 16px 90px}
+  .meeting{padding:16px 0 90px}
+  .meeting-top, .meeting .mt-body{padding:0 16px}
   .tiles{grid-template-columns:repeat(auto-fit, minmax(140px, 1fr)) !important; gap:8px}
   .kanban{grid-auto-columns:minmax(190px, 78vw)}
   .modal{padding:16px 14px}
@@ -2681,7 +2684,7 @@ function meetingMode(){
         <span class="mt-week">Réunion hebdo — ${esc(state.week)}</span>
         <button class="btn secondary meeting-close" id="mt-close">${ICONS.close} Quitter</button>
       </div>
-      ${inner}
+      <div class="mt-body">${inner}</div>
       <div class="meeting-nav">
         <button class="wk-btn" id="mt-prev" ${slide===0?"disabled":""}>${ICONS.left}</button>
         <span class="mn-pos">${slide+1} / ${total}</span>
