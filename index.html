@@ -4885,7 +4885,7 @@ function viewClients(root){
                 <button class="btn secondary small ci-det-add" data-key="${esc(g.key)}" title="Ajouter cette détention à la fiche">＋</button>`:""}</div>`; })()}
             ${(()=>{ const rows = [...g.rows].sort((a,b)=>pondere(b)-pondere(a));
               return `<div class="tl-subhead" style="display:flex;justify-content:space-between;align-items:center">🧭 Affaires (${rows.length})
-                <button class="btn secondary small cli-op-add" data-nom="${esc(g.name)}">＋ Affaire</button></div>` +
+                <button class="btn secondary small cli-op-add" data-key="${esc(g.key)}" data-nom="${esc(g.name)}">＋ Affaire</button></div>` +
               (rows.length? `<div class="tbl-scroll" style="margin-bottom:2px"><table class="tbl dense"><tbody>${rows.slice(0,4).map(p=>`
                 <tr class="clickable cli-op" data-id="${p.id}">
                   <td><span class="cdot" style="background:${consColor(p.conseiller_id)}" title="${esc(consName(p.conseiller_id))}"></span>${esc(p.support)}</td>
@@ -5117,9 +5117,12 @@ function viewClients(root){
   }));
   root.querySelectorAll(".cli-op-add").forEach(b=>b.addEventListener("click", e=>{
     e.stopPropagation();
-    pipeModal(null);
-    const el = document.querySelector("#pm-client");
-    if (el){ el.value = b.dataset.nom; el.dispatchEvent(new Event("input")); }
+    /* v112.2 : le conseiller du client est repris automatiquement */
+    const mgr = isManager(), meId = state.profile.conseiller_id;
+    const ci = state.clientsInfos.find(c=>c.client_key===b.dataset.key);
+    pipeModal({conseiller_id: (!mgr && meId)? meId : ((ci?.conseiller_id) || clientConseillers(b.dataset.key)[0] || state.profile.conseiller_id || activeConseillers()[0]?.id),
+      client: b.dataset.nom, support:"SCPI", etape:"Prise de contact", collecte_potentielle:0, ca_potentiel:0,
+      probabilite:0.5, closing_prevu:null, priorite:"Moyenne", prochaine_action:"", signature_probable:false, journal:[], description:""});
   }));
   root.querySelectorAll(".ci-rdvnote").forEach(b=>b.addEventListener("click", e=>{   /* v83 */
     e.stopPropagation(); rdvNoteModal(b.dataset.key);
@@ -7672,7 +7675,7 @@ function missionModal(m, opts={}){
   const isNew = !m;
   m = m? {...m, etapes:(m.etapes||[]).map(e=>({...e})), journal:(m.journal||[]).map(j=>({...j}))}
        : {client_key:opts.clientKey||"", titre:"", type:MI_TYPES[0], statut:miStatuts()[0],
-          conseiller_id: voitTout()? (activeConseillers()[0]?.id||null) : state.profile.conseiller_id,
+          conseiller_id: voitTout()? ((opts.clientKey? clientConseillers(opts.clientKey)[0] : null) || activeConseillers()[0]?.id || null) : state.profile.conseiller_id,   /* v112.2 : conseiller du client repris */
           description:"", hono_devis:0, hono_facture:0, hono_encaisse:0,
           echeance:null, echeance_note:"", etapes:[], journal:[]};
   if (opts.forceStatut) m.statut = opts.forceStatut;
@@ -8177,7 +8180,7 @@ function boResoudreClient(txt){
 function boModal(o, statutInitial, clientKey){
   const creation = !o;
   o = o? {...o, etapes:(o.etapes||[]).map(e=>({...e})), journal:(o.journal||[]).map(j=>({...j}))}
-       : {titre:"", statut:statutInitial||"À faire", client_key:clientKey||"", assureur:"", responsable:monNom(), conseiller_id:null,
+       : {titre:"", statut:statutInitial||"À faire", client_key:clientKey||"", assureur:"", responsable:monNom(), conseiller_id: clientKey? (clientConseillers(clientKey)[0] || null) : null,   /* v112.2 */
           description:"", etapes:[], journal:[], echeance:null, trello_id:""};
   const back = document.createElement("div");
   back.className = "modal-back";
